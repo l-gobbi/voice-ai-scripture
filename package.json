@@ -1,0 +1,14 @@
+{
+  "name": "business-ideas",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Business ideas research, specs, and prototyping workspace configured with Matt Pocock's skills",
+  "scripts": {
+    "skills:list": "npx skills list",
+    "skills:update": "npx skills update",
+    "skills:add": "npx skills add"
+  },
+  "devDependencies": {
+    "skills": "^1.5.26"
+  }
+}
