@@ -1,0 +1,154 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { DEFAULT_SRS_STATE, SRSResult, SRSState, calculateNextReview, isVerseDue } from '../engines/srsEngine';
+
+export interface Verse {
+  id: string;
+  reference: string;
+  text: string;
+  srs?: SRSState & {
+    nextReviewDate?: string;
+  };
+}
+
+export interface VerseSummary {
+  allVerses: Verse[];
+  dueVerses: Verse[];
+  dueCount: number;
+}
+
+export interface StorageAdapter {
+  getItem(key: string): Promise<string | null>;
+  setItem(key: string, value: string): Promise<void>;
+}
+
+export class MapStorageAdapter implements StorageAdapter {
+  private data = new Map<string, string>();
+
+  async getItem(key: string): Promise<string | null> {
+    return this.data.get(key) ?? null;
+  }
+
+  async setItem(key: string, value: string): Promise<void> {
+    this.data.set(key, value);
+  }
+}
+
+export class AsyncStorageAdapter implements StorageAdapter {
+  async getItem(key: string): Promise<string | null> {
+    return AsyncStorage.getItem(key);
+  }
+
+  async setItem(key: string, value: string): Promise<void> {
+    await AsyncStorage.setItem(key, value);
+  }
+}
+
+const STORAGE_KEY = 'verses';
+
+const createInitialSRS = () => ({
+  ...DEFAULT_SRS_STATE,
+  nextReviewDate: new Date().toISOString(),
+});
+
+export class VerseEngine {
+  private storage: StorageAdapter;
+
+  constructor(storage?: StorageAdapter) {
+    this.storage = storage ?? new AsyncStorageAdapter();
+  }
+
+  async getAllVerses(): Promise<Verse[]> {
+    try {
+      const data = await this.storage.getItem(STORAGE_KEY);
+      return data ? JSON.parse(data) : [];
+    } catch (error) {
+      console.error('Failed to parse verses from storage', error);
+      return [];
+    }
+  }
+
+  async getVersesSummary(now = new Date()): Promise<VerseSummary> {
+    const allVerses = await this.getAllVerses();
+    const dueVerses: Verse[] = [];
+    for (const v of allVerses) {
+      if (isVerseDue(v.srs?.nextReviewDate, now)) {
+        dueVerses.push(v);
+      }
+    }
+    return {
+      allVerses,
+      dueVerses,
+      dueCount: dueVerses.length,
+    };
+  }
+
+  async addVerse(verseData: Omit<Verse, 'id' | 'srs'>): Promise<Verse> {
+    const verses = await this.getAllVerses();
+    const newVerse: Verse = {
+      ...verseData,
+      id: `${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      srs: createInitialSRS(),
+    };
+    verses.push(newVerse);
+    await this.storage.setItem(STORAGE_KEY, JSON.stringify(verses));
+    return newVerse;
+  }
+
+  async importVerses(versesToImport: Array<Omit<Verse, 'id' | 'srs'>>): Promise<number> {
+    const existing = await this.getAllVerses();
+    const existingRefs = new Set(existing.map((v) => v.reference.trim().toLowerCase()));
+
+    const newVerses: Verse[] = [];
+
+    for (const v of versesToImport) {
+      const normalized = v.reference.trim().toLowerCase();
+      if (!existingRefs.has(normalized)) {
+        newVerses.push({
+          ...v,
+          id: `${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+          srs: createInitialSRS(),
+        });
+        existingRefs.add(normalized);
+      }
+    }
+
+    if (newVerses.length > 0) {
+      const combined = [...existing, ...newVerses];
+      await this.storage.setItem(STORAGE_KEY, JSON.stringify(combined));
+    }
+
+    return newVerses.length;
+  }
+
+  async deleteVerse(verseId: string): Promise<void> {
+    const verses = await this.getAllVerses();
+    const filtered = verses.filter((v) => v.id !== verseId);
+    await this.storage.setItem(STORAGE_KEY, JSON.stringify(filtered));
+  }
+
+  async recordReview(verseId: string, score: number, now = new Date()): Promise<SRSResult> {
+    const verses = await this.getAllVerses();
+    const index = verses.findIndex((v) => v.id === verseId);
+    if (index === -1) {
+      throw new Error(`Verse not found: ${verseId}`);
+    }
+
+    const currentVerse = verses[index];
+    const currentSRS: SRSState = currentVerse.srs || DEFAULT_SRS_STATE;
+    const srsResult = calculateNextReview(currentSRS, score, now);
+
+    const streak = srsResult.streak ?? srsResult.repetitions ?? 0;
+    verses[index].srs = {
+      streak,
+      repetitions: streak,
+      intervalDays: srsResult.intervalDays,
+      easeFactor: srsResult.easeFactor,
+      nextReviewDate: srsResult.nextReviewDate.toISOString(),
+    };
+
+    await this.storage.setItem(STORAGE_KEY, JSON.stringify(verses));
+    return srsResult;
+  }
+}
+
+export const verseEngine = new VerseEngine();
