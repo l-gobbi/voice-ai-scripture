@@ -40,6 +40,14 @@ _Avoid_: Score, level, repetitions count
 A verse whose scheduled next review date is earlier than or equal to the current calendar date and time.
 _Avoid_: Expired verse, pending card, review queue item
 
+**Verse Summary**:
+An aggregate snapshot of a user's memory repository containing all stored verses, the subset of currently due verses, and the total count of due verses requiring review today.
+_Avoid_: Verse list payload, due stats, cards summary
+
+**Review Recording**:
+The domain operation of recording a completed study session (manual pass/fail or voice recitation score) against a verse, advancing its Spaced Repetition interval and streak.
+_Avoid_: SRS sync, score save, update progress
+
 ### Monetization & Access
 
 **Paywall**:
