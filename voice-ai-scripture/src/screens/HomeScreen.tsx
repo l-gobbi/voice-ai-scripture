@@ -1,14 +1,17 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, TextInput, Button, FlatList, Modal, StyleSheet, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { VerseStorageService, Verse } from '../services/VerseStorageService';
-import { isVerseDue } from '../engines/srsEngine';
+import { verseEngine, Verse, VerseSummary } from '../services/VerseEngine';
 import ReviewScreen from './ReviewScreen';
 import PackBrowserModal from '../components/PackBrowserModal';
 import ReminderSettingsModal from '../components/ReminderSettingsModal';
 
 export default function HomeScreen() {
-  const [verses, setVerses] = useState<Verse[]>([]);
+  const [summary, setSummary] = useState<VerseSummary>({
+    allVerses: [],
+    dueVerses: [],
+    dueCount: 0,
+  });
   const [modalVisible, setModalVisible] = useState(false);
   const [packBrowserVisible, setPackBrowserVisible] = useState(false);
   const [reminderModalVisible, setReminderModalVisible] = useState(false);
@@ -19,8 +22,8 @@ export default function HomeScreen() {
   const [filterMode, setFilterMode] = useState<'all' | 'due'>('due');
 
   const loadVerses = async () => {
-    const data = await VerseStorageService.getAllVerses();
-    setVerses(data);
+    const data = await verseEngine.getVersesSummary();
+    setSummary(data);
   };
 
   useEffect(() => {
@@ -29,7 +32,7 @@ export default function HomeScreen() {
 
   const handleSave = async () => {
     if (!reference || !text) return;
-    await VerseStorageService.addVerse({ reference, text });
+    await verseEngine.addVerse({ reference, text });
     setReference('');
     setText('');
     setModalVisible(false);
@@ -48,11 +51,8 @@ export default function HomeScreen() {
     );
   }
 
-  // Filter verses using domain predicate (single pass)
-  const now = new Date();
-  const dueVerses = verses.filter((v) => isVerseDue(v.srs?.nextReviewDate, now));
-  const displayedVerses = filterMode === 'due' ? dueVerses : verses;
-  const dueCount = dueVerses.length;
+  const displayedVerses = filterMode === 'due' ? summary.dueVerses : summary.allVerses;
+  const dueCount = summary.dueCount;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -83,7 +83,7 @@ export default function HomeScreen() {
           onPress={() => setFilterMode('all')}
         >
           <Text style={[styles.tabText, filterMode === 'all' && styles.activeTabText]}>
-            📚 All ({verses.length})
+            📚 All ({summary.allVerses.length})
           </Text>
         </TouchableOpacity>
       </View>

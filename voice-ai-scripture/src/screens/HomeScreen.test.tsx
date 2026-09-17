@@ -1,13 +1,21 @@
 import React from 'react';
 import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
 import HomeScreen from './HomeScreen';
-import { VerseStorageService } from '../services/VerseStorageService';
+import { verseEngine } from '../services/VerseEngine';
 
-// Mock the storage service so we don't hit real AsyncStorage
-jest.mock('../services/VerseStorageService', () => ({
-  VerseStorageService: {
-    getAllVerses: jest.fn().mockResolvedValue([]),
-    addVerse: jest.fn().mockResolvedValue(undefined),
+// Mock verseEngine
+jest.mock('../services/VerseEngine', () => ({
+  verseEngine: {
+    getVersesSummary: jest.fn().mockResolvedValue({
+      allVerses: [],
+      dueVerses: [],
+      dueCount: 0,
+    }),
+    addVerse: jest.fn().mockResolvedValue({
+      id: '1',
+      reference: 'John 3:16',
+      text: 'For God so loved the world...',
+    }),
   }
 }));
 
@@ -21,7 +29,7 @@ describe('HomeScreen Integration', () => {
 
     // Initially list fetches verses
     await waitFor(() => {
-      expect(VerseStorageService.getAllVerses).toHaveBeenCalledTimes(1);
+      expect(verseEngine.getVersesSummary).toHaveBeenCalledTimes(1);
     });
 
     // 1. User clicks Add Verse button
@@ -42,9 +50,15 @@ describe('HomeScreen Integration', () => {
     });
 
     // 3. Setup mock for the refresh after saving
-    (VerseStorageService.getAllVerses as jest.Mock).mockResolvedValueOnce([
-      { id: '1', reference: 'John 3:16', text: 'For God so loved the world...' }
-    ]);
+    (verseEngine.getVersesSummary as jest.Mock).mockResolvedValueOnce({
+      allVerses: [
+        { id: '1', reference: 'John 3:16', text: 'For God so loved the world...' }
+      ],
+      dueVerses: [
+        { id: '1', reference: 'John 3:16', text: 'For God so loved the world...' }
+      ],
+      dueCount: 1,
+    });
 
     // 4. User clicks Save
     await act(async () => {
@@ -53,7 +67,7 @@ describe('HomeScreen Integration', () => {
 
     // 5. Assert the service was called correctly
     await waitFor(() => {
-      expect(VerseStorageService.addVerse).toHaveBeenCalledWith({
+      expect(verseEngine.addVerse).toHaveBeenCalledWith({
         reference: 'John 3:16',
         text: 'For God so loved the world...'
       });

@@ -1,7 +1,7 @@
-﻿import React from 'react';
+import React from 'react';
 import { render, fireEvent, act } from '@testing-library/react-native';
 import ReviewScreen from './ReviewScreen';
-import { Verse, VerseStorageService } from '../services/VerseStorageService';
+import { Verse, verseEngine } from '../services/VerseEngine';
 import { SubscriptionService } from '../services/SubscriptionService';
 
 jest.mock('@react-native-async-storage/async-storage', () =>
@@ -33,7 +33,13 @@ describe('ReviewScreen Integration (Ticket 08)', () => {
 
   it('switches to self-review mode and allows manual pass/fail verification', async () => {
     const onComplete = jest.fn();
-    const updateSRSSpy = jest.spyOn(VerseStorageService, 'updateVerseSRS').mockResolvedValueOnce(undefined);
+    const recordSpy = jest.spyOn(verseEngine, 'recordReview').mockResolvedValueOnce({
+      streak: 1,
+      repetitions: 1,
+      intervalDays: 1,
+      easeFactor: 2.5,
+      nextReviewDate: new Date(),
+    });
 
     const { getByText, queryByText } = await render(
       <ReviewScreen verse={mockVerse} onComplete={onComplete} />
@@ -60,7 +66,7 @@ describe('ReviewScreen Integration (Ticket 08)', () => {
       fireEvent.press(getByText('✅ Pass'));
     });
 
-    expect(updateSRSSpy).toHaveBeenCalledWith('verse-1', expect.objectContaining({ streak: 1 }));
+    expect(recordSpy).toHaveBeenCalledWith('verse-1', 100);
     expect(onComplete).toHaveBeenCalled();
   });
 

@@ -8,8 +8,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { calculateNextReview, DEFAULT_SRS_STATE, SRSState } from '../engines/srsEngine';
-import { VerseStorageService, Verse } from '../services/VerseStorageService';
+import { verseEngine, Verse } from '../services/VerseEngine';
 import { useRecitationSession } from '../hooks/useRecitationSession';
 import DiffView from '../components/DiffView';
 import PaywallModal from '../components/PaywallModal';
@@ -47,11 +46,7 @@ export default function ReviewScreen({ verse, onComplete }: ReviewScreenProps) {
 
   // Manual Self-Review Verification
   const handleManualVerification = async (passed: boolean) => {
-    const currentSRS: SRSState = verse.srs || DEFAULT_SRS_STATE;
-    const score = passed ? 100 : 0;
-    const newSRS = calculateNextReview(currentSRS, score);
-
-    await VerseStorageService.updateVerseSRS(verse.id, newSRS);
+    await verseEngine.recordReview(verse.id, passed ? 100 : 0);
     onComplete();
   };
 

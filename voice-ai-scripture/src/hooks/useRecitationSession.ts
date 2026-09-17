@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Verse } from '../services/VerseStorageService';
+import { Verse } from '../services/VerseEngine';
 import {
   RecitationSession,
   RecitationState,

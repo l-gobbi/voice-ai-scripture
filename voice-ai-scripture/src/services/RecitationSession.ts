@@ -1,8 +1,8 @@
-import { Verse, VerseStorageService } from './VerseStorageService';
+import { Verse, VerseEngine, verseEngine } from './VerseEngine';
 import { SubscriptionService } from './SubscriptionService';
 import { audioRecorder, AudioRecorderService } from './AudioRecorderService';
 import { diffVerses, calculateScore, DiffToken } from '../engines/diffEngine';
-import { calculateNextReview, DEFAULT_SRS_STATE, PASSING_SCORE_THRESHOLD, SRSResult, SRSState } from '../engines/srsEngine';
+import { PASSING_SCORE_THRESHOLD, SRSResult } from '../engines/srsEngine';
 import { transcribeAudio } from './WhisperService';
 
 export type RecitationStatus =
@@ -33,6 +33,7 @@ export class RecitationSession {
   private verse: Verse;
   private recorder: AudioRecorderService;
   private transcriber: SpeechTranscriber;
+  private verseEngine: VerseEngine;
   private currentAudioUri: string | null = null;
   private listeners: Set<(state: RecitationState) => void> = new Set();
 
@@ -48,10 +49,12 @@ export class RecitationSession {
     options?: {
       recorder?: AudioRecorderService;
       transcriber?: SpeechTranscriber;
+      verseEngine?: VerseEngine;
     }
   ) {
     this.verse = verse;
     this.recorder = options?.recorder ?? audioRecorder;
+    this.verseEngine = options?.verseEngine ?? verseEngine;
     this.transcriber = options?.transcriber ?? (async (uri: string) => {
       const apiKey = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
       if (!apiKey) {
@@ -137,11 +140,8 @@ export class RecitationSession {
       const score = calculateScore(tokens);
       const passed = score >= PASSING_SCORE_THRESHOLD;
 
-      const currentSRS: SRSState = this.verse.srs || DEFAULT_SRS_STATE;
-      const srsResult = calculateNextReview(currentSRS, score);
-
-      // Persist to local storage
-      await VerseStorageService.updateVerseSRS(this.verse.id, srsResult);
+      // Coordinate review recording and SM-2 progression via VerseEngine
+      const srsResult = await this.verseEngine.recordReview(this.verse.id, score);
 
       const result: VoiceRecitationResult = {
         tokens,

@@ -1,6 +1,6 @@
 import { renderHook, act } from '@testing-library/react-native';
 import { useRecitationSession } from './useRecitationSession';
-import { Verse } from '../services/VerseStorageService';
+import { Verse } from '../services/VerseEngine';
 import { SubscriptionService } from '../services/SubscriptionService';
 
 jest.mock('@react-native-async-storage/async-storage', () =>

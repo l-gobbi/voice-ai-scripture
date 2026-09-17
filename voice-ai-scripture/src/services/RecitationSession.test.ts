@@ -1,5 +1,5 @@
 import { RecitationSession, RecitationState } from './RecitationSession';
-import { Verse, VerseStorageService } from './VerseStorageService';
+import { Verse, verseEngine } from './VerseEngine';
 import { SubscriptionService } from './SubscriptionService';
 import { audioRecorder } from './AudioRecorderService';
 
@@ -119,7 +119,13 @@ describe('RecitationSession (Ticket 07)', () => {
       jest.spyOn(audioRecorder, 'startRecording').mockResolvedValueOnce(undefined);
       jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValueOnce('file:///audio/recitation.m4a');
       jest.spyOn(audioRecorder, 'deleteAudioFile').mockResolvedValueOnce(true);
-      const updateSRSSpy = jest.spyOn(VerseStorageService, 'updateVerseSRS').mockResolvedValueOnce(undefined);
+      const recordSpy = jest.spyOn(verseEngine, 'recordReview').mockResolvedValueOnce({
+        streak: 1,
+        repetitions: 1,
+        intervalDays: 1,
+        easeFactor: 2.5,
+        nextReviewDate: new Date(),
+      });
 
       // Injected mock speech transcriber that returns verbatim text
       const mockTranscriber = jest.fn().mockResolvedValueOnce(mockVerse.text);
@@ -133,7 +139,7 @@ describe('RecitationSession (Ticket 07)', () => {
       expect(result?.passed).toBe(true);
       expect(result?.score).toBe(100);
       expect(result?.srsResult.streak).toBe(1);
-      expect(updateSRSSpy).toHaveBeenCalledWith('1', expect.objectContaining({ streak: 1 }));
+      expect(recordSpy).toHaveBeenCalledWith('1', 100);
       expect(session.getState().status).toBe('verified');
       expect(session.getState().result).toEqual(result);
     });
@@ -148,7 +154,13 @@ describe('RecitationSession (Ticket 07)', () => {
       jest.spyOn(audioRecorder, 'startRecording').mockResolvedValueOnce(undefined);
       jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValueOnce('file:///audio/recitation.m4a');
       jest.spyOn(audioRecorder, 'deleteAudioFile').mockResolvedValueOnce(true);
-      const updateSRSSpy = jest.spyOn(VerseStorageService, 'updateVerseSRS').mockResolvedValueOnce(undefined);
+      const recordSpy = jest.spyOn(verseEngine, 'recordReview').mockResolvedValueOnce({
+        streak: 0,
+        repetitions: 0,
+        intervalDays: 1,
+        easeFactor: 2.5,
+        nextReviewDate: new Date(),
+      });
 
       // Injected transcriber with incorrect text
       const mockTranscriber = jest.fn().mockResolvedValueOnce('Totally different words');
@@ -161,7 +173,7 @@ describe('RecitationSession (Ticket 07)', () => {
       expect(result?.passed).toBe(false);
       expect(result?.score).toBeLessThan(80);
       expect(result?.srsResult.streak).toBe(0);
-      expect(updateSRSSpy).toHaveBeenCalledWith('1', expect.objectContaining({ streak: 0 }));
+      expect(recordSpy).toHaveBeenCalledWith('1', expect.any(Number));
       expect(session.getState().status).toBe('verified');
     });
 
@@ -175,7 +187,13 @@ describe('RecitationSession (Ticket 07)', () => {
       jest.spyOn(audioRecorder, 'startRecording').mockResolvedValueOnce(undefined);
       jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValueOnce('file:///audio/status-test.m4a');
       jest.spyOn(audioRecorder, 'deleteAudioFile').mockResolvedValueOnce(true);
-      jest.spyOn(VerseStorageService, 'updateVerseSRS').mockResolvedValueOnce(undefined);
+      jest.spyOn(verseEngine, 'recordReview').mockResolvedValueOnce({
+        streak: 1,
+        repetitions: 1,
+        intervalDays: 1,
+        easeFactor: 2.5,
+        nextReviewDate: new Date(),
+      });
 
       let statusDuringVerification: string | null = null;
       let sessionInstance: RecitationSession | null = null;
@@ -274,7 +292,13 @@ describe('RecitationSession (Ticket 07)', () => {
         deletedBeforeVerified = session.getState().status !== 'verified';
         return true;
       });
-      jest.spyOn(VerseStorageService, 'updateVerseSRS').mockResolvedValueOnce(undefined);
+      jest.spyOn(verseEngine, 'recordReview').mockResolvedValueOnce({
+        streak: 1,
+        repetitions: 1,
+        intervalDays: 1,
+        easeFactor: 2.5,
+        nextReviewDate: new Date(),
+      });
 
       const mockTranscriber = jest.fn().mockResolvedValueOnce(mockVerse.text);
       const session = new RecitationSession(mockVerse, { transcriber: mockTranscriber });

@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { TOPICAL_PACKS, TopicalPack } from '../data/topicalPacks';
-import { VerseStorageService } from '../services/VerseStorageService';
+import { verseEngine } from '../services/VerseEngine';
 
 interface PackBrowserModalProps {
   visible: boolean;
@@ -30,7 +30,7 @@ export default function PackBrowserModal({
   const handleImport = async (pack: TopicalPack) => {
     setImporting(true);
     try {
-      const addedCount = await VerseStorageService.importVerses(pack.verses);
+      const addedCount = await verseEngine.importVerses(pack.verses);
       Alert.alert(
         'Topical Pack Imported! 🎉',
         addedCount > 0
