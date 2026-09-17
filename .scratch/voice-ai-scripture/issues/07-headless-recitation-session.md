@@ -6,7 +6,7 @@
 
 **Status:** closed
 
-- [x] Implement RecitationSession class with state machine (idle, reciting, evaluating, verified, quota_exhausted, error).
+- [x] Implement RecitationSession class with state machine (idle, reciting, verifying, verified, quota_exhausted, error).
 - [x] Absorb SubscriptionService quota consumption in startReciting().
 - [x] Implement live volume metering via onMeter callback.
 - [x] Enforce atomic audio file deletion on all exit paths (success, STT failure, reset).
