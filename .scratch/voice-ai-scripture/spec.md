@@ -2,60 +2,86 @@
 labels: ["ready-for-agent"]
 ---
 
-# Specification: Deep Recitation Session Architecture
+# Specification: Deep VerseEngine Domain Architecture
 
 ## Problem Statement
-The recitation lifecycle currently suffers from orchestration sprawl. The review screen directly coordinates microphone permissions, real-time volume metering timers, quota checks, external speech-to-text calls, and manual file deletion. Meanwhile, the recitation controller is a shallow passthrough between the screen and core logic engines. This lack of locality means audio cleanup and quota gating are prone to leaking, error handling is duplicated, and testing recitation behavior requires brittle UI component mocking.
+
+Verse management, due-date calculations, and Spaced Repetition (SRS) state transitions are currently fragmented across the codebase. `VerseStorageService` acts as a shallow JSON serialization pass-through to `AsyncStorage`, while `HomeScreen`, `ReviewScreen`, and `RecitationSession` each independently perform mathematical SM-2 computations, filter due verses, and manage data updates. This scattering leaks algorithm and persistence details into presentation components, leads to duplicated filtering loops, and forces test suites to rely on fragile global `AsyncStorage` mocks.
 
 ## Solution
-Consolidate the complete recitation lifecycle into a deep, stateful Recitation Session module. The module encapsulates microphone capture, volume metering, quota gating, speech transcription, diff verification, spaced repetition updates, and guaranteed audio file cleanup behind a simple, intent-based state machine. The review screen becomes a thin presentation renderer that merely reflects the current session status.
+
+Consolidate all verse domain operations, persistence, due-date evaluation, and review recording into an authoritative, deep `VerseEngine` module. `VerseEngine` provides a high-level intent-based API that encapsulates:
+1. Unified study recording (`recordReview`) using the SM-2 algorithm for both manual self-review and voice recitations.
+2. Single-pass verse summary queries (`getVersesSummary`) delivering all verses, due verses, and due count.
+3. Permissive single-verse addition alongside deduplicating bulk pack imports.
+4. Pluggable persistence via an injectable `StorageAdapter` interface (defaulting to `AsyncStorage` in production and in-memory storage in unit tests).
+5. Full retirement of the legacy `VerseStorageService`.
 
 ## User Stories
-1. As a believer memorizing scripture, I want to start a voice recitation with a single tap, so that the app immediately prepares microphone capture and listens to my voice.
-2. As a believer reciting scripture, I want to see real-time waveform visual feedback while speaking, so that I know the device is actively and accurately capturing my voice.
-3. As a believer finishing a recitation, I want to tap "Stop & Verify" to receive an immediate word-by-word diff and accuracy score, so that I can see precisely where my memory was faithful or stumbled.
-4. As a believer practicing, I want my streak and spaced repetition schedule to automatically update upon successful recitation, so that I don't have to manually manage review intervals.
-5. As a privacy-conscious user, I want my voice recordings to be discarded immediately upon evaluation or failure, so that my personal audio is never stored permanently on device or external servers.
-6. As a free user, I want the app to notify me when my complimentary voice recitation quota is exhausted, so that I understand why the paywall appears and can choose whether to subscribe.
-7. As an unsubscribed user with exhausted quota, I want to seamlessly continue practicing using self-review, so that my spiritual study is never blocked by monetization.
-8. As an offline user or local developer, I want the app to gracefully fall back to verbatim recitation when speech-to-text is unavailable, so that the application remains functional without cloud credentials.
-9. As a developer, I want to test the entire recitation lifecycle through a single headless interface without rendering UI screens, so that regression tests are deterministic and lightning fast.
+
+1. As a believer opening the app, I want to immediately see how many verses are due for review today, so that I can focus my quiet-time practice without delay.
+2. As a believer viewing my memory verses, I want to switch between "Due for Review" and "All Verses" smoothly, so that I can browse my full collection or focus only on active study.
+3. As a believer completing a manual self-review (pass or fail), I want the verse's streak and review interval to update correctly in one atomic operation, so that my scheduling stays accurate.
+4. As a believer completing a Voice AI recitation, I want the accuracy score to update my SRS review schedule automatically, so that high accuracy lengthens the interval and mistakes reset the review cycle for tomorrow.
+5. As a believer memorizing a new passage, I want to add a verse with its reference and text, so that it is immediately scheduled for its initial review.
+6. As a believer importing a Topical Pack, I want verses I have already added to be skipped automatically, so that my due queue is not polluted with duplicate references.
+7. As an offline user, I want all my verse data, streaks, and schedules to persist reliably on my device without network connectivity, so that I can practice anywhere.
+8. As a developer, I want to test all verse operations, queries, and scheduling state transitions in pure headless unit tests using an in-memory adapter, so that tests are deterministic, fast, and free of native storage timer flakes.
+9. As an AI agent or developer modifying UI screens, I want a single high-level engine interface to interact with verses, so that I never have to manually coordinate `AsyncStorage` and mathematical SRS formulas.
 
 ## Implementation Decisions
-- **Deep Module Architecture:** The recitation lifecycle will be encapsulated in a pure TypeScript `RecitationSession` class that manages all internal state transitions and side effects, wrapped by a lightweight React hook for presentation screens.
-- **State Machine Contract:** The session interface exposes a clear, discriminated state contract:
-  ```typescript
-  type RecitationStatus =
-    | 'idle'
-    | 'reciting'
-    | 'evaluating'
-    | 'verified'
-    | 'quota_exhausted'
-    | 'error';
 
-  interface RecitationState {
-    status: RecitationStatus;
-    volumeLevel: number;
-    result: VoiceRecitationResult | null;
-    errorMessage: string | null;
+- **Deep Module Architecture:** Implement a deep, stateful `VerseEngine` class and a default shared singleton instance (`verseEngine`) located at `src/services/VerseEngine.ts`.
+- **Public Engine Contract:**
+  ```typescript
+  export interface VerseSummary {
+    allVerses: Verse[];
+    dueVerses: Verse[];
+    dueCount: number;
+  }
+
+  export interface StorageAdapter {
+    getItem(key: string): Promise<string | null>;
+    setItem(key: string, value: string): Promise<void>;
+  }
+
+  export class VerseEngine {
+    constructor(storage?: StorageAdapter);
+    getAllVerses(): Promise<Verse[]>;
+    getVersesSummary(now?: Date): Promise<VerseSummary>;
+    addVerse(verse: Omit<Verse, 'id' | 'srs'>): Promise<Verse>;
+    importVerses(verses: Array<Omit<Verse, 'id' | 'srs'>>): Promise<number>;
+    recordReview(verseId: string, score: number, now?: Date): Promise<SRSResult>;
+    deleteVerse(verseId: string): Promise<void>;
   }
   ```
-- **Action Surface:** Callers interact exclusively through three high-level commands: `startReciting()`, `stopAndVerify()`, and `reset()`.
-- **Absorbed Quota Gating:** Quota consumption is evaluated inside `startReciting()`. If the user is unsubscribed and has exhausted their quota, the session transitions directly to `quota_exhausted` without opening audio streams.
-- **Atomic Privacy Invariant:** The session guarantees immediate audio file deletion in all exit paths (verification completion, speech transcription failure, network timeout, or caller reset) before returning or setting state.
-- **Elimination of Shallow Middlemen:** The previous shallow voice review controller is deleted; diffing, scoring, and spaced repetition persistence are executed directly within the session's completion step.
-- **Injected Speech Transcriber Seam:** The session accepts an optional speech transcriber dependency (defaulting to the remote Whisper service, falling back to local simulation when no API key is present) to decouple network concerns and enable headless testing.
+- **Unified Review Recording:** `recordReview(verseId: string, score: number, now?: Date)` calculates next SM-2 progression via `calculateNextReview(currentSRS, score, now)` and atomically persists the updated verse to storage.
+  - Manual review passes pass `score = 100`.
+  - Manual review fails pass `score = 0`.
+  - Voice recitations pass the Myers diff accuracy score `(0..100)`.
+- **Single-Pass Summary Query:** `getVersesSummary(now = new Date())` retrieves the collection, invokes the pure domain predicate `isVerseDue(v.srs?.nextReviewDate, now)`, and returns `{ allVerses, dueVerses, dueCount }` in a single pass.
+- **Inversion of Control for Persistence:** Storage operations are abstracted behind `StorageAdapter`. Production defaults to React Native `AsyncStorage`. Tests can inject an in-memory map adapter (`MapStorageAdapter`).
+- **Consumer Migrations:**
+  - `HomeScreen.tsx`: Refactored to fetch `verseEngine.getVersesSummary()`, removing component-level `.filter()` loops.
+  - `ReviewScreen.tsx`: Refactored `handleManualVerification` to call `verseEngine.recordReview(verse.id, passed ? 100 : 0)`.
+  - `RecitationSession.ts`: Refactored `stopAndVerify()` to invoke `verseEngine.recordReview(this.verse.id, score)`, removing direct references to `srsEngine` and `VerseStorageService`. Accepts an optional `verseEngine` parameter in constructor options.
+- **Retirement of `VerseStorageService`:** Delete `src/services/VerseStorageService.ts` and its test file, redirecting all imports to `VerseEngine.ts` and exporting `Verse` from `VerseEngine.ts`.
+- **Pure Engines Preserved:** `src/engines/srsEngine.ts` (pure SM-2 math) and `src/engines/diffEngine.ts` (Myers diffing) remain isolated, pure functional cores consumed by `VerseEngine` and `RecitationSession`.
 
 ## Testing Decisions
-- **Test Only at the Seam:** Tests will verify the complete recitation lifecycle through the public interface of `RecitationSession` (`startReciting`, `stopAndVerify`, `reset`), verifying state transitions and outputs rather than private internal steps.
-- **Privacy Verification:** Tests must verify that audio cleanup is invoked on successful completion, transcription errors, and session resets.
-- **Quota Verification:** Tests must verify that attempting to start a recitation with zero remaining quota transitions to `quota_exhausted` and prevents audio recording.
-- **Prior Art:** Leverages patterns established in existing engine tests (`srsEngine.test.ts`, `diffEngine.test.ts`), keeping test execution headless, deterministic, and free of React Native renderer overhead.
+
+- **Test Only at the Seam:** Test exclusively through the public interface of `VerseEngine` using an in-memory `StorageAdapter`. Do not test private methods or internal JSON serializations.
+- **Review Progression Verification:** Verify that `recordReview` updates the streak, interval, and next review date correctly for passing scores (>=80), failing scores (<80), and binary manual reviews (100 vs 0).
+- **Summary Query Verification:** Verify that `getVersesSummary` correctly categorizes due vs non-due verses based on simulated timestamps (`now`).
+- **Deduplication Verification:** Verify that `importVerses` skips case-insensitive reference duplicates while `addVerse` permits intentional multiple translations.
+- **Prior Art:** Follows headless dependency injection patterns established in `AudioRecorderService.test.ts` (`AudioDriver`) and `RecitationSession.test.ts`.
 
 ## Out of Scope
-- Direct changes to the underlying Myers diff algorithm or SuperMemo-2 scheduling math.
-- In-app purchase receipt validation or billing provider migration (RevenueCat integration remains targeted for production release).
-- Cloud user authentication or server-side database syncing (ADR-0002 local-first storage is preserved).
+
+- Remote cloud database synchronization or multi-device account syncing (ADR-0002 local-first storage preserved).
+- Database migrations or SQLite / WatermelonDB adoption (AsyncStorage key-value storage remains sufficient for MVP scale).
+- UI visual restyling of `HomeScreen` or `ReviewScreen`.
 
 ## Further Notes
-- This refactoring directly eliminates the architectural friction identified during `/improve-codebase-architecture`, transforming the review screen into a pure visual component and establishing a robust foundation for future audio features (e.g. phrase-by-phrase recitation).
+
+- Completes Candidate 02 from `/improve-codebase-architecture`, eliminating all scattered SM-2 logic and retiring the legacy `VerseStorageService` pass-through.
