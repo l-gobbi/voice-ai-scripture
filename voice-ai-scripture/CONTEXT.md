@@ -14,6 +14,10 @@ _Avoid_: Scripture item, card, passage, quote
 An attempt by the user to speak a verse out loud from memory into the device microphone for evaluation.
 _Avoid_: Recording, voice note, speech test
 
+**Recitation Session**:
+The complete lifecycle of a single recitation attempt, coordinating audio capture, quota verification, transcription, diff verification, and instantaneous audio file deletion.
+_Avoid_: Recording flow, review run, voice job
+
 **Verification**:
 The computational process of comparing a user's spoken recitation against the canonical text of a verse to detect accuracy and mistakes.
 _Avoid_: Grading, checking, validation, correction

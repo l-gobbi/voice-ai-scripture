@@ -2,44 +2,60 @@
 labels: ["ready-for-agent"]
 ---
 
-# Voice-AI Scripture Memory App Specification
+# Specification: Deep Recitation Session Architecture
 
 ## Problem Statement
-Memorizing scripture is a vital discipline for many Christians, but traditional tools (like physical or digital flashcards) rely on self-reporting. Users look at a card, recite the verse in their head, and subjectively decide if they "got it right." This lacks accountability, precision, and the auditory reinforcement that comes from speaking the Word out loud.
+The recitation lifecycle currently suffers from orchestration sprawl. The review screen directly coordinates microphone permissions, real-time volume metering timers, quota checks, external speech-to-text calls, and manual file deletion. Meanwhile, the recitation controller is a shallow passthrough between the screen and core logic engines. This lack of locality means audio cleanup and quota gating are prone to leaking, error handling is duplicated, and testing recitation behavior requires brittle UI component mocking.
 
 ## Solution
-A mobile application (built with React Native/Expo) that leverages Voice AI to provide objective verification for scripture memorization. Users recite their memory verses out loud into their device. The app transcribes the audio, compares it against the exact biblical text, visually highlights missed or added words, and automatically schedules the next review using a Spaced Repetition System (SRS). The app operates on a freemium model, offering text-based flashcards for free and unlimited Voice-AI correction behind a ~$5/month subscription.
+Consolidate the complete recitation lifecycle into a deep, stateful Recitation Session module. The module encapsulates microphone capture, volume metering, quota gating, speech transcription, diff verification, spaced repetition updates, and guaranteed audio file cleanup behind a simple, intent-based state machine. The review screen becomes a thin presentation renderer that merely reflects the current session status.
 
 ## User Stories
-1. As a user, I want to add a new memory verse by typing the reference (e.g., John 3:16) and the text so that I can begin memorizing it.
-2. As a user, I want to tap a microphone button and recite my verse out loud so that the app can evaluate my memory.
-3. As a user, I want to see a visual diff of my recitation (highlighting words I missed, skipped, or added) so that I know exactly where my memory failed.
-4. As a user, I want the app to automatically grade my attempt based on the accuracy of the transcription so that I don't have to self-report my success.
-5. As a user, I want the app to schedule my next review of the verse based on a Spaced Repetition algorithm so that I review verses right before I am about to forget them.
-6. As a user, I want a daily dashboard showing which verses are due for review today so that I can maintain my daily habit.
-7. As a free user, I want to review verses using standard text-revealing flashcards so that I can still use the app without paying.
-8. As a premium user, I want unlimited access to the Voice-AI verification feature so that I can practice hands-free with high accuracy.
-9. As a premium user, I want to manage my subscription easily through the App Store / Play Store so that my payment is secure.
+1. As a believer memorizing scripture, I want to start a voice recitation with a single tap, so that the app immediately prepares microphone capture and listens to my voice.
+2. As a believer reciting scripture, I want to see real-time waveform visual feedback while speaking, so that I know the device is actively and accurately capturing my voice.
+3. As a believer finishing a recitation, I want to tap "Stop & Verify" to receive an immediate word-by-word diff and accuracy score, so that I can see precisely where my memory was faithful or stumbled.
+4. As a believer practicing, I want my streak and spaced repetition schedule to automatically update upon successful recitation, so that I don't have to manually manage review intervals.
+5. As a privacy-conscious user, I want my voice recordings to be discarded immediately upon evaluation or failure, so that my personal audio is never stored permanently on device or external servers.
+6. As a free user, I want the app to notify me when my complimentary voice recitation quota is exhausted, so that I understand why the paywall appears and can choose whether to subscribe.
+7. As an unsubscribed user with exhausted quota, I want to seamlessly continue practicing using self-review, so that my spiritual study is never blocked by monetization.
+8. As an offline user or local developer, I want the app to gracefully fall back to verbatim recitation when speech-to-text is unavailable, so that the application remains functional without cloud credentials.
+9. As a developer, I want to test the entire recitation lifecycle through a single headless interface without rendering UI screens, so that regression tests are deterministic and lightning fast.
 
 ## Implementation Decisions
-- **Framework:** The app will be built using React Native with Expo to ensure rapid cross-platform mobile development (iOS/Android) and easy access to native microphone APIs.
-- **Voice-to-Text:** Audio will be recorded natively and sent to the OpenAI Whisper API (or equivalent fast transcription API) for highly accurate speech-to-text conversion.
-- **Verification Logic:** The core verification will use a string diffing algorithm (e.g., Levenshtein distance or a custom word-level diff) to compare the expected verse text with the Whisper transcription, stripping out punctuation and normalizing casing.
-- **Spaced Repetition:** The app will implement a standard SRS algorithm (e.g., SuperMemo-2 / SM-2) that adjusts the interval of the next review based on the accuracy score of the recitation.
-- **Monetization/Auth:** RevenueCat will be used for managing in-app subscriptions (Freemium paywall). Supabase or Firebase will handle user authentication and cloud syncing of verses.
-- **Data Privacy:** Audio files are sent to the transcription API and immediately discarded. They are not stored permanently.
+- **Deep Module Architecture:** The recitation lifecycle will be encapsulated in a pure TypeScript `RecitationSession` class that manages all internal state transitions and side effects, wrapped by a lightweight React hook for presentation screens.
+- **State Machine Contract:** The session interface exposes a clear, discriminated state contract:
+  ```typescript
+  type RecitationStatus =
+    | 'idle'
+    | 'reciting'
+    | 'evaluating'
+    | 'verified'
+    | 'quota_exhausted'
+    | 'error';
+
+  interface RecitationState {
+    status: RecitationStatus;
+    volumeLevel: number;
+    result: VoiceRecitationResult | null;
+    errorMessage: string | null;
+  }
+  ```
+- **Action Surface:** Callers interact exclusively through three high-level commands: `startReciting()`, `stopAndVerify()`, and `reset()`.
+- **Absorbed Quota Gating:** Quota consumption is evaluated inside `startReciting()`. If the user is unsubscribed and has exhausted their quota, the session transitions directly to `quota_exhausted` without opening audio streams.
+- **Atomic Privacy Invariant:** The session guarantees immediate audio file deletion in all exit paths (verification completion, speech transcription failure, network timeout, or caller reset) before returning or setting state.
+- **Elimination of Shallow Middlemen:** The previous shallow voice review controller is deleted; diffing, scoring, and spaced repetition persistence are executed directly within the session's completion step.
+- **Injected Speech Transcriber Seam:** The session accepts an optional speech transcriber dependency (defaulting to the remote Whisper service, falling back to local simulation when no API key is present) to decouple network concerns and enable headless testing.
 
 ## Testing Decisions
-Since this is a greenfield project, we want to establish clear, high-level testing seams to avoid brittle implementation details:
-- **Core Domain Logic (The Diff Engine):** The pure function that takes the `expectedVerse` and `transcribedAudioText` and returns the visual diff and accuracy score. This must be heavily unit-tested with various Edge Cases (stuttering, partial words, skipped words).
-- **Core Domain Logic (The SRS Engine):** The pure function that takes a `verseState` and a `score` and returns the `nextReviewDate`.
-- **Integration Seam:** We will mock the external Whisper API and the Native Audio Recorder. Tests will simulate passing text strings (representing the API response) into the verification flow to ensure the UI updates correctly without actually recording audio in the test runner.
+- **Test Only at the Seam:** Tests will verify the complete recitation lifecycle through the public interface of `RecitationSession` (`startReciting`, `stopAndVerify`, `reset`), verifying state transitions and outputs rather than private internal steps.
+- **Privacy Verification:** Tests must verify that audio cleanup is invoked on successful completion, transcription errors, and session resets.
+- **Quota Verification:** Tests must verify that attempting to start a recitation with zero remaining quota transitions to `quota_exhausted` and prevents audio recording.
+- **Prior Art:** Leverages patterns established in existing engine tests (`srsEngine.test.ts`, `diffEngine.test.ts`), keeping test execution headless, deterministic, and free of React Native renderer overhead.
 
 ## Out of Scope
-- Social features (leaderboards, adding friends, sharing verses).
-- Web app version (this is strictly a mobile-first app due to microphone dependencies).
-- Built-in API fetching for copyrighted Bible translations (users will manually paste or we will provide public domain versions like KJV/WEB initially to avoid licensing issues).
+- Direct changes to the underlying Myers diff algorithm or SuperMemo-2 scheduling math.
+- In-app purchase receipt validation or billing provider migration (RevenueCat integration remains targeted for production release).
+- Cloud user authentication or server-side database syncing (ADR-0002 local-first storage is preserved).
 
 ## Further Notes
-- Latency is critical. The time between the user stopping the recording and seeing the diff should be under 2 seconds to ensure a smooth UX.
-- The marketing strategy relies heavily on beta-testing the initial build within Reddit (`r/TrueChristian`, etc.) and partnering with mid-tier Christian creators.
+- This refactoring directly eliminates the architectural friction identified during `/improve-codebase-architecture`, transforming the review screen into a pure visual component and establishing a robust foundation for future audio features (e.g. phrase-by-phrase recitation).
