@@ -37,7 +37,7 @@ export default function ReviewScreen({ verse, onComplete }: ReviewScreenProps) {
   } = useRecitationSession(verse);
 
   const isReciting = status === 'reciting';
-  const isProcessing = status === 'evaluating';
+  const isVerifying = status === 'verifying';
 
   useEffect(() => {
     if (status === 'quota_exhausted') {
@@ -56,7 +56,7 @@ export default function ReviewScreen({ verse, onComplete }: ReviewScreenProps) {
   };
 
   // Voice Recitation Toggle
-  const handleToggleRecord = async () => {
+  const handleToggleRecitation = async () => {
     if (isReciting) {
       await stopAndVerify();
     } else {
@@ -108,7 +108,7 @@ export default function ReviewScreen({ verse, onComplete }: ReviewScreenProps) {
             <View style={styles.voiceSection}>
               <WaveformVisualizer isReciting={isReciting} volumeLevel={volumeLevel} />
 
-              {!voiceResult && !isProcessing && (
+              {!voiceResult && !isVerifying && (
                 <Text style={styles.voiceHint}>
                   {isReciting
                     ? 'Listening... Recite the verse clearly and tap stop!'
@@ -116,10 +116,10 @@ export default function ReviewScreen({ verse, onComplete }: ReviewScreenProps) {
                 </Text>
               )}
 
-              {isProcessing && (
+              {isVerifying && (
                 <View style={styles.loadingBox}>
                   <ActivityIndicator size="small" color="#4f46e5" />
-                  <Text style={styles.loadingText}>Evaluating recitation with AI...</Text>
+                  <Text style={styles.loadingText}>Verifying recitation with AI...</Text>
                 </View>
               )}
 
@@ -164,8 +164,8 @@ export default function ReviewScreen({ verse, onComplete }: ReviewScreenProps) {
               <Button
                 title={isReciting ? '⏹ Stop & Verify' : '🎤 Start Reciting'}
                 color={isReciting ? '#ef4444' : '#4f46e5'}
-                onPress={handleToggleRecord}
-                disabled={isProcessing}
+                onPress={handleToggleRecitation}
+                disabled={isVerifying}
               />
             ) : (
               <View style={styles.doneActions}>

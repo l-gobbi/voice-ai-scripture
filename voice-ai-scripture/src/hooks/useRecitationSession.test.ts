@@ -41,4 +41,9 @@ describe('useRecitationSession hook (Ticket 08)', () => {
 
     expect(result.current.status).toBe('quota_exhausted');
   });
+
+  it('cleans up recitation session on unmount', async () => {
+    const { unmount } = await renderHook(() => useRecitationSession(mockVerse));
+    expect(() => unmount()).not.toThrow();
+  });
 });

@@ -1,4 +1,4 @@
-﻿import { Verse, VerseStorageService } from './VerseStorageService';
+import { Verse, VerseStorageService } from './VerseStorageService';
 import { SubscriptionService } from './SubscriptionService';
 import { audioRecorder, AudioRecorderService } from './AudioRecorderService';
 import { diffVerses, calculateScore, DiffToken } from '../engines/diffEngine';
@@ -8,7 +8,7 @@ import { transcribeAudio } from './WhisperService';
 export type RecitationStatus =
   | 'idle'
   | 'reciting'
-  | 'evaluating'
+  | 'verifying'
   | 'verified'
   | 'quota_exhausted'
   | 'error';
@@ -84,20 +84,20 @@ export class RecitationSession {
     this.setState({ errorMessage: null, result: null, volumeLevel: 0 });
 
     try {
-      // 1. Quota Gating Check
-      const quota = await SubscriptionService.consumeRecitation();
-      if (!quota.allowed) {
-        this.setState({ status: 'quota_exhausted' });
-        return;
-      }
-
-      // 2. Microphone Permissions
+      // 1. Microphone Permissions
       const hasPermission = await this.recorder.requestPermissions();
       if (!hasPermission) {
         this.setState({
           status: 'error',
           errorMessage: 'Microphone permission was not granted.',
         });
+        return;
+      }
+
+      // 2. Quota Gating Check
+      const quota = await SubscriptionService.consumeRecitation();
+      if (!quota.allowed) {
+        this.setState({ status: 'quota_exhausted' });
         return;
       }
 
@@ -120,7 +120,7 @@ export class RecitationSession {
       return null;
     }
 
-    this.setState({ status: 'evaluating', volumeLevel: 0 });
+    this.setState({ status: 'verifying', volumeLevel: 0 });
 
     try {
       this.currentAudioUri = await this.recorder.stopRecording();
@@ -150,6 +150,12 @@ export class RecitationSession {
         srsResult,
       };
 
+      // Atomic Privacy Invariant: discard audio file before publishing verified state
+      if (this.currentAudioUri) {
+        await this.recorder.deleteAudioFile(this.currentAudioUri);
+        this.currentAudioUri = null;
+      }
+
       this.setState({ status: 'verified', result });
       return result;
     } catch (err: any) {
@@ -159,7 +165,7 @@ export class RecitationSession {
       });
       return null;
     } finally {
-      // Atomic Privacy Invariant: audio recordings are immediately discarded
+      // Atomic Privacy Invariant: audio recordings are always discarded
       if (this.currentAudioUri) {
         await this.recorder.deleteAudioFile(this.currentAudioUri);
         this.currentAudioUri = null;
@@ -168,7 +174,12 @@ export class RecitationSession {
   }
 
   async reset(): Promise<void> {
-    if (this.currentAudioUri) {
+    if (this.state.status === 'reciting') {
+      const uri = await this.recorder.stopRecording();
+      if (uri) {
+        await this.recorder.deleteAudioFile(uri);
+      }
+    } else if (this.currentAudioUri) {
       await this.recorder.deleteAudioFile(this.currentAudioUri);
       this.currentAudioUri = null;
     }
@@ -180,3 +191,4 @@ export class RecitationSession {
     });
   }
 }
+

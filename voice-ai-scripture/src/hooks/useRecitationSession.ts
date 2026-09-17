@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { Verse } from '../services/VerseStorageService';
 import {
   RecitationSession,
@@ -16,9 +16,18 @@ export function useRecitationSession(
   options?: UseRecitationSessionOptions
 ) {
   const sessionRef = useRef<RecitationSession | null>(null);
+  const verseRef = useRef(verse);
 
-  if (!sessionRef.current) {
+  if (
+    !sessionRef.current ||
+    verseRef.current.id !== verse.id ||
+    verseRef.current.text !== verse.text
+  ) {
+    if (sessionRef.current) {
+      sessionRef.current.reset();
+    }
     sessionRef.current = new RecitationSession(verse, options);
+    verseRef.current = verse;
   }
 
   const [state, setState] = useState<RecitationState>(() =>
@@ -26,14 +35,15 @@ export function useRecitationSession(
   );
 
   useEffect(() => {
-    sessionRef.current = new RecitationSession(verse, options);
-    const session = sessionRef.current;
+    const session = sessionRef.current!;
+    setState(session.getState());
     const unsubscribe = session.subscribe((nextState) => {
       setState(nextState);
     });
 
     return () => {
       unsubscribe();
+      session.reset();
     };
   }, [verse.id, verse.text]);
 
