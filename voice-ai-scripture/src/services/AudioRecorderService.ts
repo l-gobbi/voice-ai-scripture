@@ -151,9 +151,22 @@ export class NativeAudioDriver implements AudioDriver {
     if (!uri) return false;
     try {
       const FileSystem = require('expo-file-system');
-      if (FileSystem?.deleteAsync) {
-        await FileSystem.deleteAsync(uri, { idempotent: true });
+      if (typeof FileSystem?.File === 'function') {
+        const file = new FileSystem.File(uri);
+        if (file.exists) {
+          file.delete();
+        }
+        return true;
       }
+
+      try {
+        const LegacyFileSystem = require('expo-file-system/legacy');
+        if (LegacyFileSystem?.deleteAsync) {
+          await LegacyFileSystem.deleteAsync(uri, { idempotent: true });
+          return true;
+        }
+      } catch {}
+
       return true;
     } catch {
       return true;
