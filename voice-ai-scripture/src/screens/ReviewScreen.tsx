@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -9,15 +9,12 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { calculateNextReview, DEFAULT_SRS_STATE, SRSState } from '../engines/srsEngine';
-import { VerseStorageService } from '../services/VerseStorageService';
-import { audioRecorder } from '../services/AudioRecorderService';
-import { transcribeAudio } from '../services/WhisperService';
-import { processVoiceRecitation, VoiceRecitationResult } from '../services/VoiceReviewController';
+import { VerseStorageService, Verse } from '../services/VerseStorageService';
+import { useRecitationSession } from '../hooks/useRecitationSession';
 import DiffView from '../components/DiffView';
 import PaywallModal from '../components/PaywallModal';
 import WaveformVisualizer from '../components/WaveformVisualizer';
 import { SubscriptionService } from '../services/SubscriptionService';
-import { Verse } from '../services/VerseStorageService';
 
 interface ReviewScreenProps {
   verse: Verse;
@@ -27,14 +24,26 @@ interface ReviewScreenProps {
 export default function ReviewScreen({ verse, onComplete }: ReviewScreenProps) {
   const [mode, setMode] = useState<'self-review' | 'voice'>('voice');
   const [isRevealed, setIsRevealed] = useState(false);
-
-  // Voice Mode State
-  const [isReciting, setIsReciting] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [volumeLevel, setVolumeLevel] = useState(0);
-  const [voiceResult, setVoiceResult] = useState<VoiceRecitationResult | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string>('');
   const [showPaywall, setShowPaywall] = useState(false);
+
+  const {
+    status,
+    volumeLevel,
+    result: voiceResult,
+    errorMessage,
+    startReciting,
+    stopAndVerify,
+    reset: resetRecitation,
+  } = useRecitationSession(verse);
+
+  const isReciting = status === 'reciting';
+  const isProcessing = status === 'evaluating';
+
+  useEffect(() => {
+    if (status === 'quota_exhausted') {
+      setShowPaywall(true);
+    }
+  }, [status]);
 
   // Manual Self-Review Verification
   const handleManualVerification = async (passed: boolean) => {
@@ -46,64 +55,12 @@ export default function ReviewScreen({ verse, onComplete }: ReviewScreenProps) {
     onComplete();
   };
 
-  // Voice Recitation Execution
+  // Voice Recitation Toggle
   const handleToggleRecord = async () => {
-    setErrorMessage('');
-    try {
-      if (!isReciting) {
-        // Gating Check: consume recitation attempt or show paywall
-        const quota = await SubscriptionService.consumeRecitation();
-        if (!quota.allowed) {
-          setShowPaywall(true);
-          return;
-        }
-
-        const hasPermission = await audioRecorder.requestPermissions();
-        if (!hasPermission) {
-          setErrorMessage('Microphone permission was not granted.');
-          return;
-        }
-        await audioRecorder.startRecording((level) => {
-          setVolumeLevel(level);
-        });
-        setIsReciting(true);
-        setVoiceResult(null);
-      } else {
-        setIsReciting(false);
-        setVolumeLevel(0);
-        setIsProcessing(true);
-
-        const uri = await audioRecorder.stopRecording();
-        if (!uri) {
-          setErrorMessage('No audio recorded.');
-          setIsProcessing(false);
-          return;
-        }
-
-        let transcriptText = '';
-        const apiKey = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
-
-        try {
-          if (!apiKey) {
-            // Simulation fallback for local testing without API key
-            transcriptText = verse.text;
-          } else {
-            const res = await transcribeAudio(uri, apiKey);
-            transcriptText = res.text;
-          }
-
-          const evaluation = await processVoiceRecitation(verse, transcriptText);
-          setVoiceResult(evaluation);
-        } finally {
-          // Spec data privacy requirement: audio recordings are immediately discarded
-          await audioRecorder.deleteAudioFile(uri);
-          setIsProcessing(false);
-        }
-      }
-    } catch (err: any) {
-      setErrorMessage(err.message || 'An error occurred during recitation.');
-      setIsReciting(false);
-      setIsProcessing(false);
+    if (isReciting) {
+      await stopAndVerify();
+    } else {
+      await startReciting();
     }
   };
 
@@ -118,7 +75,7 @@ export default function ReviewScreen({ verse, onComplete }: ReviewScreenProps) {
               style={[styles.modeTab, mode === 'voice' && styles.activeModeTab]}
               onPress={() => {
                 setMode('voice');
-                setVoiceResult(null);
+                resetRecitation();
               }}
             >
               🎤 Voice AI
@@ -212,7 +169,7 @@ export default function ReviewScreen({ verse, onComplete }: ReviewScreenProps) {
               />
             ) : (
               <View style={styles.doneActions}>
-                <Button title="Practice Again" color="#6b7280" onPress={() => setVoiceResult(null)} />
+                <Button title="Practice Again" color="#6b7280" onPress={resetRecitation} />
                 <View style={{ width: 16 }} />
                 <Button title="Done (Next Verse) →" color="#16a34a" onPress={onComplete} />
               </View>
