@@ -23,6 +23,26 @@ describe('VerseEngine (Ticket 09)', () => {
       expect(all[0].id).toBe(created.id);
     });
 
+    it('permits intentional multiple translations of the same reference via addVerse', async () => {
+      const storage = new MapStorageAdapter();
+      const engine = new VerseEngine(storage);
+
+      const niv = await engine.addVerse({
+        reference: 'John 3:16',
+        text: 'For God so loved the world that he gave his one and only Son...',
+      });
+
+      const esv = await engine.addVerse({
+        reference: 'John 3:16',
+        text: 'For God so loved the world, that he gave his only Son...',
+      });
+
+      expect(niv.id).not.toBe(esv.id);
+      const all = await engine.getAllVerses();
+      expect(all).toHaveLength(2);
+      expect(all.map((v) => v.text)).toEqual([niv.text, esv.text]);
+    });
+
     it('deletes a verse by id', async () => {
       const storage = new MapStorageAdapter();
       const engine = new VerseEngine(storage);
@@ -114,11 +134,45 @@ describe('VerseEngine (Ticket 09)', () => {
       const srsResult = await engine.recordReview(verse.id, 50, now);
 
       expect(srsResult.streak).toBe(0);
-      expect(srsResult.repetitions).toBe(0);
       expect(srsResult.intervalDays).toBe(1);
 
       const reloaded = await engine.getAllVerses();
       expect(reloaded[0].srs?.streak).toBe(0);
+    });
+
+    it('handles binary manual review failure with score = 0', async () => {
+      const storage = new MapStorageAdapter();
+      const engine = new VerseEngine(storage);
+
+      const verse = await engine.addVerse({ reference: 'Psalm 119:105', text: 'Your word is a lamp...' });
+      const now = new Date('2026-09-17T10:00:00.000Z');
+
+      const srsResult = await engine.recordReview(verse.id, 0, now);
+
+      expect(srsResult.streak).toBe(0);
+      expect(srsResult.passed).toBe(false);
+      expect(srsResult.intervalDays).toBe(1);
+
+      const all = await engine.getAllVerses();
+      expect(all[0].srs?.streak).toBe(0);
+    });
+
+    it('evaluates passing threshold accurately at score = 80 (pass) vs 79 (fail)', async () => {
+      const storage = new MapStorageAdapter();
+      const engine = new VerseEngine(storage);
+
+      const vPass = await engine.addVerse({ reference: 'Hebrews 11:1', text: 'Now faith is confidence...' });
+      const vFail = await engine.addVerse({ reference: 'Hebrews 11:6', text: 'And without faith...' });
+      const now = new Date('2026-09-17T10:00:00.000Z');
+
+      const passResult = await engine.recordReview(vPass.id, 80, now);
+      const failResult = await engine.recordReview(vFail.id, 79, now);
+
+      expect(passResult.passed).toBe(true);
+      expect(passResult.streak).toBe(1);
+
+      expect(failResult.passed).toBe(false);
+      expect(failResult.streak).toBe(0);
     });
 
     it('throws when recording review for a non-existent verse', async () => {

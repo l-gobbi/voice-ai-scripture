@@ -1,8 +1,7 @@
-import { Verse, VerseEngine, verseEngine } from './VerseEngine';
+import { Verse, VerseEngine, verseEngine, SRSResult } from './VerseEngine';
 import { SubscriptionService } from './SubscriptionService';
 import { audioRecorder, AudioRecorderService } from './AudioRecorderService';
 import { diffVerses, calculateScore, DiffToken } from '../engines/diffEngine';
-import { PASSING_SCORE_THRESHOLD, SRSResult } from '../engines/srsEngine';
 import { transcribeAudio } from './WhisperService';
 
 export type RecitationStatus =
@@ -138,10 +137,10 @@ export class RecitationSession {
       const transcript = await this.transcriber(this.currentAudioUri);
       const tokens = diffVerses(this.verse.text, transcript);
       const score = calculateScore(tokens);
-      const passed = score >= PASSING_SCORE_THRESHOLD;
 
       // Coordinate review recording and SM-2 progression via VerseEngine
       const srsResult = await this.verseEngine.recordReview(this.verse.id, score);
+      const passed = srsResult.passed;
 
       const result: VoiceRecitationResult = {
         tokens,

@@ -125,6 +125,7 @@ describe('RecitationSession (Ticket 07)', () => {
         intervalDays: 1,
         easeFactor: 2.5,
         nextReviewDate: new Date(),
+        passed: true,
       });
 
       // Injected mock speech transcriber that returns verbatim text
@@ -160,6 +161,7 @@ describe('RecitationSession (Ticket 07)', () => {
         intervalDays: 1,
         easeFactor: 2.5,
         nextReviewDate: new Date(),
+        passed: false,
       });
 
       // Injected transcriber with incorrect text
@@ -193,6 +195,7 @@ describe('RecitationSession (Ticket 07)', () => {
         intervalDays: 1,
         easeFactor: 2.5,
         nextReviewDate: new Date(),
+        passed: true,
       });
 
       let statusDuringVerification: string | null = null;
@@ -298,6 +301,7 @@ describe('RecitationSession (Ticket 07)', () => {
         intervalDays: 1,
         easeFactor: 2.5,
         nextReviewDate: new Date(),
+        passed: true,
       });
 
       const mockTranscriber = jest.fn().mockResolvedValueOnce(mockVerse.text);

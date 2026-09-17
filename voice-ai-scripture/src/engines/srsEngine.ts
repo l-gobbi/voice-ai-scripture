@@ -7,6 +7,7 @@ export interface SRSState {
 
 export interface SRSResult extends SRSState {
   nextReviewDate: Date;
+  passed: boolean;
 }
 
 export const PASSING_SCORE_THRESHOLD = 80;
@@ -64,6 +65,7 @@ export function calculateNextReview(
     intervalDays,
     easeFactor: Math.round(easeFactor * 100) / 100,
     nextReviewDate,
+    passed: isPassing,
   };
 }
 

@@ -1,6 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { DEFAULT_SRS_STATE, SRSResult, SRSState, calculateNextReview, isVerseDue } from '../engines/srsEngine';
 
+export { SRSResult };
+
 export interface Verse {
   id: string;
   reference: string;
@@ -33,7 +35,7 @@ export class MapStorageAdapter implements StorageAdapter {
   }
 }
 
-export class AsyncStorageAdapter implements StorageAdapter {
+class AsyncStorageAdapter implements StorageAdapter {
   async getItem(key: string): Promise<string | null> {
     return AsyncStorage.getItem(key);
   }
@@ -48,6 +50,12 @@ const STORAGE_KEY = 'verses';
 const createInitialSRS = () => ({
   ...DEFAULT_SRS_STATE,
   nextReviewDate: new Date().toISOString(),
+});
+
+const createVerseRecord = (verseData: Omit<Verse, 'id' | 'srs'>): Verse => ({
+  ...verseData,
+  id: `${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+  srs: createInitialSRS(),
 });
 
 export class VerseEngine {
@@ -84,11 +92,7 @@ export class VerseEngine {
 
   async addVerse(verseData: Omit<Verse, 'id' | 'srs'>): Promise<Verse> {
     const verses = await this.getAllVerses();
-    const newVerse: Verse = {
-      ...verseData,
-      id: `${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-      srs: createInitialSRS(),
-    };
+    const newVerse = createVerseRecord(verseData);
     verses.push(newVerse);
     await this.storage.setItem(STORAGE_KEY, JSON.stringify(verses));
     return newVerse;
@@ -103,11 +107,7 @@ export class VerseEngine {
     for (const v of versesToImport) {
       const normalized = v.reference.trim().toLowerCase();
       if (!existingRefs.has(normalized)) {
-        newVerses.push({
-          ...v,
-          id: `${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-          srs: createInitialSRS(),
-        });
+        newVerses.push(createVerseRecord(v));
         existingRefs.add(normalized);
       }
     }
@@ -137,10 +137,9 @@ export class VerseEngine {
     const currentSRS: SRSState = currentVerse.srs || DEFAULT_SRS_STATE;
     const srsResult = calculateNextReview(currentSRS, score, now);
 
-    const streak = srsResult.streak ?? srsResult.repetitions ?? 0;
+    const streak = srsResult.streak ?? 0;
     verses[index].srs = {
       streak,
-      repetitions: streak,
       intervalDays: srsResult.intervalDays,
       easeFactor: srsResult.easeFactor,
       nextReviewDate: srsResult.nextReviewDate.toISOString(),
