@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Logic Prototype: Voice-AI Scripture Diff Engine</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 2rem;
+            color: #333;
+            line-height: 1.6;
+        }
+        h1 { margin-bottom: 0.5rem; }
+        .description { color: #666; margin-bottom: 2rem; }
+        .panel {
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        .verse-expected { font-size: 1.2rem; font-style: italic; color: #4b5563; margin-bottom: 1rem; }
+        .buttons { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1.5rem; }
+        button {
+            background: #2563eb; color: white; border: none; padding: 0.5rem 1rem;
+            border-radius: 4px; cursor: pointer; font-size: 1rem;
+        }
+        button:hover { background: #1d4ed8; }
+        button.sim { background: #4b5563; }
+        button.sim:hover { background: #374151; }
+        
+        .diff-output {
+            font-size: 1.5rem;
+            line-height: 2;
+            padding: 1.5rem;
+            background: white;
+            border-radius: 8px;
+            border: 1px solid #e5e7eb;
+            min-height: 100px;
+        }
+        .word { padding: 0.2rem 0.4rem; border-radius: 4px; margin: 0 0.2rem; display: inline-block; }
+        .word.correct { color: #166534; background: #dcfce7; }
+        .word.missed { color: #991b1b; background: #fee2e2; text-decoration: line-through; }
+        .word.added { color: #9a3412; background: #ffedd5; border: 1px dashed #c2410c; }
+        
+        .status { margin-top: 1rem; font-weight: bold; }
+        
+        /* Tabs for guided scenarios */
+        .tabs { display: flex; border-bottom: 1px solid #e5e7eb; margin-bottom: 1rem; }
+        .tab { padding: 0.5rem 1rem; cursor: pointer; background: none; color: #6b7280; }
+        .tab.active { color: #2563eb; border-bottom: 2px solid #2563eb; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+    <h1>Voice-AI Scripture Diff Engine</h1>
+    <p class="description">
+        <strong>Question being answered:</strong> Does a standard word-level diffing algorithm provide a readable and useful evaluation for a user reciting a memory verse? How does it handle skipped words, stutters, and additions?
+    </p>
+
+    <div class="panel">
+        <h2>Target Verse: John 3:16 (KJV)</h2>
+        <div class="verse-expected" id="expectedText">
+            For God so loved the world, that he gave his only begotten Son, that whosoever believeth in him should not perish, but have everlasting life.
+        </div>
+    </div>
+
+    <div class="tabs">
+        <button class="tab active">Free Play (Mic or Sim)</button>
+    </div>
+
+    <div class="buttons">
+        <button id="btn-record">🎤 Start Microphone (Requires Chrome)</button>
+        <button class="sim" id="btn-sim-perfect">Simulate: Perfect</button>
+        <button class="sim" id="btn-sim-skip">Simulate: Skipped "begotten"</button>
+        <button class="sim" id="btn-sim-stutter">Simulate: Added words & stutter</button>
+        <button class="sim" id="btn-sim-blank">Clear</button>
+    </div>
+
+    <div class="panel">
+        <h2>Diff Result</h2>
+        <div id="diff-output" class="diff-output">Waiting for input...</div>
+        <div id="score-output" class="status"></div>
+        <div id="srs-output" class="status"></div>
+    </div>
+
+    <script>
+        // ==========================================
+        // PURE LOGIC MODULE: The Diff & SRS Engine
+        // ==========================================
+        
+        // 1. Tokenize and normalize text (strip punctuation, lowercase)
+        const normalize = text => text.toLowerCase().replace(/[^\w\s]/gi, '').split(/\s+/).filter(w => w);
+
+        // 2. Diff Algorithm (Dynamic Programming Edit Distance)
+        function diffVerses(expectedStr, transcribedStr) {
+            const exp = normalize(expectedStr);
+            const trn = normalize(transcribedStr);
+
+            if (exp.length === 0) return [];
+
+            // Create DP table
+            const dp = Array(exp.length + 1).fill(null).map(() => Array(trn.length + 1).fill(0));
+            for (let i = 1; i <= exp.length; i++) dp[i][0] = i;
+            for (let j = 1; j <= trn.length; j++) dp[0][j] = j;
+
+            for (let i = 1; i <= exp.length; i++) {
+                for (let j = 1; j <= trn.length; j++) {
+                    if (exp[i - 1] === trn[j - 1]) {
+                        dp[i][j] = dp[i - 1][j - 1];
+                    } else {
+                        dp[i][j] = 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
+                    }
+                }
+            }
+
+            // Backtrack to find alignment
+            let i = exp.length;
+            let j = trn.length;
+            const result = [];
+            
+            while (i > 0 || j > 0) {
+                if (i > 0 && j > 0 && exp[i - 1] === trn[j - 1]) {
+                    result.unshift({ word: exp[i-1], status: 'correct' });
+                    i--; j--;
+                } else if (j > 0 && (i === 0 || dp[i][j - 1] + 1 === dp[i][j])) {
+                    result.unshift({ word: trn[j - 1], status: 'added' });
+                    j--;
+                } else if (i > 0 && (j === 0 || dp[i - 1][j] + 1 === dp[i][j])) {
+                    result.unshift({ word: exp[i - 1], status: 'missed' });
+                    i--;
+                } else {
+                    // Substitution (treat as missed expected + added new)
+                    result.unshift({ word: trn[j - 1], status: 'added' });
+                    result.unshift({ word: exp[i - 1], status: 'missed' });
+                    i--; j--;
+                }
+            }
+            return result;
+        }
+
+        // 3. Score Calculation
+        function calculateScore(diffResult) {
+            if (diffResult.length === 0) return 0;
+            const correctCount = diffResult.filter(r => r.status === 'correct').length;
+            const missedCount = diffResult.filter(r => r.status === 'missed').length;
+            
+            // Score based on expected words. Addition penalties can be applied if needed.
+            const totalExpected = correctCount + missedCount; 
+            return Math.round((correctCount / totalExpected) * 100);
+        }
+
+        // 4. Basic SRS Engine (Mock SM-2 style)
+        function getNextReview(score) {
+            if (score >= 95) return "Perfect! Review in 3 days.";
+            if (score >= 80) return "Good! Review tomorrow.";
+            return "Needs work. Review again today.";
+        }
+
+        // ==========================================
+        // UI WIRING (Throwaway)
+        // ==========================================
+        
+        const expectedText = document.getElementById('expectedText').innerText;
+        const diffOutput = document.getElementById('diff-output');
+        const scoreOutput = document.getElementById('score-output');
+        const srsOutput = document.getElementById('srs-output');
+        
+        function renderState(transcribedText) {
+            if (!transcribedText) {
+                diffOutput.innerHTML = 'Waiting for input...';
+                scoreOutput.innerHTML = '';
+                srsOutput.innerHTML = '';
+                return;
+            }
+
+            const result = diffVerses(expectedText, transcribedText);
+            const score = calculateScore(result);
+            
+            // Render diff
+            diffOutput.innerHTML = result.map(r => 
+                `<span class="word ${r.status}">${r.word}</span>`
+            ).join(' ');
+
+            // Render score
+            scoreOutput.innerHTML = `Accuracy Score: ${score}%`;
+            srsOutput.innerHTML = `Next SRS Action: ${getNextReview(score)}`;
+        }
+
+        // Browser Speech API (Chrome/Safari)
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (SpeechRecognition) {
+            const recognition = new SpeechRecognition();
+            recognition.continuous = false;
+            recognition.interimResults = false;
+
+            document.getElementById('btn-record').addEventListener('click', () => {
+                diffOutput.innerHTML = '<em>Listening... (speak clearly)</em>';
+                recognition.start();
+            });
+
+            recognition.onresult = (event) => {
+                const transcript = event.results[0][0].transcript;
+                renderState(transcript);
+            };
+
+            recognition.onerror = (e) => {
+                diffOutput.innerHTML = `<em>Microphone error: ${e.error}</em>`;
+            };
+        } else {
+            document.getElementById('btn-record').innerText = "🎤 Mic not supported in this browser";
+            document.getElementById('btn-record').disabled = true;
+        }
+
+        // Simulations
+        document.getElementById('btn-sim-perfect').addEventListener('click', () => {
+            renderState("For God so loved the world, that he gave his only begotten Son, that whosoever believeth in him should not perish, but have everlasting life.");
+        });
+
+        document.getElementById('btn-sim-skip').addEventListener('click', () => {
+            renderState("For God so loved the world that he gave his only son that whosoever believes in him should not perish but have everlasting life");
+        });
+
+        document.getElementById('btn-sim-stutter').addEventListener('click', () => {
+            renderState("For God so loved loved the world that he gave his only begotten son um that whosoever believeth in him should not perish but have everlasting life forever");
+        });
+
+        document.getElementById('btn-sim-blank').addEventListener('click', () => renderState(""));
+
+    </script>
+</body>
+</html>
