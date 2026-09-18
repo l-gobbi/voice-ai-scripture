@@ -5,10 +5,10 @@ Enable the domain layer (`VerseEngine`) to permanently remove a stored verse and
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** closed
 
-- [x] Add `deleteVerse(id: string): Promise<boolean>` to `VerseEngine`
-- [x] Ensure `deleteVerse` removes the matching verse and persists the updated array to storage, returning `true`
-- [x] Ensure `deleteVerse` leaves storage unchanged and returns `false` if the ID does not match any existing verse
-- [x] Verify `getVersesSummary()` accurately reflects decremented counts and excluded due verses after deletion
+- [x] Add `deleteVerse(id: string): Promise<VerseSummary>` to `VerseEngine` class.
+- [x] Implement atomic filtering and storage persistence via `StorageAdapter.setItem('verses', ...)`.
+- [x] Ensure deleted verse is removed from due queue and summary counts update accurately.
+- [x] Add unit tests covering successful deletion, non-existent ID handling, and summary integrity. `getVersesSummary()` accurately reflects decremented counts and excluded due verses after deletion
 - [x] Add comprehensive unit tests in `VerseEngine.test.ts` exercising `deleteVerse` with `MapStorageAdapter`

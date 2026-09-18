@@ -5,7 +5,7 @@ Create an accessible, cross-platform React Native modal dialog component (`Delet
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** closed
 
 - [x] Create `src/components/DeleteConfirmationModal.tsx` accepting `visible`, `verse` (or `reference`), `onConfirm`, and `onCancel` props
 - [x] Render a semi-transparent overlay backdrop with a centered, rounded alert container

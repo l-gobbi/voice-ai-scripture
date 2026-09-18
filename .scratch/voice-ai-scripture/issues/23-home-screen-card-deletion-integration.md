@@ -5,7 +5,7 @@ Integrate the delete button and confirmation modal into `HomeScreen`. Each verse
 
 **Blocked by:** 21 (Domain Method for Verse Removal), 22 (Cross-Platform Delete Confirmation Modal)
 
-**Status:** ready-for-agent
+**Status:** closed
 
 - [x] Add an isolated delete touchable button (`🗑️` or icon) on each verse card header with `testID="delete-verse-{id}"` and accessible labeling
 - [x] Ensure tapping the delete button does NOT trigger the card's `activeReviewVerse` navigation
