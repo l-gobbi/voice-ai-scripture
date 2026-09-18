@@ -165,7 +165,6 @@ export class RecitationSession {
 
       const res = await this.transcriber.transcribe(this.currentAudioUri, {
         prompt,
-        simulatedText: this.verse.text,
         language,
       });
       const transcript = res.text;

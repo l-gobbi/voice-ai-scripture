@@ -3,6 +3,7 @@ export type TranscriptionErrorCode =
   | 'unauthorized'
   | 'rate_limited'
   | 'unintelligible'
+  | 'unavailable'
   | 'unknown';
 
 export class TranscriptionError extends Error {
@@ -23,6 +24,8 @@ export class TranscriptionError extends Error {
         return 'Transcription service is temporarily busy. Please try again shortly.';
       case 'unauthorized':
         return 'Transcription authentication failed. Please check your API key.';
+      case 'unavailable':
+        return 'Speech recognition is not available on this device or browser. Please configure an OpenAI API key in .env or use a supported environment.';
       case 'unintelligible':
         return 'Could not transcribe audio. Please speak clearly and try again.';
       case 'unknown':
@@ -133,6 +136,10 @@ export class SimulatedTranscriber implements SpeechTranscriber {
     if (this.handler) {
       const text = await this.handler(audioUri, options);
       return { text };
+    }
+
+    if (this.defaultText) {
+      return { text: this.defaultText };
     }
 
     if (options?.simulatedText !== undefined) {

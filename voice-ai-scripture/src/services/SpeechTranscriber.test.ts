@@ -65,10 +65,11 @@ describe('SpeechTranscriber Seam (Ticket 11)', () => {
         const transcriber = createDefaultTranscriber('');
         expect(transcriber).toBeInstanceOf(NativeSpeechTranscriber);
 
-        const result = await transcriber.transcribe('file:///audio.m4a', {
-          prompt: 'Proverbs 3:5',
-        });
-        expect(result.text).toBe('Proverbs 3:5');
+        await expect(
+          transcriber.transcribe('file:///audio.m4a', {
+            prompt: 'Proverbs 3:5',
+          })
+        ).rejects.toThrow(TranscriptionError);
       } finally {
         if (previousKey) {
           process.env.EXPO_PUBLIC_OPENAI_API_KEY = previousKey;

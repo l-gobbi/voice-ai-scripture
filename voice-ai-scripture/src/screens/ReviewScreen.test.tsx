@@ -8,6 +8,7 @@ import {
   setDefaultSpeechSynthesizer,
   MockSpeechSynthesizer,
 } from '../services/SpeechSynthesizer';
+import { SimulatedTranscriber } from '../services/SpeechTranscriber';
 
 jest.mock('@react-native-async-storage/async-storage', () =>
   require('@react-native-async-storage/async-storage/jest/async-storage-mock')
@@ -118,8 +119,16 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
       passed: true,
     });
 
+    const mockTranscriber = new SimulatedTranscriber({
+      defaultText: mockVerse.text,
+    });
+
     const { getByText, findAllByText, findByText } = await render(
-      <ReviewScreen verse={mockVerse} onComplete={onComplete} />
+      <ReviewScreen
+        verse={mockVerse}
+        onComplete={onComplete}
+        transcriber={mockTranscriber}
+      />
     );
 
     // In Level 3, all words are blanked. Find the blank tokens

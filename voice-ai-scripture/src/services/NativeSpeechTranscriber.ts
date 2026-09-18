@@ -50,7 +50,7 @@ export class NativeSpeechTranscriber implements SpeechTranscriber {
 
   constructor(config?: NativeSpeechTranscriberConfig) {
     this.driver = config?.driver ?? new DefaultNativeDriver();
-    this.fallbackToPrompt = config?.fallbackToPrompt ?? true;
+    this.fallbackToPrompt = config?.fallbackToPrompt ?? false;
   }
 
   async transcribe(audioUri: string, options?: TranscriptionOptions): Promise<TranscriptionResult> {
@@ -58,15 +58,23 @@ export class NativeSpeechTranscriber implements SpeechTranscriber {
 
     try {
       const available = await this.driver.isAvailable();
-      if (available) {
-        const text = await this.driver.transcribeAudio(audioUri, {
-          language: formattedLang,
-          prompt: options?.prompt,
-        });
-
-        if (text && text.trim().length > 0) {
-          return { text: text.trim() };
+      if (!available) {
+        if (this.fallbackToPrompt && (options?.prompt || options?.simulatedText)) {
+          return { text: options.simulatedText ?? options.prompt ?? '' };
         }
+        throw new TranscriptionError(
+          'unavailable',
+          'Native speech recognition is not available on this device or platform.'
+        );
+      }
+
+      const text = await this.driver.transcribeAudio(audioUri, {
+        language: formattedLang,
+        prompt: options?.prompt,
+      });
+
+      if (text && text.trim().length > 0) {
+        return { text: text.trim() };
       }
 
       if (this.fallbackToPrompt && (options?.prompt || options?.simulatedText)) {
@@ -75,7 +83,7 @@ export class NativeSpeechTranscriber implements SpeechTranscriber {
 
       throw new TranscriptionError(
         'unintelligible',
-        'Native speech recognition could not transcribe audio.'
+        'Native speech recognition could not transcribe audio. No speech was detected.'
       );
     } catch (err: any) {
       if (err instanceof TranscriptionError) {

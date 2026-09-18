@@ -23,16 +23,17 @@ import {
   ClozeToken,
 } from '../engines/clozeEngine';
 import { getDefaultSpeechSynthesizer } from '../services/SpeechSynthesizer';
-import { inferVerseLanguage } from '../services/RecitationSession';
+import { inferVerseLanguage, SpeechTranscriber } from '../services/RecitationSession';
 
 export type RecitationLevel = 1 | 2 | 3;
 
 interface ReviewScreenProps {
   verse: Verse;
   onComplete: () => void;
+  transcriber?: SpeechTranscriber;
 }
 
-export default function ReviewScreen({ verse, onComplete }: ReviewScreenProps) {
+export default function ReviewScreen({ verse, onComplete, transcriber }: ReviewScreenProps) {
   const [level, setLevel] = useState<RecitationLevel>(3);
   const [level1Revealed, setLevel1Revealed] = useState(false);
   const [clozeTokens, setClozeTokens] = useState<ClozeToken[]>([]);
@@ -54,7 +55,7 @@ export default function ReviewScreen({ verse, onComplete }: ReviewScreenProps) {
     startReciting,
     stopAndVerify,
     reset: resetRecitation,
-  } = useRecitationSession(verse);
+  } = useRecitationSession(verse, { transcriber });
 
   const isReciting = status === 'reciting';
   const isVerifying = status === 'verifying';

@@ -351,12 +351,11 @@ describe('RecitationSession (Ticket 07)', () => {
 
       expect(mockTranscribe).toHaveBeenCalledWith('file:///audio/prompt-test.m4a', {
         prompt: `${mockVerse.reference}: ${mockVerse.text}`,
-        simulatedText: mockVerse.text,
         language: 'en',
       });
     });
 
-    it('achieves 100% verified recitation score using default SimulatedTranscriber with canonical prompt conditioning', async () => {
+    it('achieves 100% verified recitation score when transcribed speech matches verse text', async () => {
       jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValueOnce(true);
       jest.spyOn(audioRecorder, 'startRecording').mockResolvedValueOnce(undefined);
       jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValueOnce('file:///audio/sim-test.m4a');
@@ -370,14 +369,44 @@ describe('RecitationSession (Ticket 07)', () => {
         passed: true,
       });
 
-      // No transcriber passed: defaults to createDefaultTranscriber() -> SimulatedTranscriber
-      const session = createTestSession(mockVerse);
+      const simulatedTranscriber = new SimulatedTranscriber({
+        defaultText: mockVerse.text,
+      });
+      const session = createTestSession(mockVerse, { transcriber: simulatedTranscriber });
       await session.startReciting();
       const result = await session.stopAndVerify();
 
       expect(result).not.toBeNull();
       expect(result?.score).toBe(100);
       expect(result?.passed).toBe(true);
+      expect(session.getState().status).toBe('verified');
+    });
+
+    it('calculates imperfect score when transcribed speech only partially matches verse text', async () => {
+      jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValueOnce(true);
+      jest.spyOn(audioRecorder, 'startRecording').mockResolvedValueOnce(undefined);
+      jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValueOnce('file:///audio/partial-test.m4a');
+      jest.spyOn(audioRecorder, 'deleteAudioFile').mockResolvedValueOnce(true);
+      jest.spyOn(verseEngine, 'recordReview').mockResolvedValueOnce({
+        streak: 0,
+        repetitions: 0,
+        intervalDays: 1,
+        easeFactor: 2.5,
+        nextReviewDate: new Date(),
+        passed: false,
+      });
+
+      const simulatedTranscriber = new SimulatedTranscriber({
+        defaultText: 'For God loved the world',
+      });
+      const session = createTestSession(mockVerse, { transcriber: simulatedTranscriber });
+      await session.startReciting();
+      const result = await session.stopAndVerify();
+
+      expect(result).not.toBeNull();
+      expect(result?.score).toBeLessThan(100);
+      expect(result?.score).toBeGreaterThan(0);
+      expect(result?.passed).toBe(false);
       expect(session.getState().status).toBe('verified');
     });
 
