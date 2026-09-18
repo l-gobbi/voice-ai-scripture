@@ -133,7 +133,10 @@ export class RecitationSession {
       }
 
       const prompt = `${this.verse.reference}: ${this.verse.text}`;
-      const res = await this.transcriber.transcribe(this.currentAudioUri, { prompt });
+      const res = await this.transcriber.transcribe(this.currentAudioUri, {
+        prompt,
+        simulatedText: this.verse.text,
+      });
       const transcript = res.text;
 
       const tokens = diffVerses(this.verse.text, transcript);

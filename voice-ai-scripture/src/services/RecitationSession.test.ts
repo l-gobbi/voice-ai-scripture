@@ -371,6 +371,7 @@ describe('RecitationSession (Ticket 07)', () => {
 
       expect(mockTranscribe).toHaveBeenCalledWith('file:///audio/prompt-test.m4a', {
         prompt: `${mockVerse.reference}: ${mockVerse.text}`,
+        simulatedText: mockVerse.text,
       });
     });
 

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, Button, ActivityIndicator, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { audioRecorder } from '../services/AudioRecorderService';
-import { createDefaultTranscriber } from '../services/SpeechTranscriber';
+import { createDefaultTranscriber, TranscriptionError } from '../services/SpeechTranscriber';
 
 interface VoiceSpikeScreenProps {
   onBack: () => void;
@@ -73,11 +73,15 @@ export default function VoiceSpikeScreen({ onBack }: VoiceSpikeScreenProps) {
 
         const transcriber = createDefaultTranscriber();
         const result = await transcriber.transcribe(uri);
-        setTranscription(result.text || '(Simulated audio - no speech detected)');
+        setTranscription(result.text);
         setIsTranscribing(false);
       }
     } catch (err: any) {
-      setErrorMessage(err.message || 'An error occurred during recording.');
+      const message =
+        err instanceof TranscriptionError
+          ? err.getUserFacingMessage()
+          : err?.message || 'An error occurred during recording.';
+      setErrorMessage(message);
       setIsRecording(false);
       setIsTranscribing(false);
     }
