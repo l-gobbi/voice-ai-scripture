@@ -72,9 +72,7 @@ export default function VoiceSpikeScreen({ onBack }: VoiceSpikeScreenProps) {
         }
 
         const transcriber = createDefaultTranscriber();
-        const result = await transcriber.transcribe(uri, {
-          prompt: 'For God so loved the world that he gave his only begotten Son',
-        });
+        const result = await transcriber.transcribe(uri);
         setTranscription(result.text);
         setIsTranscribing(false);
       }

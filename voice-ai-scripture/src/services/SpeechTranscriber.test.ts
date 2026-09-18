@@ -180,5 +180,43 @@ describe('SpeechTranscriber Seam (Ticket 11)', () => {
         }
       }
     });
+
+    it('logs a development notice when falling back to SimulatedTranscriber', () => {
+      const previousKey = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
+      delete process.env.EXPO_PUBLIC_OPENAI_API_KEY;
+      const infoSpy = jest.spyOn(console, 'info').mockImplementation(() => {});
+
+      try {
+        createDefaultTranscriber('');
+        expect(infoSpy).toHaveBeenCalledWith(
+          expect.stringContaining('[SpeechTranscriber] No OpenAI API key configured')
+        );
+      } finally {
+        infoSpy.mockRestore();
+        if (previousKey) {
+          process.env.EXPO_PUBLIC_OPENAI_API_KEY = previousKey;
+        }
+      }
+    });
+  });
+
+  describe('Hardening: TranscriptionError Domain Method', () => {
+    it('returns friendly user-facing messages directly from TranscriptionError', () => {
+      expect(new TranscriptionError('network_error', 'raw err').getUserFacingMessage()).toBe(
+        'Network connection failed. Please check your internet connection.'
+      );
+      expect(new TranscriptionError('rate_limited', 'raw err').getUserFacingMessage()).toBe(
+        'Transcription service is temporarily busy. Please try again shortly.'
+      );
+      expect(new TranscriptionError('unauthorized', 'raw err').getUserFacingMessage()).toBe(
+        'Transcription authentication failed. Please check your API key.'
+      );
+      expect(new TranscriptionError('unintelligible', 'raw err').getUserFacingMessage()).toBe(
+        'Could not transcribe audio. Please speak clearly and try again.'
+      );
+      expect(new TranscriptionError('unknown', 'raw err').getUserFacingMessage()).toBe(
+        'An unexpected transcription error occurred.'
+      );
+    });
   });
 });

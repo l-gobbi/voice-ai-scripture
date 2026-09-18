@@ -130,7 +130,9 @@ describe('RecitationSession (Ticket 07)', () => {
       });
 
       // Injected mock speech transcriber that returns verbatim text
-      const mockTranscriber = jest.fn().mockResolvedValueOnce(mockVerse.text);
+      const mockTranscriber: SpeechTranscriber = {
+        transcribe: jest.fn().mockResolvedValueOnce({ text: mockVerse.text }),
+      };
 
       const session = new RecitationSession(mockVerse, { transcriber: mockTranscriber });
       await session.startReciting();
@@ -166,7 +168,9 @@ describe('RecitationSession (Ticket 07)', () => {
       });
 
       // Injected transcriber with incorrect text
-      const mockTranscriber = jest.fn().mockResolvedValueOnce('Totally different words');
+      const mockTranscriber: SpeechTranscriber = {
+        transcribe: jest.fn().mockResolvedValueOnce({ text: 'Totally different words' }),
+      };
 
       const session = new RecitationSession(mockVerse, { transcriber: mockTranscriber });
       await session.startReciting();
@@ -201,10 +205,12 @@ describe('RecitationSession (Ticket 07)', () => {
 
       let statusDuringVerification: string | null = null;
       let sessionInstance: RecitationSession | null = null;
-      const mockTranscriber = jest.fn().mockImplementation(async () => {
-        statusDuringVerification = sessionInstance?.getState().status ?? null;
-        return mockVerse.text;
-      });
+      const mockTranscriber: SpeechTranscriber = {
+        transcribe: jest.fn().mockImplementation(async () => {
+          statusDuringVerification = sessionInstance?.getState().status ?? null;
+          return { text: mockVerse.text };
+        }),
+      };
 
       sessionInstance = new RecitationSession(mockVerse, { transcriber: mockTranscriber });
       await sessionInstance.startReciting();
@@ -227,7 +233,9 @@ describe('RecitationSession (Ticket 07)', () => {
       jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValueOnce('file:///audio/privacy-test.m4a');
       const deleteSpy = jest.spyOn(audioRecorder, 'deleteAudioFile').mockResolvedValueOnce(true);
 
-      const mockTranscriber = jest.fn().mockResolvedValueOnce(mockVerse.text);
+      const mockTranscriber: SpeechTranscriber = {
+        transcribe: jest.fn().mockResolvedValueOnce({ text: mockVerse.text }),
+      };
       const session = new RecitationSession(mockVerse, { transcriber: mockTranscriber });
 
       await session.startReciting();
@@ -247,7 +255,9 @@ describe('RecitationSession (Ticket 07)', () => {
       jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValueOnce('file:///audio/failing-network.m4a');
       const deleteSpy = jest.spyOn(audioRecorder, 'deleteAudioFile').mockResolvedValueOnce(true);
 
-      const failingTranscriber = jest.fn().mockRejectedValueOnce(new Error('Network timeout'));
+      const failingTranscriber: SpeechTranscriber = {
+        transcribe: jest.fn().mockRejectedValueOnce(new Error('Network timeout')),
+      };
       const session = new RecitationSession(mockVerse, { transcriber: failingTranscriber });
 
       await session.startReciting();
@@ -305,7 +315,9 @@ describe('RecitationSession (Ticket 07)', () => {
         passed: true,
       });
 
-      const mockTranscriber = jest.fn().mockResolvedValueOnce(mockVerse.text);
+      const mockTranscriber: SpeechTranscriber = {
+        transcribe: jest.fn().mockResolvedValueOnce({ text: mockVerse.text }),
+      };
       const session = new RecitationSession(mockVerse, { transcriber: mockTranscriber });
 
       await session.startReciting();
@@ -358,8 +370,38 @@ describe('RecitationSession (Ticket 07)', () => {
       await session.stopAndVerify();
 
       expect(mockTranscribe).toHaveBeenCalledWith('file:///audio/prompt-test.m4a', {
-        prompt: `${mockVerse.reference}: ${mockVerse.text}`,
+        prompt: mockVerse.text,
       });
+    });
+
+    it('achieves 100% verified recitation score using default SimulatedTranscriber without prompt reference pollution', async () => {
+      jest.spyOn(SubscriptionService, 'consumeRecitation').mockResolvedValueOnce({
+        allowed: true,
+        remaining: 3,
+        isSubscribed: true,
+      });
+      jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValueOnce(true);
+      jest.spyOn(audioRecorder, 'startRecording').mockResolvedValueOnce(undefined);
+      jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValueOnce('file:///audio/sim-test.m4a');
+      jest.spyOn(audioRecorder, 'deleteAudioFile').mockResolvedValueOnce(true);
+      jest.spyOn(verseEngine, 'recordReview').mockResolvedValueOnce({
+        streak: 1,
+        repetitions: 1,
+        intervalDays: 1,
+        easeFactor: 2.5,
+        nextReviewDate: new Date(),
+        passed: true,
+      });
+
+      // No transcriber passed: defaults to createDefaultTranscriber() -> SimulatedTranscriber
+      const session = new RecitationSession(mockVerse);
+      await session.startReciting();
+      const result = await session.stopAndVerify();
+
+      expect(result).not.toBeNull();
+      expect(result?.score).toBe(100);
+      expect(result?.passed).toBe(true);
+      expect(session.getState().status).toBe('verified');
     });
 
     it('maps network_error TranscriptionError to friendly message without recording review', async () => {

@@ -14,6 +14,22 @@ export class TranscriptionError extends Error {
     super(message);
     this.name = 'TranscriptionError';
   }
+
+  getUserFacingMessage(): string {
+    switch (this.code) {
+      case 'network_error':
+        return 'Network connection failed. Please check your internet connection.';
+      case 'rate_limited':
+        return 'Transcription service is temporarily busy. Please try again shortly.';
+      case 'unauthorized':
+        return 'Transcription authentication failed. Please check your API key.';
+      case 'unintelligible':
+        return 'Could not transcribe audio. Please speak clearly and try again.';
+      case 'unknown':
+      default:
+        return 'An unexpected transcription error occurred.';
+    }
+  }
 }
 
 export interface TranscriptionOptions {
@@ -31,8 +47,8 @@ export interface SpeechTranscriber {
 export class WhisperTranscriber implements SpeechTranscriber {
   private apiKey: string;
 
-  constructor(apiKey?: string) {
-    this.apiKey = (apiKey ?? process.env.EXPO_PUBLIC_OPENAI_API_KEY ?? '').trim();
+  constructor(apiKey: string) {
+    this.apiKey = (apiKey ?? '').trim();
   }
 
   async transcribe(audioUri: string, options?: TranscriptionOptions): Promise<TranscriptionResult> {
@@ -85,7 +101,7 @@ export class WhisperTranscriber implements SpeechTranscriber {
         code = 'network_error';
       }
 
-      throw new TranscriptionError(code, `Whisper transcription failed: ${status} - ${errorText}`);
+      throw new TranscriptionError(code, `Audio transcription failed (${status}): ${errorText}`);
     }
 
     const data = await response.json();
@@ -124,10 +140,11 @@ export class SimulatedTranscriber implements SpeechTranscriber {
 }
 
 export function createDefaultTranscriber(apiKey?: string): SpeechTranscriber {
-  const key = apiKey ?? process.env.EXPO_PUBLIC_OPENAI_API_KEY;
-  if (key && key.trim().length > 0) {
-    return new WhisperTranscriber(key.trim());
+  const key = (apiKey ?? process.env.EXPO_PUBLIC_OPENAI_API_KEY ?? '').trim();
+  if (key.length > 0) {
+    return new WhisperTranscriber(key);
   }
 
+  console.info('[SpeechTranscriber] No OpenAI API key configured. Using SimulatedTranscriber for offline practice.');
   return new SimulatedTranscriber();
 }

@@ -1,18 +1,24 @@
 import { renderHook, act } from '@testing-library/react-native';
 import { useRecitationSession } from './useRecitationSession';
-import { Verse } from '../services/VerseEngine';
+import { Verse, verseEngine } from '../services/VerseEngine';
 import { SubscriptionService } from '../services/SubscriptionService';
+import { audioRecorder } from '../services/AudioRecorderService';
+import { SimulatedTranscriber, TranscriptionError } from '../services/SpeechTranscriber';
 
 jest.mock('@react-native-async-storage/async-storage', () =>
   require('@react-native-async-storage/async-storage/jest/async-storage-mock')
 );
 
-describe('useRecitationSession hook (Ticket 08)', () => {
+describe('useRecitationSession hook (Ticket 08 & 12)', () => {
   const mockVerse: Verse = {
     id: '1',
     reference: 'John 3:16',
     text: 'For God so loved the world...',
   };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
 
   it('exposes initial idle state and actions', async () => {
     const { result } = await renderHook(() => useRecitationSession(mockVerse));
@@ -40,6 +46,80 @@ describe('useRecitationSession hook (Ticket 08)', () => {
     });
 
     expect(result.current.status).toBe('quota_exhausted');
+  });
+
+  it('verifies recitation and updates state using custom SimulatedTranscriber', async () => {
+    jest.spyOn(SubscriptionService, 'consumeRecitation').mockResolvedValueOnce({
+      allowed: true,
+      remaining: 3,
+      isSubscribed: true,
+    });
+    jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValueOnce(true);
+    jest.spyOn(audioRecorder, 'startRecording').mockResolvedValueOnce(undefined);
+    jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValueOnce('file:///hook-test.m4a');
+    jest.spyOn(audioRecorder, 'deleteAudioFile').mockResolvedValueOnce(true);
+    jest.spyOn(verseEngine, 'recordReview').mockResolvedValueOnce({
+      streak: 1,
+      repetitions: 1,
+      intervalDays: 1,
+      easeFactor: 2.5,
+      nextReviewDate: new Date(),
+      passed: true,
+    });
+
+    const transcriber = new SimulatedTranscriber({
+      defaultText: mockVerse.text,
+    });
+
+    const { result } = await renderHook(() => useRecitationSession(mockVerse, { transcriber }));
+
+    await act(async () => {
+      await result.current.startReciting();
+    });
+    expect(result.current.status).toBe('reciting');
+
+    await act(async () => {
+      await result.current.stopAndVerify();
+    });
+
+    expect(result.current.status).toBe('verified');
+    expect(result.current.result?.passed).toBe(true);
+    expect(result.current.result?.score).toBe(100);
+  });
+
+  it('reflects error status when SpeechTranscriber throws TranscriptionError', async () => {
+    jest.spyOn(SubscriptionService, 'consumeRecitation').mockResolvedValueOnce({
+      allowed: true,
+      remaining: 3,
+      isSubscribed: true,
+    });
+    jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValueOnce(true);
+    jest.spyOn(audioRecorder, 'startRecording').mockResolvedValueOnce(undefined);
+    jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValueOnce('file:///hook-err.m4a');
+    jest.spyOn(audioRecorder, 'deleteAudioFile').mockResolvedValueOnce(true);
+
+    const failingTranscriber = new SimulatedTranscriber({
+      handler: () => {
+        throw new TranscriptionError('network_error', 'Offline');
+      },
+    });
+
+    const { result } = await renderHook(() =>
+      useRecitationSession(mockVerse, { transcriber: failingTranscriber })
+    );
+
+    await act(async () => {
+      await result.current.startReciting();
+    });
+
+    await act(async () => {
+      await result.current.stopAndVerify();
+    });
+
+    expect(result.current.status).toBe('error');
+    expect(result.current.errorMessage).toBe(
+      'Network connection failed. Please check your internet connection.'
+    );
   });
 
   it('cleans up recitation session on unmount', async () => {

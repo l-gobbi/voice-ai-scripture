@@ -33,14 +33,10 @@ export interface RecitationState {
   errorMessage: string | null;
 }
 
-export type AnyTranscriber =
-  | SpeechTranscriber
-  | ((audioUri: string, options?: TranscriptionOptions) => Promise<string>);
-
 export class RecitationSession {
   private verse: Verse;
   private recorder: AudioRecorderService;
-  private transcriber: AnyTranscriber;
+  private transcriber: SpeechTranscriber;
   private verseEngine: VerseEngine;
   private currentAudioUri: string | null = null;
   private listeners: Set<(state: RecitationState) => void> = new Set();
@@ -56,7 +52,7 @@ export class RecitationSession {
     verse: Verse,
     options?: {
       recorder?: AudioRecorderService;
-      transcriber?: AnyTranscriber;
+      transcriber?: SpeechTranscriber;
       verseEngine?: VerseEngine;
     }
   ) {
@@ -136,14 +132,9 @@ export class RecitationSession {
         return null;
       }
 
-      const prompt = `${this.verse.reference}: ${this.verse.text}`;
-      let transcript: string;
-      if (typeof this.transcriber === 'function') {
-        transcript = await this.transcriber(this.currentAudioUri, { prompt });
-      } else {
-        const res = await this.transcriber.transcribe(this.currentAudioUri, { prompt });
-        transcript = res.text;
-      }
+      const prompt = this.verse.text;
+      const res = await this.transcriber.transcribe(this.currentAudioUri, { prompt });
+      const transcript = res.text;
 
       const tokens = diffVerses(this.verse.text, transcript);
       const score = calculateScore(tokens);
@@ -168,27 +159,9 @@ export class RecitationSession {
       this.setState({ status: 'verified', result });
       return result;
     } catch (err: any) {
-      let userMessage = err?.message || 'An error occurred during verification.';
-      if (err instanceof TranscriptionError) {
-        switch (err.code) {
-          case 'network_error':
-            userMessage = 'Network connection failed. Please check your internet connection.';
-            break;
-          case 'rate_limited':
-            userMessage = 'Transcription service is temporarily busy. Please try again shortly.';
-            break;
-          case 'unauthorized':
-            userMessage = 'Transcription authentication failed. Please check your API key.';
-            break;
-          case 'unintelligible':
-            userMessage = 'Could not transcribe audio. Please speak clearly and try again.';
-            break;
-          case 'unknown':
-          default:
-            userMessage = 'An unexpected transcription error occurred.';
-            break;
-        }
-      }
+      const userMessage = err instanceof TranscriptionError
+        ? err.getUserFacingMessage()
+        : err?.message || 'An error occurred during verification.';
 
       this.setState({
         status: 'error',

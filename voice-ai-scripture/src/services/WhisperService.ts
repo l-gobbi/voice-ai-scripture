@@ -17,5 +17,10 @@ export async function transcribeAudio(
   }
 
   const transcriber = new WhisperTranscriber(apiKey);
-  return transcriber.transcribe(audioUri);
+  try {
+    return await transcriber.transcribe(audioUri);
+  } catch (err: any) {
+    const formatted = err?.message?.replace(/^Audio transcription failed \((.*?)\): /, '$1 - ') ?? err?.message;
+    throw new Error(`Whisper transcription failed: ${formatted}`);
+  }
 }
