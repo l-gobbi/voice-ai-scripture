@@ -2,86 +2,129 @@
 labels: ["ready-for-agent"]
 ---
 
-# Specification: Deep VerseEngine Domain Architecture
+# Specification: Pluggable Speech Transcriber Seam (Ports & Adapters)
 
 ## Problem Statement
 
-Verse management, due-date calculations, and Spaced Repetition (SRS) state transitions are currently fragmented across the codebase. `VerseStorageService` acts as a shallow JSON serialization pass-through to `AsyncStorage`, while `HomeScreen`, `ReviewScreen`, and `RecitationSession` each independently perform mathematical SM-2 computations, filter due verses, and manage data updates. This scattering leaks algorithm and persistence details into presentation components, leads to duplicated filtering loops, and forces test suites to rely on fragile global `AsyncStorage` mocks.
+Speech-to-text audio transcription currently relies on an informal function signature and leaked environment configuration across multiple layers of the application. `RecitationSession` and `VoiceSpikeScreen` both inspect `process.env.EXPO_PUBLIC_OPENAI_API_KEY` directly, implementing ad-hoc simulation fallbacks (e.g. timeout loops or echoing hardcoded strings) when the API key is missing. Furthermore, OpenAI Whisper API calls lack prompt conditioning, resulting in frequent speech recognition errors on Biblical proper nouns and archaic English grammar. Raw HTTP fetch errors are unclassified, making it impossible for recitation workflows to distinguish between infrastructure outages (network timeout, rate limits) and genuine user recitation mistakes.
 
 ## Solution
 
-Consolidate all verse domain operations, persistence, due-date evaluation, and review recording into an authoritative, deep `VerseEngine` module. `VerseEngine` provides a high-level intent-based API that encapsulates:
-1. Unified study recording (`recordReview`) using the SM-2 algorithm for both manual self-review and voice recitations.
-2. Single-pass verse summary queries (`getVersesSummary`) delivering all verses, due verses, and due count.
-3. Permissive single-verse addition alongside deduplicating bulk pack imports.
-4. Pluggable persistence via an injectable `StorageAdapter` interface (defaulting to `AsyncStorage` in production and in-memory storage in unit tests).
-5. Full retirement of the legacy `VerseStorageService`.
+Formalize a clean, pluggable `SpeechTranscriber` interface (Ports & Adapters pattern) backed by two first-class adapters:
+1. **`WhisperTranscriber`**: Production OpenAI Whisper STT client that accepts prompt conditioning and translates vendor HTTP errors into structured domain errors.
+2. **`SimulatedTranscriber`**: Zero-configuration offline test and development adapter that deterministically echoes prompt text or executes configurable custom simulation handlers.
+3. **`createDefaultTranscriber()` Factory**: Encapsulates environment key resolution (`EXPO_PUBLIC_OPENAI_API_KEY`), isolating UI and recitation orchestration completely from API key checks.
+4. **Biblical Vocabulary Conditioning**: `SpeechTranscriber.transcribe(audioUri, options)` accepts optional `prompt?: string`, allowing `RecitationSession` to prime Whisper with canonical scripture text and references.
+5. **Typed `TranscriptionError`**: A domain error model categorizing failures (`network_error`, `unauthorized`, `rate_limited`, `unintelligible`, `unknown`) so the UI displays helpful feedback instead of penalizing user streaks.
+6. **Consumer Migration & Deprecation**: Migrate `RecitationSession` and `VoiceSpikeScreen` to consume `SpeechTranscriber`, deprecating legacy standalone `transcribeAudio` in `WhisperService.ts`.
 
 ## User Stories
 
-1. As a believer opening the app, I want to immediately see how many verses are due for review today, so that I can focus my quiet-time practice without delay.
-2. As a believer viewing my memory verses, I want to switch between "Due for Review" and "All Verses" smoothly, so that I can browse my full collection or focus only on active study.
-3. As a believer completing a manual self-review (pass or fail), I want the verse's streak and review interval to update correctly in one atomic operation, so that my scheduling stays accurate.
-4. As a believer completing a Voice AI recitation, I want the accuracy score to update my SRS review schedule automatically, so that high accuracy lengthens the interval and mistakes reset the review cycle for tomorrow.
-5. As a believer memorizing a new passage, I want to add a verse with its reference and text, so that it is immediately scheduled for its initial review.
-6. As a believer importing a Topical Pack, I want verses I have already added to be skipped automatically, so that my due queue is not polluted with duplicate references.
-7. As an offline user, I want all my verse data, streaks, and schedules to persist reliably on my device without network connectivity, so that I can practice anywhere.
-8. As a developer, I want to test all verse operations, queries, and scheduling state transitions in pure headless unit tests using an in-memory adapter, so that tests are deterministic, fast, and free of native storage timer flakes.
-9. As an AI agent or developer modifying UI screens, I want a single high-level engine interface to interact with verses, so that I never have to manually coordinate `AsyncStorage` and mathematical SRS formulas.
+1. As a believer reciting a scripture passage containing archaic English (e.g., *"thee"*, *"thou"*, *"begotten"*), I want the transcription engine to be primed with the passage vocabulary, so that accurate recitations are not penalized by modern speech-to-text misspellings.
+2. As a believer reciting a passage with biblical proper nouns (e.g., *"Melchizedek"*, *"Nebuchadnezzar"*, *"Gethsemane"*), I want the speech model to accurately recognize the biblical names, so that my recitation is scored fairly.
+3. As a developer running the mobile app locally without an OpenAI API key configured, I want speech recitation to work seamlessly via offline simulation, so that I can develop, test, and demo UI workflows without runtime crashes or manual code tweaks.
+4. As a believer reciting scripture when my internet connection drops or times out, I want to see a clear "Network connection failed" error message rather than having my streak reset as a failed recitation.
+5. As a believer whose account hits an OpenAI rate limit or API outage, I want the app to gracefully show a temporary service notice rather than grading my attempt as 0% accuracy.
+6. As a developer writing automated unit or integration tests for recitation flows, I want to inject a lightweight `SimulatedTranscriber` with custom failure or typo responses, so that I can test recitation scoring deterministically without making real HTTP requests or mocking global fetch.
+7. As an AI coding agent or engineer modifying `RecitationSession`, I want a clean, single-method `SpeechTranscriber` interface, so that I never have to navigate environment variables, FormData serialization, or audio MIME-type parsing inside domain orchestration.
+8. As a developer testing the `VoiceSpikeScreen`, I want it to use the unified default transcriber, so that spike testing matches production transcription behavior.
+9. As a privacy-conscious user, I want transcription errors to fail fast without hanging the UI or leaking raw API stack traces to the screen.
+10. As a maintainer, I want existing usages of `WhisperService.ts` to remain backward-compatible during the migration phase, so that the codebase remains 100% buildable and green at every commit.
 
 ## Implementation Decisions
 
-- **Deep Module Architecture:** Implement a deep, stateful `VerseEngine` class and a default shared singleton instance (`verseEngine`) located at `src/services/VerseEngine.ts`.
-- **Public Engine Contract:**
+- **Seam Definition & Location:** Create `src/services/SpeechTranscriber.ts` exporting the canonical contract, error types, adapters, and factory:
   ```typescript
-  export interface VerseSummary {
-    allVerses: Verse[];
-    dueVerses: Verse[];
-    dueCount: number;
+  export type TranscriptionErrorCode =
+    | 'network_error'
+    | 'unauthorized'
+    | 'rate_limited'
+    | 'unintelligible'
+    | 'unknown';
+
+  export class TranscriptionError extends Error {
+    constructor(
+      public readonly code: TranscriptionErrorCode,
+      message: string,
+      public readonly cause?: unknown
+    ) {
+      super(message);
+      this.name = 'TranscriptionError';
+    }
   }
 
-  export interface StorageAdapter {
-    getItem(key: string): Promise<string | null>;
-    setItem(key: string, value: string): Promise<void>;
+  export interface TranscriptionOptions {
+    prompt?: string;
   }
 
-  export class VerseEngine {
-    constructor(storage?: StorageAdapter);
-    getAllVerses(): Promise<Verse[]>;
-    getVersesSummary(now?: Date): Promise<VerseSummary>;
-    addVerse(verse: Omit<Verse, 'id' | 'srs'>): Promise<Verse>;
-    importVerses(verses: Array<Omit<Verse, 'id' | 'srs'>>): Promise<number>;
-    recordReview(verseId: string, score: number, now?: Date): Promise<SRSResult>;
-    deleteVerse(verseId: string): Promise<void>;
+  export interface TranscriptionResult {
+    text: string;
+  }
+
+  export interface SpeechTranscriber {
+    transcribe(audioUri: string, options?: TranscriptionOptions): Promise<TranscriptionResult>;
   }
   ```
-- **Unified Review Recording:** `recordReview(verseId: string, score: number, now?: Date)` calculates next SM-2 progression via `calculateNextReview(currentSRS, score, now)` and atomically persists the updated verse to storage.
-  - Manual review passes pass `score = 100`.
-  - Manual review fails pass `score = 0`.
-  - Voice recitations pass the Myers diff accuracy score `(0..100)`.
-- **Single-Pass Summary Query:** `getVersesSummary(now = new Date())` retrieves the collection, invokes the pure domain predicate `isVerseDue(v.srs?.nextReviewDate, now)`, and returns `{ allVerses, dueVerses, dueCount }` in a single pass.
-- **Inversion of Control for Persistence:** Storage operations are abstracted behind `StorageAdapter`. Production defaults to React Native `AsyncStorage`. Tests can inject an in-memory map adapter (`MapStorageAdapter`).
-- **Consumer Migrations:**
-  - `HomeScreen.tsx`: Refactored to fetch `verseEngine.getVersesSummary()`, removing component-level `.filter()` loops.
-  - `ReviewScreen.tsx`: Refactored `handleManualVerification` to call `verseEngine.recordReview(verse.id, passed ? 100 : 0)`.
-  - `RecitationSession.ts`: Refactored `stopAndVerify()` to invoke `verseEngine.recordReview(this.verse.id, score)`, removing direct references to `srsEngine` and `VerseStorageService`. Accepts an optional `verseEngine` parameter in constructor options.
-- **Retirement of `VerseStorageService`:** Delete `src/services/VerseStorageService.ts` and its test file, redirecting all imports to `VerseEngine.ts` and exporting `Verse` from `VerseEngine.ts`.
-- **Pure Engines Preserved:** `src/engines/srsEngine.ts` (pure SM-2 math) and `src/engines/diffEngine.ts` (Myers diffing) remain isolated, pure functional cores consumed by `VerseEngine` and `RecitationSession`.
+
+- **Production Adapter (`WhisperTranscriber`):**
+  - Accepts `apiKey?: string` in constructor, falling back to `process.env.EXPO_PUBLIC_OPENAI_API_KEY`.
+  - Sends multipart `FormData` (`file`, `model: 'whisper-1'`, `language: 'en'`, and optional `prompt` from options) to `https://api.openai.com/v1/audio/transcriptions`.
+  - Maps HTTP status codes into `TranscriptionError`:
+    - 401 / 403 → `unauthorized`
+    - 429 → `rate_limited`
+    - 400 / 422 → `unintelligible`
+    - 5xx / Network / Fetch rejection → `network_error`
+    - Others → `unknown`
+
+- **Offline Simulation Adapter (`SimulatedTranscriber`):**
+  - Accepts `config?: { defaultText?: string; handler?: (audioUri: string, options?: TranscriptionOptions) => Promise<string> | string }`.
+  - In `transcribe(audioUri, options)`:
+    - If `handler` is configured, invokes `handler(audioUri, options)`.
+    - Else if `options?.prompt` is present, returns `{ text: options.prompt }` (simulating 100% accurate recitation).
+    - Else returns `{ text: config?.defaultText ?? '' }`.
+
+- **Factory Function (`createDefaultTranscriber`):**
+  - `createDefaultTranscriber(apiKey?: string): SpeechTranscriber`
+  - Evaluates `const key = apiKey ?? process.env.EXPO_PUBLIC_OPENAI_API_KEY`.
+  - If `key` is defined and non-empty, returns `new WhisperTranscriber(key)`.
+  - Otherwise logs a development notice and returns `new SimulatedTranscriber()`.
+
+- **RecitationSession Integration:**
+  - Update `RecitationSession` constructor options: `transcriber?: SpeechTranscriber`.
+  - Defaults to `createDefaultTranscriber()`.
+  - In `stopAndVerify()`:
+    - Calls `await this.transcriber.transcribe(audioUri, { prompt: `${this.verse.reference}: ${this.verse.text}` })`.
+    - Catches `TranscriptionError` and updates state to `status: 'error'`, setting `errorMessage` based on error code (e.g. `"Transcription failed: please check your network connection."`).
+    - Strips all references to `process.env.EXPO_PUBLIC_OPENAI_API_KEY` and inline simulation from `RecitationSession.ts`.
+
+- **VoiceSpikeScreen Integration:**
+  - Refactor `VoiceSpikeScreen.tsx` to use `createDefaultTranscriber()`.
+  - Eliminates inline `setTimeout` simulation and direct `process.env` checks.
+
+- **Legacy WhisperService Deprecation:**
+  - In `src/services/WhisperService.ts`, mark `transcribeAudio` as `@deprecated`.
+  - Delegate `transcribeAudio(audioUri, apiKey)` to `new WhisperTranscriber(apiKey).transcribe(audioUri)`.
 
 ## Testing Decisions
 
-- **Test Only at the Seam:** Test exclusively through the public interface of `VerseEngine` using an in-memory `StorageAdapter`. Do not test private methods or internal JSON serializations.
-- **Review Progression Verification:** Verify that `recordReview` updates the streak, interval, and next review date correctly for passing scores (>=80), failing scores (<80), and binary manual reviews (100 vs 0).
-- **Summary Query Verification:** Verify that `getVersesSummary` correctly categorizes due vs non-due verses based on simulated timestamps (`now`).
-- **Deduplication Verification:** Verify that `importVerses` skips case-insensitive reference duplicates while `addVerse` permits intentional multiple translations.
-- **Prior Art:** Follows headless dependency injection patterns established in `AudioRecorderService.test.ts` (`AudioDriver`) and `RecitationSession.test.ts`.
+- **Test Behavior at the Public Seam:**
+  - Test `WhisperTranscriber` by mocking the global network transport (`fetch`), asserting on `FormData` parameters (`prompt`, `file`, `model`) and verifying accurate mapping to `TranscriptionError`.
+  - Test `SimulatedTranscriber` in pure memory without mocks, verifying default prompt echo and custom handler overrides.
+  - Test `createDefaultTranscriber` returning `WhisperTranscriber` when API key is provided and `SimulatedTranscriber` when absent.
+  - Test `RecitationSession` integration with `SpeechTranscriber`:
+    - Verifies prompt hint is passed to transcriber during `stopAndVerify()`.
+    - Verifies `TranscriptionError` transitions session state to `error` with user-friendly error message, without invoking `recordReview` or resetting streak.
+- **Prior Art:**
+  - Follows existing ports-and-adapters pattern in `VerseEngine.ts` (`StorageAdapter` / `MapStorageAdapter` / `AsyncStorageAdapter`) and `AudioRecorderService.ts` (`AudioDriver`).
 
 ## Out of Scope
 
-- Remote cloud database synchronization or multi-device account syncing (ADR-0002 local-first storage preserved).
-- Database migrations or SQLite / WatermelonDB adoption (AsyncStorage key-value storage remains sufficient for MVP scale).
-- UI visual restyling of `HomeScreen` or `ReviewScreen`.
+- On-device local neural Whisper models (e.g. whisper.tflite / whisper.cpp native bindings). OpenAI Whisper API remains the primary STT engine.
+- Multi-language transcription beyond English (`language: 'en'`).
+- Real-time streaming transcription (transcription occurs after recording completes).
+- Audio compression or transcoding (recording uses native m4a format).
 
 ## Further Notes
 
-- Completes Candidate 02 from `/improve-codebase-architecture`, eliminating all scattered SM-2 logic and retiring the legacy `VerseStorageService` pass-through.
+- Completes Candidate 03 from the Architecture Review (`architecture-review-20260917-161400.html`).
+- Aligns with ADR 0006 and ubiquitous language documented in `CONTEXT.md`.
