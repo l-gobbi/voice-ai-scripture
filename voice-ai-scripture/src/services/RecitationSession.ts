@@ -8,8 +8,25 @@ import {
   TranscriptionError,
   createDefaultTranscriber,
 } from './SpeechTranscriber';
+import { normalizeReference } from './ReferenceNormalizer';
 
 export { SpeechTranscriber };
+
+const PT_TRANSLATIONS = new Set(['ALMEIDA', 'ONBV', 'NVI', 'ARA', 'NAA', 'NTLH', 'ARC', 'NVT']);
+const EN_TRANSLATIONS = new Set(['WEB', 'KJV', 'ESV', 'NIV', 'NKJV', 'NASB', 'NLT', 'MSG']);
+
+export function inferVerseLanguage(verse: { translation?: string; reference: string }): 'en' | 'pt' {
+  if (verse.translation) {
+    const upperTrans = verse.translation.toUpperCase().trim();
+    if (PT_TRANSLATIONS.has(upperTrans)) return 'pt';
+    if (EN_TRANSLATIONS.has(upperTrans)) return 'en';
+  }
+
+  const normalized = normalizeReference(verse.reference);
+  if (normalized?.language === 'pt') return 'pt';
+
+  return 'en';
+}
 
 export type RecitationStatus =
   | 'idle'
@@ -133,10 +150,7 @@ export class RecitationSession {
       }
 
       const prompt = `${this.verse.reference}: ${this.verse.text}`;
-      const isPortuguese =
-        this.verse.translation === 'ALMEIDA' ||
-        this.verse.translation === 'ONBV';
-      const language = isPortuguese ? 'pt' : 'en';
+      const language = inferVerseLanguage(this.verse);
 
       const res = await this.transcriber.transcribe(this.currentAudioUri, {
         prompt,

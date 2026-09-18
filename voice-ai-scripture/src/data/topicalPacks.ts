@@ -5,7 +5,7 @@ export type PackLanguage = 'en' | 'pt';
 export interface PackVerse {
   reference: string;
   text: string;
-  translation: VerseTranslation;
+  translation?: VerseTranslation;
 }
 
 export interface TopicalPack {

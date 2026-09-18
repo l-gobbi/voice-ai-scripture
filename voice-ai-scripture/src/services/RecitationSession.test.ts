@@ -1,4 +1,9 @@
-import { RecitationSession, RecitationState, SpeechTranscriber } from './RecitationSession';
+import {
+  RecitationSession,
+  RecitationState,
+  SpeechTranscriber,
+  inferVerseLanguage,
+} from './RecitationSession';
 import { Verse, verseEngine } from './VerseEngine';
 import { SubscriptionService } from './SubscriptionService';
 import { audioRecorder } from './AudioRecorderService';
@@ -559,6 +564,154 @@ describe('RecitationSession (Ticket 07)', () => {
           language: 'en',
         })
       );
+    });
+
+    it('passes language: pt when verse translation is NVI or ARA', async () => {
+      jest.spyOn(SubscriptionService, 'consumeRecitation').mockResolvedValue({
+        allowed: true,
+        remaining: 3,
+        isSubscribed: true,
+      });
+      jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValue(true);
+      jest.spyOn(audioRecorder, 'startRecording').mockResolvedValue(undefined);
+      jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValue('file:///audio/rec.m4a');
+      jest.spyOn(audioRecorder, 'deleteAudioFile').mockResolvedValue(true);
+      jest.spyOn(verseEngine, 'recordReview').mockResolvedValue({
+        passed: true,
+        streak: 1,
+        intervalDays: 1,
+        easeFactor: 2.5,
+        nextReviewDate: new Date(),
+      });
+
+      const nviVerse: Verse = {
+        id: 'pt-nvi',
+        reference: 'João 3:16',
+        text: 'Porque Deus tanto amou o mundo...',
+        translation: 'NVI',
+      };
+
+      const mockTranscriber: SpeechTranscriber = {
+        transcribe: jest.fn().mockResolvedValue({ text: nviVerse.text }),
+      };
+
+      const session = new RecitationSession(nviVerse, { transcriber: mockTranscriber });
+      await session.startReciting();
+      await session.stopAndVerify();
+
+      expect(mockTranscriber.transcribe).toHaveBeenCalledWith(
+        'file:///audio/rec.m4a',
+        expect.objectContaining({
+          language: 'pt',
+        })
+      );
+    });
+
+    it('passes language: pt when translation is CUSTOM but reference is Portuguese', async () => {
+      jest.spyOn(SubscriptionService, 'consumeRecitation').mockResolvedValue({
+        allowed: true,
+        remaining: 3,
+        isSubscribed: true,
+      });
+      jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValue(true);
+      jest.spyOn(audioRecorder, 'startRecording').mockResolvedValue(undefined);
+      jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValue('file:///audio/rec.m4a');
+      jest.spyOn(audioRecorder, 'deleteAudioFile').mockResolvedValue(true);
+      jest.spyOn(verseEngine, 'recordReview').mockResolvedValue({
+        passed: true,
+        streak: 1,
+        intervalDays: 1,
+        easeFactor: 2.5,
+        nextReviewDate: new Date(),
+      });
+
+      const customPtVerse: Verse = {
+        id: 'custom-pt',
+        reference: 'Salmos 23:1',
+        text: 'O Senhor é o meu pastor...',
+        translation: 'CUSTOM',
+      };
+
+      const mockTranscriber: SpeechTranscriber = {
+        transcribe: jest.fn().mockResolvedValue({ text: customPtVerse.text }),
+      };
+
+      const session = new RecitationSession(customPtVerse, { transcriber: mockTranscriber });
+      await session.startReciting();
+      await session.stopAndVerify();
+
+      expect(mockTranscriber.transcribe).toHaveBeenCalledWith(
+        'file:///audio/rec.m4a',
+        expect.objectContaining({
+          language: 'pt',
+        })
+      );
+    });
+
+    it('passes language: en when translation is CUSTOM and reference is English', async () => {
+      jest.spyOn(SubscriptionService, 'consumeRecitation').mockResolvedValue({
+        allowed: true,
+        remaining: 3,
+        isSubscribed: true,
+      });
+      jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValue(true);
+      jest.spyOn(audioRecorder, 'startRecording').mockResolvedValue(undefined);
+      jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValue('file:///audio/rec.m4a');
+      jest.spyOn(audioRecorder, 'deleteAudioFile').mockResolvedValue(true);
+      jest.spyOn(verseEngine, 'recordReview').mockResolvedValue({
+        passed: true,
+        streak: 1,
+        intervalDays: 1,
+        easeFactor: 2.5,
+        nextReviewDate: new Date(),
+      });
+
+      const customEnVerse: Verse = {
+        id: 'custom-en',
+        reference: 'Psalm 23:1',
+        text: 'The Lord is my shepherd...',
+        translation: 'CUSTOM',
+      };
+
+      const mockTranscriber: SpeechTranscriber = {
+        transcribe: jest.fn().mockResolvedValue({ text: customEnVerse.text }),
+      };
+
+      const session = new RecitationSession(customEnVerse, { transcriber: mockTranscriber });
+      await session.startReciting();
+      await session.stopAndVerify();
+
+      expect(mockTranscriber.transcribe).toHaveBeenCalledWith(
+        'file:///audio/rec.m4a',
+        expect.objectContaining({
+          language: 'en',
+        })
+      );
+    });
+  });
+
+  describe('inferVerseLanguage domain helper', () => {
+    it('infers pt for Portuguese translations (ALMEIDA, ONBV, NVI, ARA, NAA, NTLH, ARC, NVT)', () => {
+      expect(inferVerseLanguage({ translation: 'ALMEIDA', reference: 'Any 1:1' })).toBe('pt');
+      expect(inferVerseLanguage({ translation: 'ONBV', reference: 'Any 1:1' })).toBe('pt');
+      expect(inferVerseLanguage({ translation: 'NVI', reference: 'Any 1:1' })).toBe('pt');
+      expect(inferVerseLanguage({ translation: 'ara', reference: 'Any 1:1' })).toBe('pt');
+      expect(inferVerseLanguage({ translation: 'NAA', reference: 'Any 1:1' })).toBe('pt');
+    });
+
+    it('infers en for English translations (WEB, KJV, ESV, NIV, NKJV, NASB, NLT, MSG)', () => {
+      expect(inferVerseLanguage({ translation: 'WEB', reference: 'Any 1:1' })).toBe('en');
+      expect(inferVerseLanguage({ translation: 'kjv', reference: 'Any 1:1' })).toBe('en');
+      expect(inferVerseLanguage({ translation: 'ESV', reference: 'Any 1:1' })).toBe('en');
+      expect(inferVerseLanguage({ translation: 'NIV', reference: 'Any 1:1' })).toBe('en');
+    });
+
+    it('falls back to reference normalizer language when translation is CUSTOM or absent', () => {
+      expect(inferVerseLanguage({ translation: 'CUSTOM', reference: 'Salmos 23:1' })).toBe('pt');
+      expect(inferVerseLanguage({ reference: 'João 3:16' })).toBe('pt');
+      expect(inferVerseLanguage({ translation: 'CUSTOM', reference: 'Psalm 23:1' })).toBe('en');
+      expect(inferVerseLanguage({ reference: 'John 3:16' })).toBe('en');
+      expect(inferVerseLanguage({ reference: 'Unknown 99:99' })).toBe('en');
     });
   });
 });

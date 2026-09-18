@@ -529,20 +529,31 @@ export function normalizeReference(rawInput: string): NormalizedReference | null
     return null;
   }
 
+function buildNormalizedReference(
+  bookId: string,
+  bookName: string,
+  chapter: number,
+  startVerse: number,
+  endVerse: number | undefined,
+  language: 'en' | 'pt',
+): NormalizedReference {
+  const span = endVerse !== undefined ? `${startVerse}-${endVerse}` : `${startVerse}`;
+  return {
+    bookId,
+    bookName,
+    chapter,
+    startVerse,
+    endVerse,
+    canonicalRef: `${bookName} ${chapter}:${span}`,
+    language,
+  };
+}
+
   // Also try collapsing spaces for numbered books like "1co" -> "1 co"
   const normalizedBookForm = sanitizedBook.replace(/^([1-3])\s*([a-z]+)$/, '$1 $2');
   const collapsedBookForm = sanitizedBook.replace(/^([1-3])\s*([a-z]+)$/, '$1$2');
   if (rawBook.toLowerCase().trim() === 'jó') {
-    const span = endVerse !== undefined ? `${startVerse}-${endVerse}` : `${startVerse}`;
-    return {
-      bookId: 'JOB',
-      bookName: 'Jó',
-      chapter,
-      startVerse,
-      endVerse,
-      canonicalRef: `Jó ${chapter}:${span}`,
-      language: 'pt',
-    };
+    return buildNormalizedReference('JOB', 'Jó', chapter, startVerse, endVerse, 'pt');
   }
 
   for (const book of BOOKS) {
@@ -557,16 +568,7 @@ export function normalizeReference(rawInput: string): NormalizedReference | null
     });
 
     if (matchedPt) {
-      const span = endVerse !== undefined ? `${startVerse}-${endVerse}` : `${startVerse}`;
-      return {
-        bookId: book.id,
-        bookName: book.ptName,
-        chapter,
-        startVerse,
-        endVerse,
-        canonicalRef: `${book.ptName} ${chapter}:${span}`,
-        language: 'pt',
-      };
+      return buildNormalizedReference(book.id, book.ptName, chapter, startVerse, endVerse, 'pt');
     }
 
     // Check English aliases
@@ -580,16 +582,7 @@ export function normalizeReference(rawInput: string): NormalizedReference | null
     });
 
     if (matchedEn) {
-      const span = endVerse !== undefined ? `${startVerse}-${endVerse}` : `${startVerse}`;
-      return {
-        bookId: book.id,
-        bookName: book.enName,
-        chapter,
-        startVerse,
-        endVerse,
-        canonicalRef: `${book.enName} ${chapter}:${span}`,
-        language: 'en',
-      };
+      return buildNormalizedReference(book.id, book.enName, chapter, startVerse, endVerse, 'en');
     }
   }
 

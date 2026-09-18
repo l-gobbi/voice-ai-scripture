@@ -92,12 +92,12 @@ export default function HomeScreen() {
           const streak = item.srs?.streak ?? item.srs?.repetitions;
           return (
             <TouchableOpacity
-              style={styles.verseCard}
+              style={styles.verseItem}
               onPress={() => setActiveReviewVerse(item)}
               activeOpacity={0.7}
             >
-              <View style={styles.cardHeader}>
-                <View style={styles.cardTitleContainer}>
+              <View style={styles.verseHeader}>
+                <View style={styles.verseTitleContainer}>
                   <Text style={styles.verseReference}>{item.reference}</Text>
                   {item.translation ? (
                     <Text style={styles.translationBadge}>[{item.translation}]</Text>
@@ -175,7 +175,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#4338ca',
   },
-  verseCard: {
+  verseItem: {
     padding: 16,
     backgroundColor: 'white',
     borderRadius: 8,
@@ -184,8 +184,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#e5e7eb',
   },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  cardTitleContainer: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  verseHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  verseTitleContainer: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   verseReference: { fontSize: 18, fontWeight: '600', color: '#1f2937' },
   translationBadge: {
     fontSize: 12,

@@ -55,7 +55,9 @@ export const TRANSLATION_GROUPS: Array<{ groupName: string; options: Translation
   },
 ];
 
-const KNOWN_MODAL_CODES = new Set(['WEB', 'KJV', 'ALMEIDA', 'ONBV', 'NVI', 'ARA', 'ESV', 'CUSTOM']);
+const KNOWN_MODAL_CODES = new Set(
+  TRANSLATION_GROUPS.flatMap((group) => group.options.map((opt) => opt.code))
+);
 
 export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVerseModalProps) {
   const [reference, setReference] = useState('');

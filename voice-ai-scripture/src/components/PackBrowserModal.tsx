@@ -57,7 +57,12 @@ export default function PackBrowserModal({
   const handleImport = async (pack: TopicalPack) => {
     setImporting(true);
     try {
-      const addedCount = await verseEngine.importVerses(pack.verses);
+      const versesToImport = pack.verses.map((v) => ({
+        reference: v.reference,
+        text: v.text,
+        translation: v.translation || pack.translation,
+      }));
+      const addedCount = await verseEngine.importVerses(versesToImport);
       Alert.alert(
         'Topical Pack Imported! 🎉',
         addedCount > 0
@@ -160,7 +165,9 @@ export default function PackBrowserModal({
                 <View style={styles.verseItem}>
                   <View style={styles.verseHeaderRow}>
                     <Text style={styles.verseRef}>{item.reference}</Text>
-                    <Text style={styles.verseTranslationBadge}>[{item.translation}]</Text>
+                    <Text style={styles.verseTranslationBadge}>
+                      [{item.translation || selectedPack.translation}]
+                    </Text>
                   </View>
                   <Text style={styles.verseText}>{item.text}</Text>
                 </View>
