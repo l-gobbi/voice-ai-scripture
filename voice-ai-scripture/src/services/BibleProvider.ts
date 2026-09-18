@@ -4,32 +4,34 @@ import kjvData from '../data/bibles/kjv.json';
 import almeidaData from '../data/bibles/almeida.json';
 import onbvData from '../data/bibles/onbv.json';
 
+export type SupportedTranslation = 'WEB' | 'KJV' | 'ALMEIDA' | 'ONBV';
+
 export interface BiblePassage {
   reference: string;
   text: string;
-  translation: string;
+  translation: SupportedTranslation | string;
   language: 'en' | 'pt';
 }
 
 export interface BibleProvider {
-  fetchPassage(reference: string, translation: string): Promise<BiblePassage | null>;
+  fetchPassage(reference: string, translation: SupportedTranslation | string): Promise<BiblePassage | null>;
 }
 
 interface BibleDataset {
-  translation: string;
+  translation: SupportedTranslation;
   name: string;
   language: 'en' | 'pt';
   books: Record<string, Record<string, Record<string, string>>>;
 }
 
-const DATASETS: Record<string, BibleDataset> = {
+const DATASETS: Record<SupportedTranslation, BibleDataset> = {
   WEB: webData as BibleDataset,
   KJV: kjvData as BibleDataset,
   ALMEIDA: almeidaData as BibleDataset,
   ONBV: onbvData as BibleDataset,
 };
 
-function canonicalizeTranslation(raw: string): string | null {
+function canonicalizeTranslation(raw: string): SupportedTranslation | null {
   if (!raw || typeof raw !== 'string') {
     return null;
   }
@@ -50,7 +52,7 @@ function canonicalizeTranslation(raw: string): string | null {
 }
 
 export class LocalBibleProvider implements BibleProvider {
-  async fetchPassage(reference: string, translation: string): Promise<BiblePassage | null> {
+  async fetchPassage(reference: string, translation: SupportedTranslation | string): Promise<BiblePassage | null> {
     const normalized: NormalizedReference | null = normalizeReference(reference);
     if (!normalized) {
       return null;
@@ -76,36 +78,23 @@ export class LocalBibleProvider implements BibleProvider {
       return null;
     }
 
-    if (normalized.endVerse === undefined) {
-      const verseText = chapter[String(normalized.startVerse)];
-      if (!verseText) {
-        return null;
-      }
-      return {
-        reference: normalized.canonicalRef,
-        text: verseText.trim(),
-        translation: canonTrans,
-        language: normalized.language,
-      };
-    }
+    const startVerse = normalized.startVerse;
+    const endVerse = normalized.endVerse ?? startVerse;
 
     const verseTexts: string[] = [];
-    for (let v = normalized.startVerse; v <= normalized.endVerse; v++) {
+    for (let v = startVerse; v <= endVerse; v++) {
       const text = chapter[String(v)];
-      if (text) {
-        verseTexts.push(text.trim());
+      if (!text) {
+        return null;
       }
-    }
-
-    if (verseTexts.length === 0) {
-      return null;
+      verseTexts.push(text.trim());
     }
 
     return {
       reference: normalized.canonicalRef,
       text: verseTexts.join(' '),
       translation: canonTrans,
-      language: normalized.language,
+      language: dataset.language,
     };
   }
 }

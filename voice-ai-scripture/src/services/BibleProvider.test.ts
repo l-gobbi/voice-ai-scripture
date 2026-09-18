@@ -133,6 +133,26 @@ describe('BibleProvider Seam (Ticket 14)', () => {
       expect(missing).toBeNull();
     });
 
+    it('returns null if any verse in a multi-verse span is missing rather than returning partial text', async () => {
+      // Verses 16 and 17 exist, but 18-20 are missing in the test bundle
+      const partialSpan = await provider.fetchPassage('John 3:16-20', 'WEB');
+      expect(partialSpan).toBeNull();
+    });
+
+    it('derives passage language from the translation dataset rather than input reference alias', async () => {
+      // Portuguese alias 'Jo 3:16' queried against English 'WEB' translation
+      const passage = await provider.fetchPassage('Jo 3:16', 'WEB');
+      expect(passage).not.toBeNull();
+      expect(passage?.language).toBe('en');
+      expect(passage?.text).toContain('For God so loved the world');
+
+      // English alias 'John 3:16' queried against Portuguese 'ALMEIDA' translation
+      const passagePt = await provider.fetchPassage('John 3:16', 'ALMEIDA');
+      expect(passagePt).not.toBeNull();
+      expect(passagePt?.language).toBe('pt');
+      expect(passagePt?.text).toContain('Porque Deus amou o mundo');
+    });
+
     it('returns null for an unparseable reference string without throwing', async () => {
       const invalid = await provider.fetchPassage('Not A Bible Verse 123', 'WEB');
       expect(invalid).toBeNull();
