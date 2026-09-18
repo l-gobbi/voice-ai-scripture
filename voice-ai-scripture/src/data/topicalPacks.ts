@@ -1,5 +1,7 @@
 import { VerseTranslation } from '../services/VerseEngine';
 
+export type PackLanguage = 'en' | 'pt';
+
 export interface PackVerse {
   reference: string;
   text: string;
@@ -11,7 +13,7 @@ export interface TopicalPack {
   title: string;
   description: string;
   icon: string;
-  language: 'en' | 'pt';
+  language: PackLanguage;
   translation: VerseTranslation;
   verses: PackVerse[];
 }
@@ -70,7 +72,7 @@ export const TOPICAL_PACKS: TopicalPack[] = [
   },
   {
     id: 'armor-of-god',
-    title: 'Spiritual Warfare',
+    title: 'Strength & Spiritual Warfare',
     description: 'Arm yourself daily with the truth, righteousness, and word of God.',
     icon: '🛡️',
     language: 'en',

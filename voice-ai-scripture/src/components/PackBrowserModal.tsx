@@ -10,7 +10,7 @@ import {
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { TOPICAL_PACKS, TopicalPack } from '../data/topicalPacks';
+import { TOPICAL_PACKS, TopicalPack, PackLanguage } from '../data/topicalPacks';
 import { verseEngine } from '../services/VerseEngine';
 
 interface PackBrowserModalProps {
@@ -19,7 +19,26 @@ interface PackBrowserModalProps {
   onImportComplete: () => void;
 }
 
-type LanguageFilter = 'all' | 'en' | 'pt';
+type LanguageFilter = 'all' | PackLanguage;
+
+const LANGUAGE_TABS: Array<{ id: LanguageFilter; label: string }> = [
+  { id: 'all', label: 'All' },
+  { id: 'en', label: 'English' },
+  { id: 'pt', label: 'Português' },
+];
+
+function LanguageBadge({ language }: { language: PackLanguage }) {
+  return (
+    <Text
+      style={[
+        styles.langBadge,
+        language === 'pt' ? styles.langBadgePt : styles.langBadgeEn,
+      ]}
+    >
+      {language === 'pt' ? '[PT]' : '[EN]'}
+    </Text>
+  );
+}
 
 export default function PackBrowserModal({
   visible,
@@ -75,35 +94,20 @@ export default function PackBrowserModal({
           // Pack List View with Filter Tabs
           <View style={styles.listContainer}>
             <View style={styles.tabBar}>
-              <TouchableOpacity
-                style={[styles.tabButton, filterLang === 'all' && styles.activeTabButton]}
-                onPress={() => setFilterLang('all')}
-                activeOpacity={0.7}
-              >
-                <Text style={[styles.tabText, filterLang === 'all' && styles.activeTabText]}>
-                  All
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.tabButton, filterLang === 'en' && styles.activeTabButton]}
-                onPress={() => setFilterLang('en')}
-                activeOpacity={0.7}
-              >
-                <Text style={[styles.tabText, filterLang === 'en' && styles.activeTabText]}>
-                  English
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.tabButton, filterLang === 'pt' && styles.activeTabButton]}
-                onPress={() => setFilterLang('pt')}
-                activeOpacity={0.7}
-              >
-                <Text style={[styles.tabText, filterLang === 'pt' && styles.activeTabText]}>
-                  Português
-                </Text>
-              </TouchableOpacity>
+              {LANGUAGE_TABS.map((tab) => (
+                <TouchableOpacity
+                  key={tab.id}
+                  style={[styles.tabButton, filterLang === tab.id && styles.activeTabButton]}
+                  onPress={() => setFilterLang(tab.id)}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={[styles.tabText, filterLang === tab.id && styles.activeTabText]}
+                  >
+                    {tab.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
             </View>
 
             <FlatList
@@ -120,14 +124,7 @@ export default function PackBrowserModal({
                   <View style={styles.packInfo}>
                     <View style={styles.titleRow}>
                       <Text style={styles.packTitle}>{item.title}</Text>
-                      <Text
-                        style={[
-                          styles.langBadge,
-                          item.language === 'pt' ? styles.langBadgePt : styles.langBadgeEn,
-                        ]}
-                      >
-                        {item.language === 'pt' ? '[PT]' : '[EN]'}
-                      </Text>
+                      <LanguageBadge language={item.language} />
                     </View>
                     <Text style={styles.packDesc}>{item.description}</Text>
                     <Text style={styles.verseCount}>
@@ -150,14 +147,7 @@ export default function PackBrowserModal({
               <Text style={styles.detailIcon}>{selectedPack.icon}</Text>
               <View style={styles.detailTitleRow}>
                 <Text style={styles.detailTitle}>{selectedPack.title}</Text>
-                <Text
-                  style={[
-                    styles.langBadge,
-                    selectedPack.language === 'pt' ? styles.langBadgePt : styles.langBadgeEn,
-                  ]}
-                >
-                  {selectedPack.language === 'pt' ? '[PT]' : '[EN]'}
-                </Text>
+                <LanguageBadge language={selectedPack.language} />
               </View>
               <Text style={styles.detailDesc}>{selectedPack.description}</Text>
             </View>
@@ -170,9 +160,9 @@ export default function PackBrowserModal({
                 <View style={styles.verseItem}>
                   <View style={styles.verseHeaderRow}>
                     <Text style={styles.verseRef}>{item.reference}</Text>
-                    <Text style={styles.verseTransBadge}>[{item.translation}]</Text>
+                    <Text style={styles.verseTranslationBadge}>[{item.translation}]</Text>
                   </View>
-                  <Text style={styles.verseSnippet}>{item.text}</Text>
+                  <Text style={styles.verseText}>{item.text}</Text>
                 </View>
               )}
             />
@@ -300,7 +290,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   verseRef: { fontSize: 15, fontWeight: 'bold', color: '#374151' },
-  verseTransBadge: {
+  verseTranslationBadge: {
     fontSize: 11,
     backgroundColor: '#f1f5f9',
     color: '#475569',
@@ -309,7 +299,7 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     fontWeight: '600',
   },
-  verseSnippet: { fontSize: 14, color: '#4b5563', lineHeight: 20 },
+  verseText: { fontSize: 14, color: '#4b5563', lineHeight: 20 },
   importActionWrapper: {
     position: 'absolute',
     bottom: 24,
