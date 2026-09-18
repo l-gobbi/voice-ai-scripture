@@ -5,16 +5,17 @@ A formalized Ports & Adapters boundary for scripture passage retrieval (`BiblePr
 
 **Blocked by:** Ticket 13 (Reference Normalizer & Dual-Language Book Aliases).
 
-**Status:** ready-for-agent
+**Status:** closed
 
-- [ ] Create `src/services/BibleProvider.ts` exporting domain interfaces and adapters:
+- [x] Create `src/services/BibleProvider.ts` exporting domain interfaces and adapters:
   - `BiblePassage`: `{ reference: string; text: string; translation: string; language: 'en' | 'pt' }`.
   - `BibleProvider`: `fetchPassage(reference: string, translation: string): Promise<BiblePassage | null>`.
-- [ ] Implement `LocalBibleProvider`:
+- [x] Implement `LocalBibleProvider`:
   - Bundles lightweight JSON scripture datasets in `src/data/bibles/` (`web.json`, `kjv.json`, `almeida.json`, `onbv.json`).
   - Uses `ReferenceNormalizer` to resolve references into book, chapter, and verse spans.
   - Concatenates multi-verse ranges (e.g. `John 3:16-17`) into continuous space-separated strings.
   - Returns `null` if book, chapter, or verse does not exist.
-- [ ] Implement `SimulatedBibleProvider` with optional pre-configured passage overrides and custom handler for headless testing.
-- [ ] Implement `createDefaultBibleProvider(): BibleProvider` factory returning `new LocalBibleProvider()`.
-- [ ] Write unit tests in `src/services/BibleProvider.test.ts` verifying passage lookups across all 4 translations, multi-verse concatenation, and simulation mocks.
+- [x] Implement `SimulatedBibleProvider` with optional pre-configured passage overrides and custom handler for headless testing.
+- [x] Implement `createDefaultBibleProvider(): BibleProvider` factory returning `new LocalBibleProvider()`.
+- [x] Write unit tests in `src/services/BibleProvider.test.ts` verifying passage lookups across all 4 translations, multi-verse concatenation, and simulation mocks.
+

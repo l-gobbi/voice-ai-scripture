@@ -1,0 +1,188 @@
+{
+  "translation": "ONBV",
+  "name": "Nova Bíblia Viva",
+  "language": "pt",
+  "books": {
+    "GEN": {
+      "1": {
+        "1": "No princípio, Deus criou os céus e a terra.",
+        "2": "A terra era sem forma e vazia; a escuridão cobria as águas profundas, e o Espírito de Deus se movia por cima das águas.",
+        "3": "Então Deus disse: 'Haja luz', e houve luz."
+      }
+    },
+    "JOS": {
+      "1": {
+        "9": "Não foi isso que eu mandei? Seja forte e corajoso! Não fique com medo nem desanimado, porque o Senhor, o seu Deus, estará com você por onde você andar."
+      }
+    },
+    "PSA": {
+      "23": {
+        "1": "O Senhor é o meu pastor; de nada terei falta.",
+        "2": "Ele me faz descansar em verdes pastagens e me guia mansamente às águas tranquilas.",
+        "3": "Ele renova as minhas forças. Ele me guia pelas veredas da justiça por amor do seu nome.",
+        "4": "Mesmo que eu ande pelo vale escuro da sombra da morte, não terei medo de nada, porque o Senhor está comigo; a sua vara e o seu cajado me protegem e me consolam.",
+        "5": "O Senhor prepara um banquete para mim na presença dos meus inimigos; unge a minha cabeça com óleo, e o meu cálice transborda.",
+        "6": "Sei que a bondade e o amor do Senhor me acompanharão todos os dias da minha vida, e habitarei na casa do Senhor para sempre."
+      },
+      "91": {
+        "1": "Aquele que habita no esconderijo do Altíssimo descansará à sombra do Todo-Poderoso.",
+        "2": "Direi do Senhor: 'Ele é o meu refúgio e a minha fortaleza, o meu Deus, em quem confio.'"
+      },
+      "119": {
+        "105": "A sua palavra é lâmpada para guiar os meus passos e luz no meu caminho."
+      }
+    },
+    "PRO": {
+      "3": {
+        "5": "Confie no Senhor de todo o coração e não se apoie no seu próprio entendimento.",
+        "6": "Lembre-se dele em tudo o que fizer, e ele lhe mostrará o caminho certo."
+      }
+    },
+    "ISA": {
+      "40": {
+        "31": "Mas aqueles que esperam no Senhor renovarão as suas forças. Voarão alto como águias; correrão e não ficarão cansados, caminharão e não desmaiarão."
+      },
+      "41": {
+        "10": "Não fique com medo, pois estou com você; não tenha receio, pois eu sou o seu Deus. Eu o fortalecerei e o ajudarei; eu o segurarei com a minha mão direita vitoriosa."
+      },
+      "53": {
+        "5": "Mas ele foi ferido por causa das nossas transgressões e esmagado por causa das nossas maldades. O castigo que nos trouxe a paz estava sobre ele, e pelas suas feridas fomos curados."
+      }
+    },
+    "MAT": {
+      "6": {
+        "9": "Portanto, orem assim: Pai nosso, que estás nos céus, que o teu nome seja santificado;",
+        "10": "que venha o teu Reino; que a tua vontade seja feita na terra como no céu.",
+        "11": "Dá-nos hoje o pão necessário para a nossa vida.",
+        "12": "Perdoa os nossos pecados, como perdoamos aqueles que pecam contra nós.",
+        "13": "Não nos deixes cair em tentação, mas livra-nos do mal. Pois a ti pertencem o Reino, o poder e a glória para sempre. Amém."
+      },
+      "28": {
+        "19": "Portanto, vão e façam discípulos de todas as nações, batizando-os em nome do Pai, do Filho e do Espírito Santo,",
+        "20": "e ensinem esses novos discípulos a obedecerem a todas as ordens que eu dei a vocês. E lembrem-se disto: Eu estou sempre com vocês, até o fim dos tempos. Amém."
+      }
+    },
+    "JHN": {
+      "1": {
+        "1": "No princípio aquele que é a Palavra já existia. A Palavra estava com Deus e a Palavra era Deus.",
+        "14": "A Palavra se tornou carne e habitou entre nós, cheia de graça e verdade. Vimos a sua glória, a glória do Filho Único do Pai."
+      },
+      "3": {
+        "16": "Porque Deus amou tanto o mundo que deu o seu Filho Único, para que todo aquele que nele crer não pereça, mas tenha a vida eterna.",
+        "17": "Pois Deus não enviou o seu Filho ao mundo para condenar o mundo, mas para que o mundo fosse salvo por meio dele."
+      },
+      "10": {
+        "10": "O ladrão vem apenas para roubar, matar e destruir; eu vim para que tenham vida, e uma vida completa."
+      },
+      "14": {
+        "6": "Jesus respondeu: 'Eu sou o caminho, a verdade e a vida; ninguém pode chegar ao Pai a não ser por mim.'",
+        "27": "Deixo a paz com vocês; dou a vocês a minha paz. Não a dou como o mundo dá. Não se perturbe o seu coração, nem tenham medo."
+      }
+    },
+    "ROM": {
+      "3": {
+        "23": "Pois todos pecaram e estão destituídos da glória de Deus;"
+      },
+      "6": {
+        "23": "Pois o salário do pecado é a morte, mas a dádiva gratuita de Deus é a vida eterna em Cristo Jesus, nosso Senhor."
+      },
+      "8": {
+        "28": "Sabemos que todas as coisas cooperam para o bem daqueles que amam a Deus, daqueles que são chamados de acordo com o seu propósito."
+      },
+      "10": {
+        "9": "Se você declarar abertamente com a sua boca que 'Jesus é Senhor', e crer em seu coração que Deus o ressuscitou dentre os mortos, será salvo."
+      },
+      "12": {
+        "1": "Portanto, meus irmãos, rogo pelas misericórdias de Deus que vocês ofereçam o seu corpo como sacrifício vivo, santo e agradável a Deus, que é o seu verdadeiro culto.",
+        "2": "Não se amoldem ao padrão deste mundo, mas transformem-se pela renovação da sua mente, para que possam experimentar a boa, agradável e perfeita vontade de Deus."
+      }
+    },
+    "1CO": {
+      "10": {
+        "13": "Vocês não enfrentaram tentação que não fosse comum à humanidade. E Deus é fiel; ele não permitirá que vocês sejam tentados além do que podem suportar, mas providenciará também uma saída para que possam resistir."
+      },
+      "13": {
+        "4": "O amor é paciente, o amor é bondoso. O amor não inveja, não se gaba, não é orgulhoso,",
+        "5": "não maltrata, não procura seus interesses, não se ira facilmente, não guarda rancor;",
+        "6": "não se alegra com a injustiça, mas se alegra com a verdade;",
+        "7": "tudo sofre, tudo crê, tudo espera, tudo suporta."
+      }
+    },
+    "2CO": {
+      "5": {
+        "17": "Portanto, se alguém está em Cristo, é uma nova criação. As coisas antigas já passaram; eis que surgiram coisas novas!"
+      },
+      "10": {
+        "4": "As armas com as quais lutamos não são deste mundo; ao contrário, são poderosas em Deus para derrubar fortalezas."
+      }
+    },
+    "GAL": {
+      "2": {
+        "20": "Fui crucificado com Cristo. Assim, já não sou eu quem vive, mas Cristo vive em mim. A vida que agora vivo no corpo, vivo-a pela fé no Filho de Deus, que me amou e se entregou por mim."
+      },
+      "5": {
+        "22": "Mas o fruto do Espírito é: amor, alegria, paz, paciência, amabilidade, bondade, fidelidade,",
+        "23": "mansidão e domínio próprio. Contra estas coisas não há lei."
+      }
+    },
+    "EPH": {
+      "2": {
+        "8": "Pois vocês são salvos pela graça, por meio da fé, e isto não vem de vocês, é dom de Deus;",
+        "9": "não por obras, para que ninguém se orgulhe."
+      },
+      "6": {
+        "10": "Finalmente, fortaleçam-se no Senhor e no seu poder irresistível.",
+        "11": "Vistam toda a armadura de Deus, para poderem ficar firmes contra as ciladas do diabo."
+      }
+    },
+    "PHP": {
+      "4": {
+        "6": "Não andem ansiosos por coisa alguma, mas em tudo, pela oração e súplicas, com ação de graças, apresentem seus pedidos a Deus.",
+        "7": "E a paz de Deus, que excede todo o entendimento, guardará o coração e a mente de vocês em Cristo Jesus.",
+        "13": "Posso todas as coisas por meio de Cristo, que me fortalece."
+      }
+    },
+    "2TI": {
+      "1": {
+        "7": "Pois Deus não nos deu um espírito de covardia, mas de poder, de amor e de equilíbrio."
+      },
+      "3": {
+        "16": "Toda a Escritura é inspirada por Deus e útil para ensinar, para repreender, para corrigir e para instruir na justiça,",
+        "17": "a fim de que o homem de Deus seja apto e plenamente preparado para toda boa obra."
+      }
+    },
+    "HEB": {
+      "11": {
+        "1": "Ora, a fé é a certeza das coisas que esperamos e a prova das coisas que não vemos."
+      },
+      "12": {
+        "1": "Portanto, também nós, uma vez que estamos rodeados por tão grande nuvem de testemunhas, livremo-nos de tudo o que nos atrapalha e do pecado que nos envolve, e corramos com perseverança a corrida proposta para nós,",
+        "2": "olhando firmemente para Jesus, o autor e consumador da nossa fé, que, pelo gozo que lhe fora proposto, suportou a cruz, desprezando a vergonha, e assentou-se à direita do trono de Deus."
+      }
+    },
+    "JAS": {
+      "1": {
+        "2": "Meus irmãos, considerem motivo de grande alegria sempre que passarem por vários tipos de provações,",
+        "3": "pois vocês sabem que a prova da sua fé produz perseverança."
+      },
+      "4": {
+        "7": "Portanto, sujeitem-se a Deus. Resistam ao diabo, e ele fugirá de vocês."
+      }
+    },
+    "1PE": {
+      "5": {
+        "7": "Lancem sobre ele toda a sua ansiedade, porque ele cuida de vocês."
+      }
+    },
+    "1JN": {
+      "1": {
+        "9": "Se confessarmos os nossos pecados, ele é fiel e justo para perdoar os nossos pecados e nos purificar de toda injustiça."
+      }
+    },
+    "REV": {
+      "21": {
+        "4": "Ele enxugará dos olhos deles toda lágrima. Não haverá mais morte, nem tristeza, nem choro, nem dor, pois a antiga ordem já passou."
+      }
+    }
+  }
+}

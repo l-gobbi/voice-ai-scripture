@@ -1,0 +1,188 @@
+{
+  "translation": "WEB",
+  "name": "World English Bible",
+  "language": "en",
+  "books": {
+    "GEN": {
+      "1": {
+        "1": "In the beginning, God created the heavens and the earth.",
+        "2": "The earth was formless and empty. Darkness was on the surface of the deep and God's Spirit was hovering over the surface of the waters.",
+        "3": "God said, 'Let there be light,' and there was light."
+      }
+    },
+    "JOS": {
+      "1": {
+        "9": "Haven't I commanded you? Be strong and courageous. Don't be afraid, neither be dismayed: for Yahweh your God is with you wherever you go."
+      }
+    },
+    "PSA": {
+      "23": {
+        "1": "Yahweh is my shepherd: I shall lack nothing.",
+        "2": "He makes me lie down in green pastures. He leads me beside still waters.",
+        "3": "He restores my soul. He guides me in the paths of righteousness for his name's sake.",
+        "4": "Even though I walk through the valley of the shadow of death, I will fear no evil, for you are with me. Your rod and your staff, they comfort me.",
+        "5": "You prepare a table before me in the presence of my enemies. You anoint my head with oil. My cup runs over.",
+        "6": "Surely goodness and loving kindness shall follow me all the days of my life, and I will dwell in Yahweh's house forever."
+      },
+      "91": {
+        "1": "He who dwells in the secret place of the Most High will rest in the shadow of the Almighty.",
+        "2": "I will say of Yahweh, 'He is my refuge and my fortress; my God, in whom I trust.'"
+      },
+      "119": {
+        "105": "Your word is a lamp to my feet, and a light for my path."
+      }
+    },
+    "PRO": {
+      "3": {
+        "5": "Trust in Yahweh with all your heart, and don't lean on your own understanding.",
+        "6": "In all your ways acknowledge him, and he will make your paths straight."
+      }
+    },
+    "ISA": {
+      "40": {
+        "31": "But those who wait for Yahweh will renew their strength. They will mount up with wings like eagles. They will run, and not be weary. They will walk, and not faint."
+      },
+      "41": {
+        "10": "Don't you be afraid, for I am with you. Don't be dismayed, for I am your God. I will strengthen you. Yes, I will help you. Yes, I will uphold you with the right hand of my righteousness."
+      },
+      "53": {
+        "5": "But he was pierced for our transgressions. He was crushed for our iniquities. The punishment that brought our peace was on him; and by his wounds we are healed."
+      }
+    },
+    "MAT": {
+      "6": {
+        "9": "Pray like this: 'Our Father in heaven, may your name be kept holy.'",
+        "10": "'May your Kingdom come. May your will be done on earth, as it is in heaven.'",
+        "11": "'Give us today our daily bread.'",
+        "12": "'Forgive us our debts, as we also forgive our debtors.'",
+        "13": "'Bring us not into temptation, but deliver us from the evil one. For yours is the Kingdom, the power, and the glory forever. Amen.'"
+      },
+      "28": {
+        "19": "Go and make disciples of all nations, baptizing them in the name of the Father and of the Son and of the Holy Spirit,",
+        "20": "teaching them to observe all things that I commanded you. Behold, I am with you always, even to the end of the age. Amen."
+      }
+    },
+    "JHN": {
+      "1": {
+        "1": "In the beginning was the Word, and the Word was with God, and the Word was God.",
+        "14": "The Word became flesh, and lived among us. We saw his glory, such glory as of the one and only Son of the Father, full of grace and truth."
+      },
+      "3": {
+        "16": "For God so loved the world, that he gave his one and only Son, that whoever believes in him should not perish, but have eternal life.",
+        "17": "For God didn't send his Son into the world to judge the world, but that the world should be saved through him."
+      },
+      "10": {
+        "10": "The thief only comes to steal, kill, and destroy. I came that they may have life, and may have it abundantly."
+      },
+      "14": {
+        "6": "Jesus said to him, 'I am the way, the truth, and the life. No one comes to the Father, except through me.'",
+        "27": "Peace I leave with you. My peace I give to you; not as the world gives, give I to you. Don't let your heart be troubled, neither let it be fearful."
+      }
+    },
+    "ROM": {
+      "3": {
+        "23": "for all have sinned, and fall short of the glory of God;"
+      },
+      "6": {
+        "23": "For the wages of sin is death, but the free gift of God is eternal life in Christ Jesus our Lord."
+      },
+      "8": {
+        "28": "We know that all things work together for good for those who love God, to those who are called according to his purpose."
+      },
+      "10": {
+        "9": "that if you will confess with your mouth that Jesus is Lord, and believe in your heart that God raised him from the dead, you will be saved."
+      },
+      "12": {
+        "1": "Therefore I urge you, brothers, by the mercies of God, to present your bodies a living sacrifice, holy, acceptable to God, which is your spiritual service.",
+        "2": "Don't be conformed to this world, but be transformed by the renewing of your mind, so that you may prove what is the good, well-pleasing, and perfect will of God."
+      }
+    },
+    "1CO": {
+      "10": {
+        "13": "No temptation has taken you except what is common to man. God is faithful, who will not allow you to be tempted above what you are able, but will with the temptation also make the way of escape, that you may be able to endure it."
+      },
+      "13": {
+        "4": "Love is patient and is kind. Love doesn't envy. Love doesn't brag, is not proud,",
+        "5": "doesn't behave itself inappropriately, doesn't seek its own way, is not provoked, takes no account of evil;",
+        "6": "doesn't rejoice in unrighteousness, but rejoices with the truth;",
+        "7": "bears all things, believes all things, hopes all things, and endures all things."
+      }
+    },
+    "2CO": {
+      "5": {
+        "17": "Therefore if anyone is in Christ, he is a new creation. The old things have passed away. Behold, all things have become new."
+      },
+      "10": {
+        "4": "for the weapons of our warfare are not of the flesh, but mighty before God to the throwing down of strongholds,"
+      }
+    },
+    "GAL": {
+      "2": {
+        "20": "I have been crucified with Christ, and it is no longer I that live, but Christ lives in me. That life which I now live in the flesh, I live by faith in the Son of God, who loved me, and gave himself up for me."
+      },
+      "5": {
+        "22": "But the fruit of the Spirit is love, joy, peace, patience, kindness, goodness, faithfulness,",
+        "23": "gentleness, and self-control. Against such things there is no law."
+      }
+    },
+    "EPH": {
+      "2": {
+        "8": "For by grace you have been saved through faith, and that not of yourselves; it is the gift of God,",
+        "9": "not of works, that no one would boast."
+      },
+      "6": {
+        "10": "Finally, be strong in the Lord, and in the strength of his might.",
+        "11": "Put on the whole armor of God, that you may be able to stand against the wiles of the devil."
+      }
+    },
+    "PHP": {
+      "4": {
+        "6": "In nothing be anxious, but in everything, by prayer and petition with thanksgiving, let your requests be made known to God.",
+        "7": "And the peace of God, which surpasses all understanding, will guard your hearts and your thoughts in Christ Jesus.",
+        "13": "I can do all things through Christ, who strengthens me."
+      }
+    },
+    "2TI": {
+      "1": {
+        "7": "For God didn't give us a spirit of fear, but of power, love, and self-control."
+      },
+      "3": {
+        "16": "Every Scripture is God-breathed and profitable for teaching, for reproof, for correction, and for instruction in righteousness,",
+        "17": "that each person who belongs to God may be complete, thoroughly equipped for every good work."
+      }
+    },
+    "HEB": {
+      "11": {
+        "1": "Now faith is assurance of things hoped for, proof of things not seen."
+      },
+      "12": {
+        "1": "Therefore let's also, seeing we are surrounded by so great a cloud of witnesses, lay aside every weight and the sin which so easily entangles us, and let's run with perseverance the race that is set before us,",
+        "2": "looking to Jesus, the author and perfecter of faith, who for the joy that was set before him endured the cross, despising its shame, and has sat down at the right hand of the throne of God."
+      }
+    },
+    "JAS": {
+      "1": {
+        "2": "Count it all joy, my brothers, when you fall into various temptations,",
+        "3": "knowing that the testing of your faith produces endurance."
+      },
+      "4": {
+        "7": "Be subject therefore to God. Resist the devil, and he will flee from you."
+      }
+    },
+    "1PE": {
+      "5": {
+        "7": "Casting all your worries on him, because he cares for you."
+      }
+    },
+    "1JN": {
+      "1": {
+        "9": "If we confess our sins, he is faithful and righteous to forgive us our sins, and to cleanse us from all unrighteousness."
+      }
+    },
+    "REV": {
+      "21": {
+        "4": "He will wipe away every tear from their eyes. Death will be no more; neither will there be mourning, nor crying, nor pain, any more. The first things have passed away."
+      }
+    }
+  }
+}
