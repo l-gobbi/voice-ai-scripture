@@ -71,3 +71,18 @@ _Avoid_: Verse deck, category list, collection
 **Quiet-Time Reminder**:
 A daily scheduled local push notification sent at a user-specified hour reminding them of pending due verses.
 _Avoid_: Push alarm, streak alert, notification ping
+
+### Audio & AI Infrastructure
+
+**Speech Transcriber**:
+The pluggable adapter seam responsible for converting recorded recitation audio into text (backed by OpenAI Whisper or offline simulation).
+_Avoid_: STT service, audio parser, voice translator
+
+**Simulated Transcriber**:
+An offline-capable test and development implementation of the Speech Transcriber that yields predictable text without making external network calls or requiring an API key.
+_Avoid_: Mock STT, fake whisper, test transcriber
+
+**Transcription Error**:
+A domain-level error representation classifying transcription failures (such as network loss, authentication failure, or rate limits) distinctly from verse recitation scoring.
+_Avoid_: Whisper error, API crash, audio failure
+
