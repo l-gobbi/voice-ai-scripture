@@ -33,6 +33,22 @@ const DATASETS: Record<SupportedTranslation, BibleDataset> = {
 
 export const BUNDLED_TRANSLATIONS: readonly SupportedTranslation[] = ['WEB', 'KJV', 'ALMEIDA', 'ONBV'] as const;
 
+export const PT_TRANSLATIONS: ReadonlySet<string> = new Set([
+  'ALMEIDA',
+  'ONBV',
+  'NVI',
+  'ARA',
+  'NAA',
+  'NTLH',
+  'ARC',
+  'NVT',
+]);
+
+export function isPortugueseTranslation(translation?: string | null): boolean {
+  if (!translation) return false;
+  return PT_TRANSLATIONS.has(translation.toUpperCase().trim());
+}
+
 export function isBundledTranslation(raw: string): raw is SupportedTranslation {
   return canonicalizeTranslation(raw) !== null;
 }

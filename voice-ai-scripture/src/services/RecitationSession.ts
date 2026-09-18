@@ -10,9 +10,10 @@ import {
 } from './SpeechTranscriber';
 import { normalizeReference } from './ReferenceNormalizer';
 
+import { PT_TRANSLATIONS } from './BibleProvider';
+
 export { SpeechTranscriber };
 
-const PT_TRANSLATIONS = new Set(['ALMEIDA', 'ONBV', 'NVI', 'ARA', 'NAA', 'NTLH', 'ARC', 'NVT']);
 const EN_TRANSLATIONS = new Set(['WEB', 'KJV', 'ESV', 'NIV', 'NKJV', 'NASB', 'NLT', 'MSG']);
 
 export function inferVerseLanguage(verse: { translation?: string; reference: string }): 'en' | 'pt' {

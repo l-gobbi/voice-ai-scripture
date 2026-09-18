@@ -2504,10 +2504,7 @@ function sanitizeSearch(str: string): string {
     .replace(/[^a-z0-9]/g, '');
 }
 
-export function getCanonBooks(
-  testament?: 'OT' | 'NT',
-  language?: 'en' | 'pt'
-): CanonBook[] {
+export function getCanonBooks(testament?: 'OT' | 'NT'): CanonBook[] {
   if (!testament) {
     return [...CANON_BOOKS];
   }
@@ -2525,7 +2522,7 @@ export function getChapterCount(bookId: string): number {
 
 export function getVerseCount(bookId: string, chapter: number): number {
   const book = getCanonBook(bookId);
-  if (!book || chapter <= 0 || chapter > book.chapters) {
+  if (!book || chapter < 1 || chapter > book.chapters) {
     return 0;
   }
   return book.verseCounts[chapter - 1] ?? 0;
@@ -2546,6 +2543,11 @@ export function searchCanonBooks(
     return pool;
   }
 
+  const matchesAlias = (alias: string) => {
+    const c = sanitizeSearch(alias);
+    return c === cleanQuery || c.startsWith(cleanQuery);
+  };
+
   return pool.filter((book) => {
     const cleanEn = sanitizeSearch(book.enName);
     const cleanPt = sanitizeSearch(book.ptName);
@@ -2553,18 +2555,6 @@ export function searchCanonBooks(
       return true;
     }
 
-    const enAliasMatch = book.enAliases.some((alias) => {
-      const c = sanitizeSearch(alias);
-      return c === cleanQuery || c.startsWith(cleanQuery) || cleanQuery.startsWith(c);
-    });
-    if (enAliasMatch) return true;
-
-    const ptAliasMatch = book.ptAliases.some((alias) => {
-      const c = sanitizeSearch(alias);
-      return c === cleanQuery || c.startsWith(cleanQuery) || cleanQuery.startsWith(c);
-    });
-    if (ptAliasMatch) return true;
-
-    return false;
+    return book.enAliases.some(matchesAlias) || book.ptAliases.some(matchesAlias);
   });
 }

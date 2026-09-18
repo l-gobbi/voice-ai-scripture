@@ -69,6 +69,7 @@ export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVe
   const [pickerVisible, setPickerVisible] = useState(false);
 
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const textAreaRef = useRef<TextInput | null>(null);
 
   const fetchVerseText = async (refQuery: string, translation: string, manual = false) => {
     const trimmed = refQuery.trim();
@@ -204,6 +205,9 @@ export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVe
       fetchVerseText(canonicalRef, selectedTranslation, false);
     } else {
       setFetchNotice('Referência definida! Cole o texto da sua Bíblia ou digite-o abaixo.');
+      setTimeout(() => {
+        textAreaRef.current?.focus();
+      }, 100);
     }
   };
 
@@ -302,6 +306,7 @@ export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVe
           {/* Verse Text Area */}
           <Text style={styles.inputLabel}>Texto do Versículo</Text>
           <TextInput
+            ref={textAreaRef}
             style={[styles.input, styles.textArea]}
             placeholder="Verse text..."
             value={text}

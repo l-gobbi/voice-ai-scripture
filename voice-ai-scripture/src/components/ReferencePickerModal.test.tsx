@@ -16,7 +16,7 @@ describe('ReferencePickerModal (Ticket 19)', () => {
 
   describe('Slice 1: Book Step, Testament Tabs & Search Filter', () => {
     it('renders Portuguese testament tabs and book list when translation is ALMEIDA', async () => {
-      const { getByText, queryByText } = await render(
+      const { getByText, getAllByText } = await render(
         <ReferencePickerModal {...defaultProps} />
       );
 
@@ -26,10 +26,12 @@ describe('ReferencePickerModal (Ticket 19)', () => {
 
       expect(getByText('Gênesis')).toBeTruthy();
       expect(getByText('Mateus')).toBeTruthy();
+      // Localized testament badges (39 OT books rendered as AT)
+      expect(getAllByText('AT').length).toBe(39);
     });
 
-    it('renders English testament tabs and book names when translation is WEB', async () => {
-      const { getByText } = await render(
+    it('renders English testament tabs, book names, and OT badge when translation is WEB', async () => {
+      const { getByText, getAllByText, getByPlaceholderText } = await render(
         <ReferencePickerModal {...defaultProps} translation="WEB" />
       );
 
@@ -39,6 +41,11 @@ describe('ReferencePickerModal (Ticket 19)', () => {
 
       expect(getByText('Genesis')).toBeTruthy();
       expect(getByText('Matthew')).toBeTruthy();
+      expect(getAllByText('OT').length).toBe(39);
+
+      // Search input auto-focus
+      const searchInput = getByPlaceholderText('Search book (e.g. John, Ps)...');
+      expect(searchInput.props.autoFocus).toBe(true);
     });
 
     it('filters books by testament tabs', async () => {
@@ -175,6 +182,7 @@ describe('ReferencePickerModal (Ticket 19)', () => {
       await act(async () => {
         fireEvent.press(getByText('Gênesis'));
       });
+      expect(getByText('Livros')).toBeTruthy();
       expect(getByText('Todos (66)')).toBeTruthy();
       expect(getByText('Mateus')).toBeTruthy();
     });

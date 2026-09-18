@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { VerseTranslation } from '../services/VerseEngine';
+import { isPortugueseTranslation } from '../services/BibleProvider';
 import {
   CanonBook,
   getCanonBooks,
@@ -28,26 +29,13 @@ export interface ReferencePickerModalProps {
 type Step = 'book' | 'chapter' | 'verse';
 type TestamentFilter = 'all' | 'OT' | 'NT';
 
-const PT_TRANSLATIONS = new Set([
-  'ALMEIDA',
-  'ONBV',
-  'NVI',
-  'ARA',
-  'NAA',
-  'NTLH',
-  'ARC',
-  'NVT',
-]);
-
 export default function ReferencePickerModal({
   visible,
   translation,
   onClose,
   onSelectReference,
 }: ReferencePickerModalProps) {
-  const isPt = useMemo(() => {
-    return PT_TRANSLATIONS.has((translation ?? '').toUpperCase().trim());
-  }, [translation]);
+  const isPt = useMemo(() => isPortugueseTranslation(translation), [translation]);
 
   const [step, setStep] = useState<Step>('book');
   const [selectedBook, setSelectedBook] = useState<CanonBook | null>(null);
@@ -132,6 +120,7 @@ export default function ReferencePickerModal({
       setEndVerse(null);
     } else if (step === 'chapter') {
       setStep('book');
+      setSelectedBook(null);
       setSelectedChapter(null);
     } else {
       onClose();
@@ -140,6 +129,7 @@ export default function ReferencePickerModal({
 
   const handleJumpToBook = () => {
     setStep('book');
+    setSelectedBook(null);
     setSelectedChapter(null);
     setStartVerse(null);
     setEndVerse(null);
@@ -191,7 +181,7 @@ export default function ReferencePickerModal({
                   step === 'book' ? styles.breadcrumbActive : styles.breadcrumbInactive,
                 ]}
               >
-                {selectedBook ? bookName : isPt ? 'Livros' : 'Books'}
+                {step !== 'book' && selectedBook ? bookName : isPt ? 'Livros' : 'Books'}
               </Text>
             </TouchableOpacity>
 
@@ -255,6 +245,7 @@ export default function ReferencePickerModal({
             <View style={styles.searchWrapper}>
               <TextInput
                 style={styles.searchInput}
+                autoFocus={true}
                 placeholder={
                   isPt ? 'Buscar livro (ex: João, Sl)...' : 'Search book (e.g. John, Ps)...'
                 }
@@ -331,6 +322,11 @@ export default function ReferencePickerModal({
               contentContainerStyle={styles.bookListContent}
               renderItem={({ item }) => {
                 const name = isPt ? item.ptName : item.enName;
+                const testamentLabel = isPt
+                  ? item.testament === 'OT'
+                    ? 'AT'
+                    : 'NT'
+                  : item.testament;
                 return (
                   <TouchableOpacity
                     style={styles.bookRow}
@@ -339,7 +335,7 @@ export default function ReferencePickerModal({
                   >
                     <Text style={styles.bookRowName}>{name}</Text>
                     <View style={styles.testamentBadge}>
-                      <Text style={styles.testamentBadgeText}>{item.testament}</Text>
+                      <Text style={styles.testamentBadgeText}>{testamentLabel}</Text>
                     </View>
                   </TouchableOpacity>
                 );
