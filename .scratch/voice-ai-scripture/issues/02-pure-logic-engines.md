@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** closed
 
 - [x] Implement `diffVerses` algorithm (returning correct, missed, added states).
 - [x] Implement `calculateScore` based on the diff output.

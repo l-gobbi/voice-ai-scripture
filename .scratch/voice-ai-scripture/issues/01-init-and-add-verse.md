@@ -4,7 +4,7 @@
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** closed
 
 - [ ] Initialize blank Expo React Native project (TypeScript).
 - [ ] Create a home screen with a list of saved verses.

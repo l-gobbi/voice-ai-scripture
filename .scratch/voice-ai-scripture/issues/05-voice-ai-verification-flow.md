@@ -4,7 +4,7 @@
 
 **Blocked by:** 03-text-flashcard-review, 04-voice-recording-and-whisper
 
-**Status:** ready-for-agent
+**Status:** closed
 
 - [x] Add a "Voice Verify" mode to the Review screen.
 - [x] Pass the Whisper transcript (from 04) and the expected verse text into the Diff Engine (from 02).

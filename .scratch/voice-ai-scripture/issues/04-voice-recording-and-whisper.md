@@ -4,7 +4,7 @@
 
 **Blocked by:** 01-init-and-add-verse
 
-**Status:** ready-for-agent
+**Status:** closed
 
 - [x] Request microphone permissions using `expo-av`.
 - [x] Build a simple "Hold to Record" button that captures an audio file.

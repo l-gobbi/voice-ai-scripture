@@ -4,7 +4,7 @@
 
 **Blocked by:** 01-init-and-add-verse, 02-pure-logic-engines
 
-**Status:** ready-for-agent
+**Status:** closed
 
 - [x] Add a "Review" screen navigated to when a verse is tapped from the home list.
 - [x] Display the verse reference and hide the verse text until a "Reveal" button is pressed.

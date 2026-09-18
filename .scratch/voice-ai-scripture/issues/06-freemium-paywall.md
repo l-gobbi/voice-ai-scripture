@@ -4,7 +4,7 @@
 
 **Blocked by:** 05-voice-ai-verification-flow
 
-**Status:** ready-for-agent
+**Status:** closed
 
 - [x] Add RevenueCat SDK (or simple mock state flag).
 - [x] Lock the "Voice Verify" button if the user is not subscribed.
