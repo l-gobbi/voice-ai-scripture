@@ -19,6 +19,7 @@ jest.mock('../services/VerseEngine', () => ({
       text: 'For God so loved the world...',
       translation: 'WEB',
     }),
+    deleteVerse: jest.fn().mockResolvedValue(true),
   },
 }));
 
@@ -334,4 +335,94 @@ describe('HomeScreen Integration (Ticket 16)', () => {
       });
     });
   });
+
+  describe('Verse Card Deletion Integration (Ticket 23)', () => {
+    const verse1 = { id: 'v1', reference: 'Romans 8:28', text: 'And we know...', translation: 'WEB' };
+    const verse2 = { id: 'v2', reference: 'Philippians 4:6', text: 'Be anxious for nothing...', translation: 'WEB' };
+
+    it('renders delete button on each verse card with testID and accessible label', async () => {
+      (verseEngine.getVersesSummary as jest.Mock).mockResolvedValueOnce({
+        allVerses: [verse1, verse2],
+        dueVerses: [verse1, verse2],
+        dueCount: 2,
+      });
+
+      const { getByTestId } = await render(<HomeScreen />);
+
+      expect(getByTestId('delete-verse-v1')).toBeTruthy();
+      expect(getByTestId('delete-verse-v2')).toBeTruthy();
+    });
+
+    it('opens DeleteConfirmationModal when delete button is pressed without triggering review', async () => {
+      (verseEngine.getVersesSummary as jest.Mock).mockResolvedValueOnce({
+        allVerses: [verse1],
+        dueVerses: [verse1],
+        dueCount: 1,
+      });
+
+      const { getByTestId, getByText, getAllByText, queryByText } = await render(<HomeScreen />);
+
+      await act(async () => {
+        fireEvent.press(getByTestId('delete-verse-v1'));
+      });
+
+      expect(getByText('Excluir versículo?')).toBeTruthy();
+      expect(getAllByText(/Romans 8:28/).length).toBeGreaterThanOrEqual(2);
+      expect(queryByText('Tap to speak when ready')).toBeNull();
+    });
+
+    it('closes modal and preserves verse when Cancelar is clicked', async () => {
+      (verseEngine.getVersesSummary as jest.Mock).mockResolvedValueOnce({
+        allVerses: [verse1],
+        dueVerses: [verse1],
+        dueCount: 1,
+      });
+
+      const { getByTestId, queryByText } = await render(<HomeScreen />);
+
+      await act(async () => {
+        fireEvent.press(getByTestId('delete-verse-v1'));
+      });
+
+      await act(async () => {
+        fireEvent.press(getByTestId('cancel-delete-button'));
+      });
+
+      expect(queryByText('Excluir versículo?')).toBeNull();
+      expect(verseEngine.deleteVerse).not.toHaveBeenCalled();
+    });
+
+    it('deletes verse and refreshes list and counters when confirmed', async () => {
+      (verseEngine.getVersesSummary as jest.Mock)
+        .mockResolvedValueOnce({
+          allVerses: [verse1],
+          dueVerses: [verse1],
+          dueCount: 1,
+        })
+        .mockResolvedValueOnce({
+          allVerses: [],
+          dueVerses: [],
+          dueCount: 0,
+        });
+
+      const { getByTestId, getByText, queryByText } = await render(<HomeScreen />);
+
+      await act(async () => {
+        fireEvent.press(getByTestId('delete-verse-v1'));
+      });
+
+      await act(async () => {
+        fireEvent.press(getByTestId('confirm-delete-button'));
+      });
+
+      expect(verseEngine.deleteVerse).toHaveBeenCalledWith('v1');
+      await waitFor(() => {
+        expect(queryByText('Excluir versículo?')).toBeNull();
+        expect(getByText('🎉 All caught up for today! No verses due.')).toBeTruthy();
+        expect(getByText(/Due Today \(0\)/)).toBeTruthy();
+        expect(getByText(/All \(0\)/)).toBeTruthy();
+      });
+    });
+  });
 });
+

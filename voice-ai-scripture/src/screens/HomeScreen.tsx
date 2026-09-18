@@ -13,6 +13,7 @@ import ReviewScreen from './ReviewScreen';
 import PackBrowserModal from '../components/PackBrowserModal';
 import ReminderSettingsModal from '../components/ReminderSettingsModal';
 import AddVerseModal from '../components/AddVerseModal';
+import DeleteConfirmationModal from '../components/DeleteConfirmationModal';
 
 export default function HomeScreen() {
   const [summary, setSummary] = useState<VerseSummary>({
@@ -23,6 +24,7 @@ export default function HomeScreen() {
   const [modalVisible, setModalVisible] = useState(false);
   const [packBrowserVisible, setPackBrowserVisible] = useState(false);
   const [reminderModalVisible, setReminderModalVisible] = useState(false);
+  const [verseToDelete, setVerseToDelete] = useState<Verse | null>(null);
 
   const [activeReviewVerse, setActiveReviewVerse] = useState<Verse | null>(null);
   const [filterMode, setFilterMode] = useState<'all' | 'due'>('due');
@@ -30,6 +32,14 @@ export default function HomeScreen() {
   const loadVerses = async () => {
     const data = await verseEngine.getVersesSummary();
     setSummary(data);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!verseToDelete) return;
+    const toDelete = verseToDelete;
+    setVerseToDelete(null);
+    await verseEngine.deleteVerse(toDelete.id);
+    await loadVerses();
   };
 
   useEffect(() => {
@@ -49,7 +59,6 @@ export default function HomeScreen() {
   }
 
   const displayedVerses = filterMode === 'due' ? summary.dueVerses : summary.allVerses;
-  const dueCount = summary.dueCount;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -64,17 +73,15 @@ export default function HomeScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Filter Tabs */}
       <View style={styles.tabBar}>
         <TouchableOpacity
           style={[styles.tabButton, filterMode === 'due' && styles.activeTabButton]}
           onPress={() => setFilterMode('due')}
         >
           <Text style={[styles.tabText, filterMode === 'due' && styles.activeTabText]}>
-            🔥 Due Today ({dueCount})
+            🔥 Due Today ({summary.dueCount})
           </Text>
         </TouchableOpacity>
-
         <TouchableOpacity
           style={[styles.tabButton, filterMode === 'all' && styles.activeTabButton]}
           onPress={() => setFilterMode('all')}
@@ -103,9 +110,21 @@ export default function HomeScreen() {
                     <Text style={styles.translationBadge}>[{item.translation}]</Text>
                   ) : null}
                 </View>
-                {streak !== undefined && streak > 0 && (
-                  <Text style={styles.streakBadge}>Streak: {streak}</Text>
-                )}
+                <View style={styles.verseHeaderRight}>
+                  {streak !== undefined && streak > 0 && (
+                    <Text style={styles.streakBadge}>Streak: {streak}</Text>
+                  )}
+                  <TouchableOpacity
+                    style={styles.deleteButton}
+                    onPress={() => setVerseToDelete(item)}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    testID={`delete-verse-${item.id}`}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Excluir versículo ${item.reference}`}
+                  >
+                    <Text style={styles.deleteButtonText}>🗑️</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
               <Text style={styles.tapPrompt}>Tap to practice →</Text>
             </TouchableOpacity>
@@ -149,6 +168,13 @@ export default function HomeScreen() {
         onClose={() => setModalVisible(false)}
         onSaveSuccess={loadVerses}
       />
+
+      <DeleteConfirmationModal
+        visible={verseToDelete !== null}
+        verse={verseToDelete}
+        onConfirm={handleConfirmDelete}
+        onCancel={() => setVerseToDelete(null)}
+      />
     </SafeAreaView>
   );
 }
@@ -185,6 +211,20 @@ const styles = StyleSheet.create({
     borderColor: '#e5e7eb',
   },
   verseHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  verseHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  deleteButton: {
+    padding: 6,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deleteButtonText: {
+    fontSize: 14,
+  },
   verseTitleContainer: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   verseReference: { fontSize: 18, fontWeight: '600', color: '#1f2937' },
   translationBadge: {

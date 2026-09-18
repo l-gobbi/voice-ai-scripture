@@ -7,10 +7,10 @@ Integrate the delete button and confirmation modal into `HomeScreen`. Each verse
 
 **Status:** ready-for-agent
 
-- [ ] Add an isolated delete touchable button (`🗑️` or icon) on each verse card header with `testID="delete-verse-{id}"` and accessible labeling
-- [ ] Ensure tapping the delete button does NOT trigger the card's `activeReviewVerse` navigation
-- [ ] Connect `DeleteConfirmationModal` in `HomeScreen`, tracking the active `verseToDelete` in state
-- [ ] On confirmation, call `await verseEngine.deleteVerse(verse.id)`, close modal, and refresh list via `loadVerses()`
-- [ ] Ensure tab counters (`📚 All (N)` and `⏳ Due (N)`) update immediately after deletion
-- [ ] Ensure empty states render appropriately when all due verses or all verses are deleted
-- [ ] Add integration tests in `HomeScreen.test.tsx` verifying card delete button rendering, modal trigger, cancel flow, confirm deletion, and counter updates
+- [x] Add an isolated delete touchable button (`🗑️` or icon) on each verse card header with `testID="delete-verse-{id}"` and accessible labeling
+- [x] Ensure tapping the delete button does NOT trigger the card's `activeReviewVerse` navigation
+- [x] Connect `DeleteConfirmationModal` in `HomeScreen`, tracking the active `verseToDelete` in state
+- [x] On confirmation, call `await verseEngine.deleteVerse(verse.id)`, close modal, and refresh list via `loadVerses()`
+- [x] Ensure tab counters (`📚 All (N)` and `⏳ Due (N)`) update immediately after deletion
+- [x] Ensure empty states render appropriately when all due verses or all verses are deleted
+- [x] Add integration tests in `HomeScreen.test.tsx` verifying card delete button rendering, modal trigger, cancel flow, confirm deletion, and counter updates
