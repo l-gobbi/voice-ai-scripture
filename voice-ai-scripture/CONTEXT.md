@@ -100,3 +100,8 @@ _Avoid_: Bible client, scripture fetcher, passage scraper
 The algorithmic translation of abbreviated or regional book inputs (e.g., `Jo 3:16`, `Rm 8:28`, `1 Co 13:4`) into canonical reference strings before provider resolution.
 _Avoid_: Name cleaning, string fix, reference parse
 
+**Reference Picker**:
+A guided three-stage drill-down modal (Book → Chapter → Verse) allowing users to visually select canonical scripture references and ranges with offline chapter/verse validation.
+_Avoid_: Bible selector, passage dropdown, book explorer
+
+

@@ -1,119 +1,148 @@
----
+﻿---
 labels: ["ready-for-agent"]
 ---
 
-# Specification: Multi-Translation Selection & Offline Bible Synchronization
+# Specification: Guided Reference Picker & Static Canon Matrix
 
 ## Problem Statement
 
-Users currently experience significant friction when adding new scripture verses to memorize. The "Add Verse" modal requires manually typing or copying and pasting the complete verse text on a mobile keyboard, which is the primary cause of user drop-off during onboarding. Furthermore, the application is locked to English, with topical packs and hardcoded default texts only available in English. Additionally, Brazilian Portuguese users and users of different theological backgrounds prefer specific biblical translations (such as World English Bible or King James Version for English, and João Ferreira de Almeida or Nova Bíblia Viva for Portuguese). 
+Users frequently encounter friction when adding scripture verses to their memory repository. While `ReferenceNormalizer` and `BibleProvider` support automatic scripture fetching, users are currently forced to manually type book names and citations into a raw text input field ("Referência Bíblica"). On mobile devices, typing references like `Filipenses 4:6-7` or `2 Coríntios 5:7` is tedious, error-prone due to mobile keyboard autocorrect, and requires users to already know exact book spellings or supported abbreviations. Furthermore, novice believers or users wanting to visually explore what to memorize have no way to browse books, chapters, and verses.
 
-Finally, relying on third-party remote Bible REST APIs poses severe operational and commercial risks: strict rate limits (e.g., 15 requests per 30 seconds per IP on public hobbyist endpoints) trigger frequent `429 Rate Limited` errors on carrier-grade cellular NATs or church Wi-Fi networks, while modern copyrighted translations (such as NVI and ARA) carry copyright licensing liabilities if bundled without royalty permissions.
+Most standard Bible applications (such as YouVersion, Logos, and Blue Letter Bible) provide a guided, thumb-friendly 3-stage selection hierarchy (Book → Chapter → Verse). Without this visual flow, mobile user drop-off during verse addition remains higher than necessary.
 
 ## Solution
 
-Implement an instant, zero-latency, rate-limit-free **Multi-Translation Selection and Offline Bible Synchronization** architecture:
-1. **Commercial-Compliant Translation Catalog**: Support verified Public Domain and Open-Access (CC BY-SA 4.0) translations that permit 100% royalty-free commercial freemium usage:
-   - 🇺🇸 **English**: `WEB` (World English Bible - modern English, default) and `KJV` (King James Version - classic English).
-   - 🇧🇷 **Português**: `ALMEIDA` (João Ferreira de Almeida - traditional Portuguese, default) and `ONBV` (Biblica® Open Nova Bíblia Viva - modern Portuguese, CC BY-SA 4.0).
-2. **Offline-First Bundled `BibleProvider` Seam**: A formalized Ports & Adapters boundary (`BibleProvider`) backed by a lightweight, locally bundled scripture database (`LocalBibleProvider`). Queries run in `<1ms` without network calls, eliminating all server costs, rate limits, and connectivity failures.
-3. **Smart Reference Normalizer**: A forgiving reference parser that recognizes colloquial and localized abbreviations in both English and Portuguese (e.g., `Jo 3:16`, `João 3:16`, `John 3:16`, `Rm 8:28`, `Sl 23:1`, `1 Co 13:4`), automatically resolving multi-verse spans (e.g., `John 3:16-17`) into continuous recitation text.
-4. **Interactive "Add Verse" Auto-Populate & Clipboard Import**:
-   - As the user types a recognized reference and selects a translation, the canonical text auto-populates instantly with zero latency.
-   - For copyrighted translations (e.g. `NVI`, `ARA`), the UI provides a 1-tap **"📋 Paste from Clipboard"** button and editable text area, empowering users to memorize in their favorite translation under personal-study fair use without app copyright liability.
-5. **Whisper Speech Transcriber Language Priming**: Dynamically condition the Whisper speech-to-text language based on the verse's translation (`'pt'` for `ALMEIDA` and `ONBV`; `'en'` for `WEB` and `KJV`), ensuring Brazilian recitations are transcribed with maximum accuracy and zero foreign-language hallucinations.
-6. **Dual-Language Topical Packs**: Expand the topical pack library to include Brazilian Portuguese collections (*Paz*, *Fé*, *Esperança* in Almeida) alongside English collections (*Peace*, *Faith*, *Strength* in WEB).
+Implement an instant, thumb-friendly, offline-first **Reference Picker** modal integrated into `AddVerseModal`:
+1. **Hybrid Coexistence**:
+   - Keep the existing free-text input and 1-tap YouVersion clipboard import in `AddVerseModal` for fast typists and direct copying.
+   - Add a prominent **"📖 Escolher da Bíblia"** button that opens the dedicated `ReferencePickerModal`.
+2. **Three-Stage Drill-Down Selection Hierarchy**:
+   - **Stage 1 (Livro)**:
+     - Segmented testament filter tabs: `[Todos (66)]`, `[Antigo Testamento (39)]`, `[Novo Testamento (27)]`.
+     - Live search filter at the top with auto-focus, matching book names and bilingual abbreviations (e.g., typing `"Jo"` immediately narrows to *João, 1 João, 2 João, 3 João, Joel, Jonas, Josué, Jó*).
+     - Selecting a book immediately transitions to its chapter grid.
+   - **Stage 2 (Capítulo)**:
+     - Sized numeric grid (1..N) displaying exactly the canonical number of chapters for the selected book (e.g. 50 for Genesis, 150 for Psalms, 1 for Obadiah).
+     - Selecting a chapter immediately transitions to its verse grid.
+   - **Stage 3 (Versículo & Range Selection)**:
+     - Sized numeric grid (1..M) displaying exactly the canonical number of verses for the chosen chapter.
+     - **1-Tap Single Verse Selection**: Tapping a verse highlights it and displays a floating action pill: `"Inserir [Livro C:V]"`.
+     - **2-Tap Multi-Verse Range**: Tapping a second verse highlights the contiguous span (e.g., verses 6 through 7), updating the pill to `"Inserir [Livro C:V1-V2]"`.
+     - Tapping the confirmation pill closes the picker and passes the formatted canonical reference back to `AddVerseModal`.
+3. **Persistent Breadcrumb Navigation**:
+   - A sticky header displays the selection path: `[Livro] › [Capítulo] › [Versículo]`.
+   - Tapping any previous breadcrumb item returns immediately to that step without losing state.
+   - A `< Voltar` chevron provides sequential back-stepping.
+4. **Static Protestant 66-Book Canon Matrix**:
+   - An immutable, ultra-lightweight (~4KB) data module `src/data/bibleCanon.ts` defining all 66 books, their testament (OT/NT), canonical chapter counts, and verse counts per chapter.
+   - 100% offline, zero network latency, instant grid rendering.
+5. **Bilingual Display & Auto-Fetch Integration**:
+   - Book and testament names render in Portuguese or English matching the user's active translation in `AddVerseModal` (`ALMEIDA`, `ONBV`, `NVI`, `ARA` → PT; `WEB`, `KJV`, `ESV` → EN).
+   - Once confirmed, `AddVerseModal` populates `"Referência Bíblica"` and triggers debounced auto-fetch for bundled translations (`WEB`, `KJV`, `ALMEIDA`, `ONBV`), or provides clipboard guidance for copyrighted translations (`NVI`, `ARA`, `CUSTOM`).
 
 ## User Stories
 
-1. As a believer opening the "Add Verse" modal, I want to select my preferred translation (WEB, KJV, Almeida, ONBV) from a clean dropdown, so that I can memorize in the version my church and community use.
-2. As a Brazilian believer typing "Jo 3:16", I want the app to recognize the Portuguese abbreviation and instantly fill in *"Porque Deus amou o mundo de tal maneira..."*, so that I don't have to painstakingly type out the entire verse on my phone keyboard.
-3. As a user memorizing in English typing "Romans 8:28" in the WEB translation, I want the full passage to load immediately without waiting for a spinning network loader, so that adding verses feels effortless and instantaneous.
-4. As a believer studying inside a church sanctuary or on an airplane with no internet connection, I want verse search and auto-fill to work completely offline, so that lack of Wi-Fi or cellular service never interrupts my spiritual discipline.
-5. As a mobile user connected to carrier-grade cellular data (where thousands of devices share an IP), I want verse lookups to never fail with rate-limit or 429 errors, so that my experience remains stable and frustration-free.
-6. As a believer memorizing a longer passage like "Salmos 23:1-3", I want the app to fetch and concatenate the verses into a unified, continuous recitation text, so that I can practice reciting the full psalm smoothly.
-7. As a believer whose favorite translation is copyrighted (such as NVI or ARA), I want to tap a "Paste from Clipboard" button that extracts text I copied from the YouVersion Bible app, so that I can still memorize my favorite version under personal study fair use.
-8. As a user who prefers specific punctuation, capitalized divine pronouns, or a slightly different wording, I want the auto-filled verse text box to remain fully editable, so that I can refine the text to match my exact memorization preference before saving.
-9. As a Brazilian believer reciting Portuguese scripture out loud, I want the voice recognition engine to be explicitly primed with Portuguese language phonemes (`language: 'pt'`), so that my Portuguese recitation is not misrecognized as English words.
-10. As an English believer reciting King James Version scripture out loud, I want the voice recognition engine to be primed with English language phonemes (`language: 'en'`), so that archaic terms like *"begotten"* and *"whosoever"* are accurately transcribed.
-11. As a new Brazilian user browsing topical packs, I want to see curated Portuguese packs (*Paz*, *Fé*, *Esperança*), so that I can start memorizing immediately with one tap without configuring anything.
-12. As a user reviewing my saved verses on the home screen, I want to see a clear translation badge (e.g., `WEB`, `KJV`, `ALMEIDA`, `ONBV`) on each verse card, so that I immediately know which version I am practicing.
-13. As a user who edits an existing verse to switch translations, I want my review streak and Spaced Repetition interval to remain intact, so that changing translations does not erase my memorization progress.
-14. As an automated test suite or AI developer, I want an in-memory `SimulatedBibleProvider` that returns deterministic passages without touching the filesystem or network, so that test suites run in milliseconds.
+1. As a believer opening the "Add Verse" modal on a phone, I want to tap "📖 Escolher da Bíblia", so that I can pick a passage with my thumbs without typing on a mobile keyboard.
+2. As a user browsing books, I want segmented tabs for "Antigo Testamento" (39) and "Novo Testamento" (27), so that I can quickly cut the list in half and find my book without excessive scrolling.
+3. As a user who knows the book name, I want a live search bar that filters the book list as I type, so that typing "Rom" instantly narrows the list to "Romanos".
+4. As a Brazilian user typing common abbreviations like "Jo" or "Sl", I want the search filter to recognize Portuguese aliases and immediately show "João" or "Salmos".
+5. As an English user typing "Jn" or "Ps", I want the search filter to recognize English aliases and immediately show "John" or "Psalms".
+6. As a user who selected a book, I want to see a clean numeric grid of chapters matching that book's exact canon count, so that I cannot pick non-existent chapters like Jude 2 or Obadiah 2.
+7. As a user who selected a chapter, I want to see a numeric grid of verses matching that chapter's exact canon count, so that I cannot pick non-existent verses like John 3:37.
+8. As a user wanting to memorize a single verse (e.g. João 3:16), I want to tap verse 16 and tap "Inserir João 3:16", so that I can complete selection in seconds.
+9. As a user wanting to memorize a multi-verse passage (e.g. Filipenses 4:6-7), I want to tap verse 6 and then verse 7 to highlight the range and tap "Inserir Filipenses 4:6-7", so that I can memorize continuous passages effortlessly.
+10. As a user on the verse selection step who realized they picked the wrong chapter, I want to tap the chapter breadcrumb in the header, so that I can jump back to chapter selection in one tap.
+11. As a user on the chapter selection step who wants a different book, I want to tap the book breadcrumb or back arrow, so that I can change the book easily.
+12. As a user memorizing in Portuguese (Almeida), I want book names to display in Portuguese (e.g., "Gênesis", "Mateus"), so that the terminology matches my Bible.
+13. As a user memorizing in English (WEB or KJV), I want book names to display in English (e.g., "Genesis", "Matthew"), so that the terminology matches my Bible.
+14. As a fast typist who prefers typing "Rm 8:28" directly, I want the free-text input to remain fully functional, so that the picker does not slow down experienced typists.
+15. As a user selecting a verse in a bundled translation (e.g. Almeida), I want the verse text to auto-populate immediately upon returning from the picker, so that I am ready to save with one tap.
+16. As a user selecting a verse in a copyrighted translation (e.g. NVI), I want the picker to fill the reference and focus the text box with helpful guidance, so that I can paste my copied text cleanly.
+17. As an automated test runner, I want pure-logic helper functions in the canon matrix to test chapter/verse boundaries without rendering UI, so that edge cases are verified quickly.
 
 ## Implementation Decisions
 
-- **Translation Domain Model & Metadata:**
-  - Update `Verse` entity in `VerseEngine.ts` to include `translation: string` (e.g. `'WEB' | 'KJV' | 'ALMEIDA' | 'ONBV' | 'CUSTOM'`).
-  - Update `VerseEngine.addVerse()` and `VerseEngine.updateVerse()` to accept and persist `translation`, defaulting to `'WEB'` for English references and `'ALMEIDA'` for Portuguese references when unspecified.
-  - When switching translation on an existing verse, update the verse text while preserving existing `streak`, `repetitions`, `intervalDays`, and `nextReviewDate`.
+- **Static Canon Matrix (`src/data/bibleCanon.ts`)**:
+  - Contains array of all 66 Protestant canon books with fields:
+    - `id`: Canonical OSIS book ID (e.g. `'GEN'`, `'MAT'`, `'JHN'`)
+    - `testament`: `'OT' | 'NT'`
+    - `enName`: English name (e.g. `'Genesis'`)
+    - `ptName`: Portuguese name (e.g. `'Gênesis'`)
+    - `chapters`: Number of chapters in the book
+    - `verseCounts`: Array where `verseCounts[chapter - 1]` contains the number of verses in that chapter
+  - Exports domain query functions:
+    - `getCanonBooks(testament?: 'OT' | 'NT', language?: 'en' | 'pt'): CanonBook[]`
+    - `getCanonBook(bookId: string): CanonBook | undefined`
+    - `searchCanonBooks(query: string, language?: 'en' | 'pt'): CanonBook[]`
+    - `getChapterCount(bookId: string): number`
+    - `getVerseCount(bookId: string, chapter: number): number`
 
-- **BibleProvider Seam (Ports & Adapters):**
-  - Create `src/services/BibleProvider.ts` defining the domain interface:
+- **Reference Picker Modal (`src/components/ReferencePickerModal.tsx`)**:
+  - Props contract:
     ```typescript
-    export interface BiblePassage {
-      reference: string;
-      text: string;
-      translation: string;
-      language: 'en' | 'pt';
-    }
-
-    export interface BibleProvider {
-      fetchPassage(reference: string, translation: string): Promise<BiblePassage | null>;
+    export interface ReferencePickerModalProps {
+      visible: boolean;
+      translation: VerseTranslation;
+      onClose: () => void;
+      onSelectReference: (canonicalReference: string) => void;
     }
     ```
-  - **`LocalBibleProvider`**: Production adapter accessing local bundled scripture JSON data in `src/data/bibles/` (`web.json`, `kjv.json`, `almeida.json`, `onbv.json`). Performs zero network calls, runs synchronously in `<1ms`, and returns trimmed, normalized scripture text.
-  - **`SimulatedBibleProvider`**: In-memory test adapter pre-loaded with mock passages or custom handler overrides for headless testing.
-  - **`createDefaultBibleProvider()` Factory**: Returns `new LocalBibleProvider()`.
+  - Internal state:
+    - `step`: `'book' | 'chapter' | 'verse'`
+    - `selectedBook`: `CanonBook | null`
+    - `selectedChapter`: `number | null`
+    - `startVerse`: `number | null`
+    - `endVerse`: `number | null`
+    - `searchQuery`: `string`
+    - `testamentFilter`: `'all' | 'OT' | 'NT'`
+  - UI Sub-views:
+    - **Header**: Breadcrumbs row (`[Livro] › [Capítulo] › [Versículo]`) with touchable items to jump back, plus a close button `✕` and back button `‹`.
+    - **Book Step**:
+      - Search bar with clear button (`✕`).
+      - Testament filter tabs: `Todos`, `Antigo Testamento`, `Novo Testamento`.
+      - Scrollable FlatList of book items showing book name and testament badge.
+    - **Chapter Step**:
+      - Number grid rendered with `flexWrap: 'wrap'` or FlatList `numColumns={5}`.
+      - Large, accessible touch targets with active press feedback.
+    - **Verse Step**:
+      - Number grid (1..M).
+      - Single verse or range selection state (highlighted in indigo/blue).
+      - Floating bottom confirmation bar: `"Inserir <Reference>"`.
 
-- **ReferenceNormalizer Module:**
-  - Create `src/services/ReferenceNormalizer.ts` responsible for parsing, normalizing, and resolving reference strings.
-  - Maintains an alias dictionary for all 66 canonical biblical books supporting:
-    - English names & abbreviations (`Gen`, `Ex`, `Matt`, `Mt`, `Rom`, `Rm`, `1 Cor`, `1 Co`, `Rev`).
-    - Portuguese names & abbreviations (`Gn`, `Êx`, `Mt`, `Mateus`, `Jo`, `João`, `Rm`, `Romanos`, `Sl`, `Salmos`, `1 Co`, `1 Coríntios`, `Ap`, `Apocalipse`).
-  - Extracts book identifier, chapter number, starting verse number, and optional ending verse number.
-  - Concatenates multi-verse ranges into continuous strings separated by single spaces.
-
-- **SpeechTranscriber Language Priming:**
-  - Update `TranscriptionOptions` in `SpeechTranscriber.ts` to accept optional `language?: string`.
-  - Update `WhisperTranscriber.transcribe()` to append `formData.append('language', options.language ?? 'en')`.
-  - In `RecitationSession.stopAndVerify()`, derive the language from `this.verse.translation`:
-    - If `translation === 'ALMEIDA' || translation === 'ONBV'` (or Portuguese pack), pass `language: 'pt'`.
-    - Otherwise pass `language: 'en'`.
-
-- **Add Verse Modal & UI Overhaul:**
-  - In `HomeScreen.tsx` (Add Verse Modal):
-    - Add a styled Picker / Translation Selector segmented by language:
-      - 🇺🇸 English: `WEB (World English Bible)`, `KJV (King James Version)`
-      - 🇧🇷 Português: `Almeida (JFA)`, `ONBV (Nova Bíblia Viva)`
-      - 📋 Outras: `NVI / ARA / Outra (Personalizado)`
-    - Add debounced reference typing listener (500ms): when a valid book and chapter:verse are detected, automatically query `BibleProvider` and populate the text area with the scripture text.
-    - Provide a manual **"Buscar Texto" / "Fetch Text"** button beside the reference input.
-    - Provide a **"📋 Colar da Área de Transferência" / "Paste from Clipboard"** button that automatically parses copied text and reference.
-    - Display translation badge on verse cards in the list.
-
-- **Dual-Language Topical Packs:**
-  - Expand `src/data/topicalPacks.ts` to include localized Portuguese topical packs (*Paz*, *Fé*, *Esperança* in Almeida) with full reference and text.
-  - Update `PackBrowserModal.tsx` to display language tags (`[EN]` / `[PT]`) or a language filter toggle.
+- **Integration into `AddVerseModal` (`src/components/AddVerseModal.tsx`)**:
+  - Add a `"📖 Escolher da Bíblia"` button styled beside or below the `"Referência Bíblica"` label.
+  - When pressed, open `ReferencePickerModal`.
+  - On `onSelectReference(ref)`:
+    - Set reference state to `ref`.
+    - Automatically trigger `fetchVerseText(ref, selectedTranslation, false)`.
+    - Close the picker modal.
 
 ## Testing Decisions
 
-- **Behavior-Driven at Seams:**
-  - Test `ReferenceNormalizer` against a comprehensive battery of English and Portuguese abbreviations, capitalization variants, and multi-verse spans.
-  - Test `LocalBibleProvider` ensuring valid passage retrieval across all 4 bundled translations (`WEB`, `KJV`, `ALMEIDA`, `ONBV`), verifying accurate handling of unknown references (returning `null` without throwing unhandled exceptions).
-  - Test `SpeechTranscriber` verifying `FormData` receives `language: 'pt'` when `language` option is `'pt'`.
-  - Test `RecitationSession` verifying language conditioning is correctly propagated based on verse translation.
-  - Test `VerseEngine` verifying translation persistence and backward compatibility with existing saved verses that lack a translation field (defaulting safely to `'WEB'` or `'ALMEIDA'`).
-- **Prior Art:**
-  - Follows established Ports & Adapters patterns from `VerseEngine` (`StorageAdapter`) and `SpeechTranscriber` (`SimulatedTranscriber` / `createDefaultTranscriber`).
+- **Good Test Philosophy**: Tests verify public behavior through defined seams, not internal component state or private helper implementation details.
+- **Seams Under Test**:
+  1. **Canon Matrix Seam (`src/data/bibleCanon.test.ts`)**:
+     - Verifies all 66 books exist with correct OT (39) and NT (27) classifications.
+     - Verifies boundary chapter counts (e.g. Obadiah: 1 chapter, Psalms: 150 chapters).
+     - Verifies verse counts for landmark chapters (e.g. John 3: 36 verses, Psalm 23: 6 verses, Psalm 119: 176 verses).
+     - Verifies bilingual search queries matching full names and common abbreviations in both languages.
+  2. **Reference Picker Modal Component Seam (`src/components/ReferencePickerModal.test.tsx`)**:
+     - Verifies testament filtering (Todos / Antigo / Novo) renders correct book subsets.
+     - Verifies live search query filters book list instantly.
+     - Verifies navigation from Book → Chapter → Verse updates breadcrumbs.
+     - Verifies tapping breadcrumb returns to previous step.
+     - Verifies single verse selection emits `Book Chapter:Verse` on confirm.
+     - Verifies two-verse selection emits `Book Chapter:V1-V2` on confirm.
+  3. **AddVerseModal Integration Seam (`src/screens/HomeScreen.test.tsx`)**:
+     - Verifies opening picker from `AddVerseModal`, selecting a verse, and observing reference field populated and auto-fetch triggered.
 
 ## Out of Scope
 
-- Real-time audio text-to-speech narration (TTS) of verses (planned for future audio playback candidate).
-- Cloud user account synchronization or multi-device sync (the app remains local-first).
-- In-app payment integration for custom copyrighted Bible licenses (handled via clipboard import for now).
+- Audio Bible playback inside the picker.
+- Red-letter text highlighting or cross-reference commentary inside the picker.
+- Custom non-Protestant apocryphal canons (standard Protestant 66-book canon only).
 
 ## Further Notes
 
-- All bundled Bible translations (`WEB`, `KJV`, `ALMEIDA`, `ONBV`) have been verified for legal commercial freemium distribution with zero royalties.
-- Bundling text for the selected versions in lightweight JSON adds minimal storage footprint (~5-8MB) while delivering an unmatched instant offline user experience.
+- Reuses existing book alias normalization rules from `ReferenceNormalizer` for search queries.
+- Adheres strictly to `CONTEXT.md` ubiquitous language (**Reference Picker**, **Verse**).
