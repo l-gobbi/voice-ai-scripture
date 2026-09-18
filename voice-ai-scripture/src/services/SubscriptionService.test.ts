@@ -1,62 +1,80 @@
-import { SubscriptionService } from './SubscriptionService';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { SubscriptionService, subscriptionService } from './SubscriptionService';
+import { MapStorageAdapter } from './StorageAdapter';
 
-jest.mock('@react-native-async-storage/async-storage', () => ({
-  setItem: jest.fn(),
-  getItem: jest.fn(),
-}));
-
-describe('SubscriptionService', () => {
-  beforeEach(() => {
-    jest.clearAllMocks();
-  });
-
+describe('SubscriptionService (Ticket 24)', () => {
   it('provides 3 free voice recitations initially for non-subscribed users', async () => {
-    // Initial state: nothing in storage
-    (AsyncStorage.getItem as jest.Mock).mockResolvedValue(null);
+    const storage = new MapStorageAdapter();
+    const service = new SubscriptionService(storage);
 
-    const isSub = await SubscriptionService.isSubscribed();
+    const isSub = await service.isSubscribed();
     expect(isSub).toBe(false);
 
-    const remaining = await SubscriptionService.getRemainingFreeRecitations();
+    const remaining = await service.getRemainingFreeRecitations();
     expect(remaining).toBe(3);
   });
 
   it('decrements free recitations on consume, and blocks once limit is reached', async () => {
-    // Storage has 1 remaining
-    (AsyncStorage.getItem as jest.Mock).mockImplementation((key) => {
-      if (key === 'user_is_subscribed') return Promise.resolve('false');
-      if (key === 'free_recitations_remaining') return Promise.resolve('1');
-      return Promise.resolve(null);
-    });
+    const storage = new MapStorageAdapter();
+    const service = new SubscriptionService(storage);
 
-    const firstAttempt = await SubscriptionService.consumeRecitation();
-    expect(firstAttempt.allowed).toBe(true);
-    expect(firstAttempt.remaining).toBe(0);
+    // Initial quota is 3
+    const attempt1 = await service.consumeRecitation();
+    expect(attempt1.allowed).toBe(true);
+    expect(attempt1.remaining).toBe(2);
 
-    // Now storage reflects 0 remaining
-    (AsyncStorage.getItem as jest.Mock).mockImplementation((key) => {
-      if (key === 'user_is_subscribed') return Promise.resolve('false');
-      if (key === 'free_recitations_remaining') return Promise.resolve('0');
-      return Promise.resolve(null);
-    });
+    const attempt2 = await service.consumeRecitation();
+    expect(attempt2.allowed).toBe(true);
+    expect(attempt2.remaining).toBe(1);
 
-    const secondAttempt = await SubscriptionService.consumeRecitation();
-    expect(secondAttempt.allowed).toBe(false);
-    expect(secondAttempt.remaining).toBe(0);
+    const attempt3 = await service.consumeRecitation();
+    expect(attempt3.allowed).toBe(true);
+    expect(attempt3.remaining).toBe(0);
+
+    // Limit reached
+    const attempt4 = await service.consumeRecitation();
+    expect(attempt4.allowed).toBe(false);
+    expect(attempt4.remaining).toBe(0);
+
+    expect(await service.getRemainingFreeRecitations()).toBe(0);
   });
 
-  it('allows unlimited recitations once user is subscribed', async () => {
-    (AsyncStorage.getItem as jest.Mock).mockImplementation((key) => {
-      if (key === 'user_is_subscribed') return Promise.resolve('true');
-      if (key === 'free_recitations_remaining') return Promise.resolve('0');
-      return Promise.resolve(null);
+  it('allows unlimited recitations once user is subscribed and preserves status', async () => {
+    const storage = new MapStorageAdapter({
+      user_is_subscribed: 'true',
+      free_recitations_remaining: '0',
     });
+    const service = new SubscriptionService(storage);
 
-    const isSub = await SubscriptionService.isSubscribed();
+    const isSub = await service.isSubscribed();
     expect(isSub).toBe(true);
 
-    const attempt = await SubscriptionService.consumeRecitation();
+    const attempt = await service.consumeRecitation();
     expect(attempt.allowed).toBe(true);
+    expect(attempt.remaining).toBe(Infinity);
+    expect(attempt.isSubscribed).toBe(true);
+  });
+
+  it('supports upgrading to premium and canceling subscription', async () => {
+    const storage = new MapStorageAdapter();
+    const service = new SubscriptionService(storage);
+
+    expect(await service.isSubscribed()).toBe(false);
+
+    await service.subscribePremium();
+    expect(await service.isSubscribed()).toBe(true);
+    expect(await storage.getItem('user_is_subscribed')).toBe('true');
+
+    await service.cancelSubscription();
+    expect(await service.isSubscribed()).toBe(false);
+    expect(await storage.getItem('user_is_subscribed')).toBe('false');
+  });
+
+  it('supports backward-compatible static singleton methods', async () => {
+    expect(typeof SubscriptionService.isSubscribed).toBe('function');
+    expect(typeof SubscriptionService.consumeRecitation).toBe('function');
+    expect(typeof SubscriptionService.getRemainingFreeRecitations).toBe('function');
+    expect(typeof SubscriptionService.subscribePremium).toBe('function');
+    expect(typeof SubscriptionService.cancelSubscription).toBe('function');
+    expect(subscriptionService).toBeInstanceOf(SubscriptionService);
   });
 });

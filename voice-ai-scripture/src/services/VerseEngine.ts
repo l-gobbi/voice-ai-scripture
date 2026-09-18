@@ -1,4 +1,3 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { DEFAULT_SRS_STATE, SRSResult, SRSState, calculateNextReview, isVerseDue } from '../engines/srsEngine';
 import { normalizeReference } from './ReferenceNormalizer';
 import { SupportedTranslation } from './BibleProvider';
@@ -23,32 +22,13 @@ export interface VerseSummary {
   dueCount: number;
 }
 
-export interface StorageAdapter {
-  getItem(key: string): Promise<string | null>;
-  setItem(key: string, value: string): Promise<void>;
-}
+import {
+  StorageAdapter,
+  MapStorageAdapter,
+  AsyncStorageAdapter,
+} from './StorageAdapter';
 
-export class MapStorageAdapter implements StorageAdapter {
-  private data = new Map<string, string>();
-
-  async getItem(key: string): Promise<string | null> {
-    return this.data.get(key) ?? null;
-  }
-
-  async setItem(key: string, value: string): Promise<void> {
-    this.data.set(key, value);
-  }
-}
-
-class AsyncStorageAdapter implements StorageAdapter {
-  async getItem(key: string): Promise<string | null> {
-    return AsyncStorage.getItem(key);
-  }
-
-  async setItem(key: string, value: string): Promise<void> {
-    await AsyncStorage.setItem(key, value);
-  }
-}
+export { StorageAdapter, MapStorageAdapter, AsyncStorageAdapter };
 
 const STORAGE_KEY = 'verses';
 
