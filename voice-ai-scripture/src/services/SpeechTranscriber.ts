@@ -147,12 +147,31 @@ export class SimulatedTranscriber implements SpeechTranscriber {
   }
 }
 
-export function createDefaultTranscriber(apiKey?: string): SpeechTranscriber {
+import { NativeSpeechTranscriber } from './NativeSpeechTranscriber';
+
+export interface DefaultTranscriberOptions {
+  engine?: 'auto' | 'whisper' | 'native' | 'simulated';
+}
+
+export function createDefaultTranscriber(
+  apiKey?: string,
+  options?: DefaultTranscriberOptions
+): SpeechTranscriber {
+  const engine = options?.engine ?? 'auto';
+
+  if (engine === 'simulated') {
+    return new SimulatedTranscriber();
+  }
+
+  if (engine === 'native') {
+    return new NativeSpeechTranscriber();
+  }
+
   const key = (apiKey ?? process.env.EXPO_PUBLIC_OPENAI_API_KEY ?? '').trim();
   if (key.length > 0) {
     return new WhisperTranscriber(key);
   }
 
-  console.info('[SpeechTranscriber] No OpenAI API key configured. Using SimulatedTranscriber for offline practice.');
-  return new SimulatedTranscriber();
+  console.info('[SpeechTranscriber] No OpenAI API key configured. Using on-device NativeSpeechTranscriber for free offline practice.');
+  return new NativeSpeechTranscriber();
 }

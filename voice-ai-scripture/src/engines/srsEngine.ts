@@ -11,6 +11,7 @@ export interface SRSResult extends SRSState {
 }
 
 export const PASSING_SCORE_THRESHOLD = 80;
+export const ASSISTED_SCORE_THRESHOLD = 75;
 
 export const DEFAULT_SRS_STATE: SRSState = {
   intervalDays: 0,
@@ -19,29 +20,42 @@ export const DEFAULT_SRS_STATE: SRSState = {
   easeFactor: 2.5,
 };
 
+export interface CalculateNextReviewOptions {
+  assistanceUsed?: boolean;
+}
+
 /**
  * Calculates the next review date based on a simplified SuperMemo-2 (SM-2) algorithm.
  * @param currentState Current repetition and interval state
  * @param score Accuracy score from 0 to 100
  * @param now Reference date (defaults to current time)
+ * @param options Optional flags such as assistanceUsed
  */
 export function calculateNextReview(
   currentState: SRSState = DEFAULT_SRS_STATE,
   score: number,
-  now: Date = new Date()
+  now: Date = new Date(),
+  options?: CalculateNextReviewOptions
 ): SRSResult {
-  const isPassing = score >= PASSING_SCORE_THRESHOLD;
+  const isFullPass = score >= PASSING_SCORE_THRESHOLD;
+  const isAssistedPass =
+    !isFullPass &&
+    (options?.assistanceUsed ? score >= ASSISTED_SCORE_THRESHOLD : score === ASSISTED_SCORE_THRESHOLD);
+  const isPassing = isFullPass || isAssistedPass;
 
   let streak = currentState.streak !== undefined ? currentState.streak : (currentState.repetitions ?? 0);
   let intervalDays = currentState.intervalDays;
   let easeFactor = currentState.easeFactor;
 
-  if (!isPassing) {
-    // Reset streak upon failure
+  if (isAssistedPass) {
+    // Assisted review: preserves existing streak, schedules reinforcement for tomorrow
+    intervalDays = 1;
+  } else if (!isPassing) {
+    // Reset streak upon genuine failure (< 75%)
     streak = 0;
     intervalDays = 1;
   } else {
-    // Successful repetition
+    // Successful independent repetition
     if (streak === 0) {
       intervalDays = 1;
     } else if (streak === 1) {

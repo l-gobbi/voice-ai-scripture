@@ -8,35 +8,52 @@
 export interface ClozeToken {
   word: string;
   masked: string;
+  firstLetter: string;
+  punctuation: string;
   isRevealed: boolean;
   trailingSpace: boolean;
 }
 
 export type ClozeMode = 'first-letter' | 'blank';
 
+interface TokenDecomposition {
+  masked: string;
+  firstLetter: string;
+  punctuation: string;
+}
+
 /**
- * Mask a single word token according to the specified mode.
+ * Decomposes and masks a single word token according to the specified mode.
  * Preserves leading/trailing punctuation and casing.
  */
-function maskWord(tokenStr: string, mode: ClozeMode): string {
-  // Regex splitting word characters from surrounding punctuation
-  // Matches leading non-letters, letters/word-chars, trailing punctuation
+function decomposeWord(tokenStr: string, mode: ClozeMode): TokenDecomposition {
   const match = tokenStr.match(/^([^a-zA-Z\u00C0-\u024F]*)([a-zA-Z\u00C0-\u024F]+)(.*)$/);
   if (!match) {
-    // Pure punctuation/numbers/symbols: leave untouched
-    return tokenStr;
+    return {
+      masked: tokenStr,
+      firstLetter: '',
+      punctuation: tokenStr,
+    };
   }
 
   const [, prefix, letters, suffix] = match;
+  const firstLetter = letters[0] || '';
+  const punctuation = (prefix || '') + (suffix || '');
 
+  let masked: string;
   if (mode === 'blank') {
-    return prefix + '_'.repeat(letters.length) + suffix;
+    masked = prefix + '_'.repeat(letters.length) + suffix;
+  } else {
+    // 'first-letter' mode: retain 1st letter, underscore the rest
+    const remainingBlanks = '_'.repeat(letters.length - 1);
+    masked = prefix + firstLetter + remainingBlanks + suffix;
   }
 
-  // 'first-letter' mode: retain 1st letter, underscore the rest
-  const firstLetter = letters[0];
-  const remainingBlanks = '_'.repeat(letters.length - 1);
-  return prefix + firstLetter + remainingBlanks + suffix;
+  return {
+    masked,
+    firstLetter,
+    punctuation,
+  };
 }
 
 /**
@@ -52,9 +69,12 @@ export function generateClozeTokens(text: string, mode: ClozeMode): ClozeToken[]
 
   return rawWords.map((word, index) => {
     const isLast = index === rawWords.length - 1;
+    const { masked, firstLetter, punctuation } = decomposeWord(word, mode);
     return {
       word,
-      masked: maskWord(word, mode),
+      masked,
+      firstLetter,
+      punctuation,
       isRevealed: false,
       trailingSpace: !isLast,
     };

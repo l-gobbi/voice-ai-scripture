@@ -5,6 +5,7 @@ import {
   TranscriptionError,
   createDefaultTranscriber,
 } from './SpeechTranscriber';
+import { NativeSpeechTranscriber } from './NativeSpeechTranscriber';
 
 describe('SpeechTranscriber Seam (Ticket 11)', () => {
   describe('Slice 1: SimulatedTranscriber & Fallback Default Factory', () => {
@@ -56,13 +57,13 @@ describe('SpeechTranscriber Seam (Ticket 11)', () => {
       expect(result).toEqual({ text: 'Custom handled recitation' });
     });
 
-    it('createDefaultTranscriber returns a functional SimulatedTranscriber when no key is supplied or in environment', async () => {
+    it('createDefaultTranscriber returns a NativeSpeechTranscriber when no API key is supplied', async () => {
       const previousKey = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
       delete process.env.EXPO_PUBLIC_OPENAI_API_KEY;
 
       try {
         const transcriber = createDefaultTranscriber('');
-        expect(transcriber).toBeInstanceOf(SimulatedTranscriber);
+        expect(transcriber).toBeInstanceOf(NativeSpeechTranscriber);
 
         const result = await transcriber.transcribe('file:///audio.m4a', {
           prompt: 'Proverbs 3:5',
@@ -73,6 +74,14 @@ describe('SpeechTranscriber Seam (Ticket 11)', () => {
           process.env.EXPO_PUBLIC_OPENAI_API_KEY = previousKey;
         }
       }
+    });
+
+    it('createDefaultTranscriber allows explicit engine selection', () => {
+      const simulated = createDefaultTranscriber('', { engine: 'simulated' });
+      expect(simulated).toBeInstanceOf(SimulatedTranscriber);
+
+      const native = createDefaultTranscriber('', { engine: 'native' });
+      expect(native).toBeInstanceOf(NativeSpeechTranscriber);
     });
   });
 

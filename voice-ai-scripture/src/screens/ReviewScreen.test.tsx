@@ -36,6 +36,7 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
 
   afterEach(() => {
     setDefaultSpeechSynthesizer(null);
+    jest.useRealTimers();
   });
 
   it('renders default Level 3 (Blind Recitation) with 3-tier segmented control', async () => {
@@ -46,7 +47,7 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
 
     expect(getByText('Philippians 4:13')).toBeTruthy();
     expect(getByText('1. Echo')).toBeTruthy();
-    expect(getByText('2. Practice')).toBeTruthy();
+    expect(getByText('2. Cloze')).toBeTruthy();
     expect(getByText('3. Recite')).toBeTruthy();
     expect(getByText('Level 3: Blind Recitation (Active Recall)')).toBeTruthy();
     expect(getByText('🎤 Start Reciting')).toBeTruthy();
@@ -88,7 +89,7 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
 
     // Switch to Level 2: Cloze Practice
     await act(async () => {
-      fireEvent.press(getByText('2. Practice'));
+      fireEvent.press(getByText('2. Cloze'));
     });
 
     expect(getByText('Level 2: Cloze Practice')).toBeTruthy();
@@ -149,6 +150,45 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
     expect(recordSpy).toHaveBeenCalled();
     const recordedScore = recordSpy.mock.calls[0][1];
     expect(recordedScore).toBeLessThanOrEqual(75);
+  });
+
+  it('in Level 3 (Blind Recitation), multiple word peeks each schedule an independent 3s re-hide timer without leaking', async () => {
+    const setTimeoutSpy = jest.spyOn(global, 'setTimeout');
+    const onComplete = jest.fn();
+
+    const { findAllByText, queryByText } = await render(
+      <ReviewScreen verse={mockVerse} onComplete={onComplete} />
+    );
+
+    const blankTokens = await findAllByText(/_+/);
+    expect(blankTokens.length).toBeGreaterThan(2);
+
+    // Tap first word (I)
+    await act(async () => {
+      fireEvent.press(blankTokens[0]);
+    });
+    expect(queryByText(/^I\s*$/)).toBeTruthy();
+
+    // Tap second word (can)
+    await act(async () => {
+      fireEvent.press(blankTokens[1]);
+    });
+    expect(queryByText(/^can\s*$/)).toBeTruthy();
+
+    // Verify both word peeks scheduled independent 3000ms timeouts
+    const peekTimerCalls = setTimeoutSpy.mock.calls.filter((call) => call[1] === 3000);
+    expect(peekTimerCalls.length).toBeGreaterThanOrEqual(2);
+
+    // Execute both timer callbacks to verify both words re-hide
+    await act(async () => {
+      peekTimerCalls[0][0]();
+      peekTimerCalls[1][0]();
+    });
+
+    expect(queryByText(/^I\s*$/)).toBeNull();
+    expect(queryByText(/^can\s*$/)).toBeNull();
+
+    setTimeoutSpy.mockRestore();
   });
 
   it('shows paywall modal when quota is exhausted in Level 3', async () => {

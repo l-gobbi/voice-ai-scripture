@@ -44,7 +44,7 @@ export default function ReviewScreen({ verse, onComplete }: ReviewScreenProps) {
     passed: boolean;
   } | null>(null);
 
-  const peekTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const peekTimersRef = useRef<Map<number, NodeJS.Timeout>>(new Map());
 
   const {
     status,
@@ -65,10 +65,8 @@ export default function ReviewScreen({ verse, onComplete }: ReviewScreenProps) {
     setAssistanceUsed(false);
     setLevel1Revealed(false);
 
-    if (peekTimerRef.current) {
-      clearTimeout(peekTimerRef.current);
-      peekTimerRef.current = null;
-    }
+    peekTimersRef.current.forEach((t) => clearTimeout(t));
+    peekTimersRef.current.clear();
 
     if (level === 1) {
       const synth = getDefaultSpeechSynthesizer();
@@ -81,9 +79,8 @@ export default function ReviewScreen({ verse, onComplete }: ReviewScreenProps) {
     }
 
     return () => {
-      if (peekTimerRef.current) {
-        clearTimeout(peekTimerRef.current);
-      }
+      peekTimersRef.current.forEach((t) => clearTimeout(t));
+      peekTimersRef.current.clear();
       getDefaultSpeechSynthesizer().stop().catch(() => {});
     };
   }, [level, verse.id, verse.text]);
@@ -108,14 +105,17 @@ export default function ReviewScreen({ verse, onComplete }: ReviewScreenProps) {
     setAssistanceUsed(true);
     setClozeTokens((prev) => revealWord(prev, index));
 
-    if (peekTimerRef.current) {
-      clearTimeout(peekTimerRef.current);
+    const existingTimer = peekTimersRef.current.get(index);
+    if (existingTimer) {
+      clearTimeout(existingTimer);
     }
 
-    peekTimerRef.current = setTimeout(() => {
+    const timer = setTimeout(() => {
       setClozeTokens((prev) => hideWord(prev, index));
-      peekTimerRef.current = null;
+      peekTimersRef.current.delete(index);
     }, 3000);
+
+    peekTimersRef.current.set(index, timer);
   };
 
   const handleToggleRecitation = async () => {
@@ -157,11 +157,7 @@ export default function ReviewScreen({ verse, onComplete }: ReviewScreenProps) {
             }
           : null);
 
-  const displayScore = currentResult
-    ? level === 3 && assistanceUsed
-      ? evaluateAssistedScore(currentResult.score, true)
-      : currentResult.score
-    : 0;
+  const displayScore = currentResult ? currentResult.score : 0;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -180,7 +176,7 @@ export default function ReviewScreen({ verse, onComplete }: ReviewScreenProps) {
               style={[styles.modeTab, level === 2 && styles.activeModeTab]}
               onPress={() => setLevel(2)}
             >
-              2. Practice
+              2. Cloze
             </Text>
             <Text
               style={[styles.modeTab, level === 3 && styles.activeModeTab]}

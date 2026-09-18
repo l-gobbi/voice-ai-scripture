@@ -21,13 +21,9 @@ export interface SpeechSynthesizer {
   isSpeaking(): Promise<boolean>;
 }
 
-export function formatSpeechLanguage(language?: string): string {
-  if (!language) return 'en-US';
-  const clean = language.trim().toLowerCase();
-  if (clean === 'pt' || clean === 'pt-br') return 'pt-BR';
-  if (clean === 'en' || clean === 'en-us') return 'en-US';
-  return language;
-}
+import { normalizeSpeechLanguage } from '../utils/languageNormalizer';
+
+export const formatSpeechLanguage = normalizeSpeechLanguage;
 
 export class ExpoSpeechSynthesizer implements SpeechSynthesizer {
   private speechModule: any;

@@ -43,7 +43,7 @@ describe('srsEngine', () => {
     expect(result.nextReviewDate.toISOString()).toBe('2026-01-16T12:00:00.000Z');
   });
 
-  it('resets interval and streak on failure (< 80% accuracy)', () => {
+  it('resets interval and streak on failure (< 75% accuracy)', () => {
     const seasonedState: SRSState = {
       intervalDays: 15,
       streak: 3,
@@ -53,6 +53,21 @@ describe('srsEngine', () => {
 
     expect(result.intervalDays).toBe(1);
     expect(result.streak).toBe(0);
+    expect(result.passed).toBe(false);
+    expect(result.nextReviewDate.toISOString()).toBe('2026-01-02T12:00:00.000Z');
+  });
+
+  it('preserves multi-day streak and schedules reinforcement for tomorrow on assisted review (75% score)', () => {
+    const seasonedState: SRSState = {
+      intervalDays: 15,
+      streak: 5,
+      easeFactor: 2.5,
+    };
+    const result = calculateNextReview(seasonedState, 75, baseDate);
+
+    expect(result.intervalDays).toBe(1);
+    expect(result.streak).toBe(5); // Preserved, not wiped to 0
+    expect(result.passed).toBe(true);
     expect(result.nextReviewDate.toISOString()).toBe('2026-01-02T12:00:00.000Z');
   });
 

@@ -3,6 +3,7 @@ import { SubscriptionService, subscriptionService } from './SubscriptionService'
 import { audioRecorder, AudioRecorderService } from './AudioRecorderService';
 import { diffVerses, calculateScore, DiffToken } from '../engines/diffEngine';
 import { evaluateAssistedScore } from '../engines/clozeEngine';
+import { calculateNextReview } from '../engines/srsEngine';
 import {
   SpeechTranscriber,
   TranscriptionOptions,
@@ -178,15 +179,14 @@ export class RecitationSession {
       // Coordinate review recording and SM-2 progression via VerseEngine
       let srsResult: SRSResult;
       if (options?.unmetered) {
+        const simulated = calculateNextReview(this.verse.srs, score);
         srsResult = {
+          ...simulated,
           nextReviewDate: this.verse.srs?.nextReviewDate
             ? new Date(this.verse.srs.nextReviewDate)
-            : new Date(),
+            : simulated.nextReviewDate,
           intervalDays: this.verse.srs?.intervalDays ?? 0,
           streak: this.verse.srs?.streak ?? 0,
-          repetitions: this.verse.srs?.repetitions ?? 0,
-          easeFactor: this.verse.srs?.easeFactor ?? 2.5,
-          passed: score >= 80,
         };
       } else {
         srsResult = await this.verseEngine.recordReview(this.verse.id, score);

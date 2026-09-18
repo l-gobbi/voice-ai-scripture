@@ -18,15 +18,15 @@ describe('clozeEngine', () => {
       // 'loved' -> 'l____'
       // 'world,' -> display with trailing comma preserved
       expect(tokens).toEqual([
-        { word: 'For', masked: 'F__', isRevealed: false, trailingSpace: true },
-        { word: 'God', masked: 'G__', isRevealed: false, trailingSpace: true },
-        { word: 'so', masked: 's_', isRevealed: false, trailingSpace: true },
-        { word: 'loved', masked: 'l____', isRevealed: false, trailingSpace: true },
-        { word: 'the', masked: 't__', isRevealed: false, trailingSpace: true },
-        { word: 'world,', masked: 'w____,', isRevealed: false, trailingSpace: true },
-        { word: 'that', masked: 't___', isRevealed: false, trailingSpace: true },
-        { word: 'He', masked: 'H_', isRevealed: false, trailingSpace: true },
-        { word: 'gave!', masked: 'g___!', isRevealed: false, trailingSpace: false },
+        { word: 'For', masked: 'F__', firstLetter: 'F', punctuation: '', isRevealed: false, trailingSpace: true },
+        { word: 'God', masked: 'G__', firstLetter: 'G', punctuation: '', isRevealed: false, trailingSpace: true },
+        { word: 'so', masked: 's_', firstLetter: 's', punctuation: '', isRevealed: false, trailingSpace: true },
+        { word: 'loved', masked: 'l____', firstLetter: 'l', punctuation: '', isRevealed: false, trailingSpace: true },
+        { word: 'the', masked: 't__', firstLetter: 't', punctuation: '', isRevealed: false, trailingSpace: true },
+        { word: 'world,', masked: 'w____,', firstLetter: 'w', punctuation: ',', isRevealed: false, trailingSpace: true },
+        { word: 'that', masked: 't___', firstLetter: 't', punctuation: '', isRevealed: false, trailingSpace: true },
+        { word: 'He', masked: 'H_', firstLetter: 'H', punctuation: '', isRevealed: false, trailingSpace: true },
+        { word: 'gave!', masked: 'g___!', firstLetter: 'g', punctuation: '!', isRevealed: false, trailingSpace: false },
       ]);
     });
 
@@ -35,9 +35,9 @@ describe('clozeEngine', () => {
       const tokens = generateClozeTokens(text, 'blank');
 
       expect(tokens).toEqual([
-        { word: 'In', masked: '__', isRevealed: false, trailingSpace: true },
-        { word: 'the', masked: '___', isRevealed: false, trailingSpace: true },
-        { word: 'beginning', masked: '_________', isRevealed: false, trailingSpace: false },
+        { word: 'In', masked: '__', firstLetter: 'I', punctuation: '', isRevealed: false, trailingSpace: true },
+        { word: 'the', masked: '___', firstLetter: 't', punctuation: '', isRevealed: false, trailingSpace: true },
+        { word: 'beginning', masked: '_________', firstLetter: 'b', punctuation: '', isRevealed: false, trailingSpace: false },
       ]);
     });
   });
