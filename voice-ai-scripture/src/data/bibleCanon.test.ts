@@ -1,5 +1,5 @@
-﻿import {
-  CanonBook,
+import {
+  CANON_BOOKS,
   getCanonBooks,
   getCanonBook,
   searchCanonBooks,
@@ -10,8 +10,17 @@
 describe('BibleCanon (Ticket 18)', () => {
   describe('Slice 1: Canon Books & Testament Grouping', () => {
     it('returns all 66 books of the Protestant canon', () => {
-      const allBooks = getCanonBooks();
-      expect(allBooks).toHaveLength(66);
+      const books = getCanonBooks();
+      expect(books).toHaveLength(66);
+      expect(books[0].id).toBe('GEN');
+      expect(books[books.length - 1].id).toBe('REV');
+    });
+
+    it('guarantees canon matrix immutability (frozen static matrix per ADR 0008)', () => {
+      expect(Object.isFrozen(CANON_BOOKS)).toBe(true);
+      expect(Object.isFrozen(CANON_BOOKS[0])).toBe(true);
+      expect(Object.isFrozen(CANON_BOOKS[0].verseCounts)).toBe(true);
+      expect(CANON_BOOKS[0].id).toBe('GEN');
     });
 
     it('returns 39 books for the Old Testament (OT)', () => {

@@ -70,6 +70,7 @@ export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVe
 
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const textAreaRef = useRef<TextInput | null>(null);
+  const skipNextAutoFetchRef = useRef(false);
 
   const fetchVerseText = async (refQuery: string, translation: string, manual = false) => {
     const trimmed = refQuery.trim();
@@ -122,6 +123,11 @@ export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVe
 
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
+    }
+
+    if (skipNextAutoFetchRef.current) {
+      skipNextAutoFetchRef.current = false;
+      return;
     }
 
     const trimmed = reference.trim();
@@ -194,6 +200,7 @@ export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVe
   };
 
   const handleSelectReference = (canonicalRef: string) => {
+    skipNextAutoFetchRef.current = true;
     setReference(canonicalRef);
     setPickerVisible(false);
 

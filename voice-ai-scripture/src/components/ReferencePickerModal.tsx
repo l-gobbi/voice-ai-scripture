@@ -116,12 +116,8 @@ export default function ReferencePickerModal({
   const handleBack = () => {
     if (step === 'verse') {
       setStep('chapter');
-      setStartVerse(null);
-      setEndVerse(null);
     } else if (step === 'chapter') {
       setStep('book');
-      setSelectedBook(null);
-      setSelectedChapter(null);
     } else {
       onClose();
     }
@@ -129,16 +125,18 @@ export default function ReferencePickerModal({
 
   const handleJumpToBook = () => {
     setStep('book');
-    setSelectedBook(null);
-    setSelectedChapter(null);
-    setStartVerse(null);
-    setEndVerse(null);
   };
 
   const handleJumpToChapter = () => {
-    setStep('chapter');
-    setStartVerse(null);
-    setEndVerse(null);
+    if (selectedBook) {
+      setStep('chapter');
+    }
+  };
+
+  const handleJumpToVerse = () => {
+    if (selectedBook && selectedChapter) {
+      setStep('verse');
+    }
   };
 
   const totalVerses =
@@ -170,6 +168,7 @@ export default function ReferencePickerModal({
           </TouchableOpacity>
 
           <View style={styles.breadcrumbContainer}>
+            {/* Step 1: Book */}
             <TouchableOpacity
               onPress={handleJumpToBook}
               disabled={step === 'book'}
@@ -181,51 +180,63 @@ export default function ReferencePickerModal({
                   step === 'book' ? styles.breadcrumbActive : styles.breadcrumbInactive,
                 ]}
               >
-                {step !== 'book' && selectedBook ? bookName : isPt ? 'Livros' : 'Books'}
+                {selectedBook ? bookName : isPt ? 'Livros' : 'Books'}
               </Text>
             </TouchableOpacity>
 
-            {selectedBook && (
-              <>
-                <Text style={styles.breadcrumbSeparator}>›</Text>
-                <TouchableOpacity
-                  onPress={handleJumpToChapter}
-                  disabled={step === 'chapter'}
-                  activeOpacity={0.7}
-                >
-                  <Text
-                    style={[
-                      styles.breadcrumbText,
-                      step === 'chapter'
-                        ? styles.breadcrumbActive
-                        : styles.breadcrumbInactive,
-                    ]}
-                  >
-                    {selectedChapter
-                      ? isPt
-                        ? `Cap. ${selectedChapter}`
-                        : `Ch. ${selectedChapter}`
-                      : isPt
-                      ? 'Capítulo'
-                      : 'Chapter'}
-                  </Text>
-                </TouchableOpacity>
-              </>
-            )}
+            <Text style={styles.breadcrumbSeparator}>›</Text>
 
-            {selectedChapter && (
-              <>
-                <Text style={styles.breadcrumbSeparator}>›</Text>
-                <Text
-                  style={[
-                    styles.breadcrumbText,
-                    step === 'verse' ? styles.breadcrumbActive : styles.breadcrumbInactive,
-                  ]}
-                >
-                  {isPt ? 'Versículo' : 'Verse'}
-                </Text>
-              </>
-            )}
+            {/* Step 2: Chapter */}
+            <TouchableOpacity
+              onPress={handleJumpToChapter}
+              disabled={!selectedBook || step === 'chapter'}
+              activeOpacity={0.7}
+            >
+              <Text
+                style={[
+                  styles.breadcrumbText,
+                  step === 'chapter'
+                    ? styles.breadcrumbActive
+                    : selectedBook
+                    ? styles.breadcrumbInactive
+                    : styles.breadcrumbDisabled,
+                ]}
+              >
+                {selectedChapter
+                  ? isPt
+                    ? `Cap. ${selectedChapter}`
+                    : `Ch. ${selectedChapter}`
+                  : isPt
+                  ? 'Capítulo'
+                  : 'Chapter'}
+              </Text>
+            </TouchableOpacity>
+
+            <Text style={styles.breadcrumbSeparator}>›</Text>
+
+            {/* Step 3: Verse */}
+            <TouchableOpacity
+              onPress={handleJumpToVerse}
+              disabled={!selectedBook || !selectedChapter || step === 'verse'}
+              activeOpacity={0.7}
+            >
+              <Text
+                style={[
+                  styles.breadcrumbText,
+                  step === 'verse'
+                    ? styles.breadcrumbActive
+                    : selectedBook && selectedChapter
+                    ? styles.breadcrumbInactive
+                    : styles.breadcrumbDisabled,
+                ]}
+              >
+                {startVerse !== null
+                  ? `${startVerse}${endVerse !== null ? `-${endVerse}` : ''}`
+                  : isPt
+                  ? 'Versículo'
+                  : 'Verse'}
+              </Text>
+            </TouchableOpacity>
           </View>
 
           <TouchableOpacity
@@ -489,6 +500,9 @@ const styles = StyleSheet.create({
   },
   breadcrumbInactive: {
     color: '#64748b',
+  },
+  breadcrumbDisabled: {
+    color: '#cbd5e1',
   },
   breadcrumbSeparator: {
     marginHorizontal: 6,

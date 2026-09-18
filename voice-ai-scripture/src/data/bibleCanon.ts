@@ -1,15 +1,15 @@
 export interface CanonBook {
-  id: string;
-  testament: 'OT' | 'NT';
-  enName: string;
-  ptName: string;
-  enAliases: string[];
-  ptAliases: string[];
-  chapters: number;
-  verseCounts: number[];
+  readonly id: string;
+  readonly testament: 'OT' | 'NT';
+  readonly enName: string;
+  readonly ptName: string;
+  readonly enAliases: readonly string[];
+  readonly ptAliases: readonly string[];
+  readonly chapters: number;
+  readonly verseCounts: readonly number[];
 }
 
-export const CANON_BOOKS: CanonBook[] = [
+const RAW_CANON_BOOKS: CanonBook[] = [
   {
     "id": "GEN",
     "testament": "OT",
@@ -2492,6 +2492,17 @@ export const CANON_BOOKS: CanonBook[] = [
   }
 ];
 
+export const CANON_BOOKS: readonly CanonBook[] = Object.freeze(
+  RAW_CANON_BOOKS.map((book) =>
+    Object.freeze({
+      ...book,
+      enAliases: Object.freeze([...book.enAliases]),
+      ptAliases: Object.freeze([...book.ptAliases]),
+      verseCounts: Object.freeze([...book.verseCounts]),
+    })
+  )
+);
+
 const BOOK_BY_ID = new Map<string, CanonBook>(
   CANON_BOOKS.map((book) => [book.id.toUpperCase(), book])
 );
@@ -2504,7 +2515,7 @@ function sanitizeSearch(str: string): string {
     .replace(/[^a-z0-9]/g, '');
 }
 
-export function getCanonBooks(testament?: 'OT' | 'NT'): CanonBook[] {
+export function getCanonBooks(testament?: 'OT' | 'NT'): readonly CanonBook[] {
   if (!testament) {
     return [...CANON_BOOKS];
   }
@@ -2531,11 +2542,11 @@ export function getVerseCount(bookId: string, chapter: number): number {
 export function searchCanonBooks(
   query: string,
   testament?: 'OT' | 'NT'
-): CanonBook[] {
+): readonly CanonBook[] {
   const trimmed = query.trim();
   const pool = testament ? getCanonBooks(testament) : CANON_BOOKS;
   if (!trimmed) {
-    return pool;
+    return [...pool];
   }
 
   const cleanQuery = sanitizeSearch(trimmed);

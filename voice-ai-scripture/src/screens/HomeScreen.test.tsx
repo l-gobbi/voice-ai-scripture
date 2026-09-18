@@ -286,6 +286,12 @@ describe('HomeScreen Integration (Ticket 16)', () => {
         expect(bibleProvider.fetchPassage).toHaveBeenCalledWith('Genesis 1:1', 'WEB');
         expect(textInput.props.value).toBe('In the beginning, God created the heavens and the earth.');
       });
+
+      // Wait 600ms to confirm no duplicate debounced fetch is triggered
+      await act(async () => {
+        await new Promise((r) => setTimeout(r, 600));
+      });
+      expect(bibleProvider.fetchPassage).toHaveBeenCalledTimes(1);
     });
 
     it('selects reference from picker for non-bundled translation and displays pasting notice', async () => {

@@ -161,6 +161,33 @@ describe('ReferencePickerModal (Ticket 19)', () => {
   });
 
   describe('Slice 3: Breadcrumb Back-Navigation', () => {
+    it('displays persistent 3-segment breadcrumb trail across all steps', async () => {
+      const { getByText } = await render(
+        <ReferencePickerModal {...defaultProps} />
+      );
+
+      // On step 1 (Book): all 3 segments present
+      expect(getByText('Livros')).toBeTruthy();
+      expect(getByText('Capítulo')).toBeTruthy();
+      expect(getByText('Versículo')).toBeTruthy();
+
+      // Advance to step 2 (Chapter)
+      await act(async () => {
+        fireEvent.press(getByText('Gênesis'));
+      });
+      expect(getByText('Gênesis')).toBeTruthy();
+      expect(getByText('Capítulo')).toBeTruthy();
+      expect(getByText('Versículo')).toBeTruthy();
+
+      // Advance to step 3 (Verse)
+      await act(async () => {
+        fireEvent.press(getByText('1'));
+      });
+      expect(getByText('Gênesis')).toBeTruthy();
+      expect(getByText('Cap. 1')).toBeTruthy();
+      expect(getByText('Versículo')).toBeTruthy();
+    });
+
     it('allows jumping back to Book or Chapter step via breadcrumb header', async () => {
       const { getByText } = await render(
         <ReferencePickerModal {...defaultProps} />
@@ -182,9 +209,36 @@ describe('ReferencePickerModal (Ticket 19)', () => {
       await act(async () => {
         fireEvent.press(getByText('Gênesis'));
       });
-      expect(getByText('Livros')).toBeTruthy();
       expect(getByText('Todos (66)')).toBeTruthy();
       expect(getByText('Mateus')).toBeTruthy();
+    });
+
+    it('preserves selection state when navigating back to earlier breadcrumbs', async () => {
+      const { getByText } = await render(
+        <ReferencePickerModal {...defaultProps} />
+      );
+
+      // Navigate to Gênesis -> Cap 1 -> Verses
+      await act(async () => {
+        fireEvent.press(getByText('Gênesis'));
+      });
+      await act(async () => {
+        fireEvent.press(getByText('1'));
+      });
+      expect(getByText('Cap. 1')).toBeTruthy();
+
+      // Tap "Gênesis" breadcrumb to jump back to Book step
+      await act(async () => {
+        fireEvent.press(getByText('Gênesis'));
+      });
+      expect(getByText('Todos (66)')).toBeTruthy();
+
+      // Tap "Cap. 1" breadcrumb to return to Chapter step without losing Gênesis
+      await act(async () => {
+        fireEvent.press(getByText('Cap. 1'));
+      });
+      // Should show Genesis 50 chapters
+      expect(getByText('50')).toBeTruthy();
     });
 
     it('calls onClose when close button is pressed', async () => {
