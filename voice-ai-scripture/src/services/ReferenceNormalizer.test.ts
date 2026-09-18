@@ -203,6 +203,49 @@ describe('ReferenceNormalizer (Ticket 13)', () => {
         language: 'pt',
       });
     });
+
+    it('handles spaces around verse range hyphens gracefully', () => {
+      const spacedRange = normalizeReference('João 3:16 - 17');
+      expect(spacedRange).toEqual({
+        bookId: 'JHN',
+        bookName: 'João',
+        chapter: 3,
+        startVerse: 16,
+        endVerse: 17,
+        canonicalRef: 'João 3:16-17',
+        language: 'pt',
+      });
+    });
+
+    it('normalizes Ephesians in Portuguese correctly as Efésios', () => {
+      const ephPt = normalizeReference('Efésios 2:8-9');
+      expect(ephPt).toEqual({
+        bookId: 'EPH',
+        bookName: 'Efésios',
+        chapter: 2,
+        startVerse: 8,
+        endVerse: 9,
+        canonicalRef: 'Efésios 2:8-9',
+        language: 'pt',
+      });
+
+      const ephAbbr = normalizeReference('ef 2:8');
+      expect(ephAbbr?.bookName).toBe('Efésios');
+      expect(ephAbbr?.language).toBe('pt');
+    });
+
+    it('disambiguates English Jn abbreviation to John rather than Jonas', () => {
+      const jnEn = normalizeReference('Jn 3:16');
+      expect(jnEn).toEqual({
+        bookId: 'JHN',
+        bookName: 'John',
+        chapter: 3,
+        startVerse: 16,
+        endVerse: undefined,
+        canonicalRef: 'John 3:16',
+        language: 'en',
+      });
+    });
   });
 
   describe('Slice 4: Unparseable & Invalid Inputs', () => {

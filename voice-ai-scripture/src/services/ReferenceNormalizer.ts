@@ -240,7 +240,7 @@ const BOOKS: BookDefinition[] = [
     enName: 'Jonah',
     ptName: 'Jonas',
     enAliases: ['jonah', 'jnh', 'jon'],
-    ptAliases: ['jonas', 'jn', 'jns'],
+    ptAliases: ['jonas', 'jon', 'jns'],
   },
   {
     id: 'MIC',
@@ -359,7 +359,7 @@ const BOOKS: BookDefinition[] = [
   {
     id: 'EPH',
     enName: 'Ephesians',
-    ptName: 'Ephesians',
+    ptName: 'Efésios',
     enAliases: ['ephesians', 'ephes', 'eph'],
     ptAliases: ['efesios', 'efe', 'ef'],
   },
@@ -505,8 +505,8 @@ export function normalizeReference(rawInput: string): NormalizedReference | null
   }
 
   // Matches book, chapter, startVerse, and optional endVerse
-  // Examples: "John 3:16", "jo3:16", "Rm 8.28", "1 Co 13:4-7", "Salmos 23:1-3"
-  const match = trimmed.match(/^(?<rawBook>.*?)\s*(?<rawChapter>\d+)[:.](?<rawStartVerse>\d+)(?:-(?<rawEndVerse>\d+))?$/);
+  // Examples: "John 3:16", "jo3:16", "Rm 8.28", "1 Co 13:4-7", "Salmos 23:1-3", "João 3:16 - 17"
+  const match = trimmed.match(/^(?<rawBook>.*?)\s*(?<rawChapter>\d+)[:.](?<rawStartVerse>\d+)(?:\s*-\s*(?<rawEndVerse>\d+))?$/);
   if (!match || !match.groups) {
     return null;
   }

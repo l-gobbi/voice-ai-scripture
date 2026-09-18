@@ -5,13 +5,14 @@ A robust, pure domain reference normalization engine that parses and standardize
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** closed
 
-- [ ] Create `src/services/ReferenceNormalizer.ts` exporting canonical normalization contracts:
+- [x] Create `src/services/ReferenceNormalizer.ts` exporting canonical normalization contracts:
   - `NormalizedReference`: `{ bookId: string; bookName: string; chapter: number; startVerse: number; endVerse?: number; canonicalRef: string; language: 'en' | 'pt' }`.
   - `normalizeReference(rawInput: string): NormalizedReference | null`.
-- [ ] Build a comprehensive alias map covering all 66 biblical books with common Portuguese abbreviations (`Gn`, `Êx`, `Mt`, `Jo`, `Rm`, `Sl`, `1 Co`, `2 Co`, `Ap`) and English abbreviations (`Gen`, `Ex`, `Matt`, `Rom`, `Ps`, `1 Cor`, `2 Cor`, `Rev`).
-- [ ] Support multi-verse ranges (e.g., `João 3:16-17`, `Salmos 23:1-3`, `1 Corinthians 13:4-7`) capturing `startVerse` and `endVerse`.
-- [ ] Handle varied user spacing, punctuation, and casing gracefully (e.g., `jo3:16`, `Rm 8.28`, `1co 13:4-7`).
-- [ ] Return `null` for unparseable or nonsensical strings without throwing unhandled exceptions.
-- [ ] Write comprehensive unit tests in `src/services/ReferenceNormalizer.test.ts` covering English books, Portuguese books, abbreviations, multi-verse ranges, and edge-case invalid inputs.
+- [x] Build a comprehensive alias map covering all 66 biblical books with common Portuguese abbreviations (`Gn`, `Êx`, `Mt`, `Jo`, `Rm`, `Sl`, `1 Co`, `2 Co`, `Ap`) and English abbreviations (`Gen`, `Ex`, `Matt`, `Rom`, `Ps`, `1 Cor`, `2 Cor`, `Rev`).
+- [x] Support multi-verse ranges (e.g., `João 3:16-17`, `Salmos 23:1-3`, `1 Corinthians 13:4-7`) capturing `startVerse` and `endVerse`.
+- [x] Handle varied user spacing, punctuation, and casing gracefully (e.g., `jo3:16`, `Rm 8.28`, `1co 13:4-7`).
+- [x] Return `null` for unparseable or nonsensical strings without throwing unhandled exceptions.
+- [x] Write comprehensive unit tests in `src/services/ReferenceNormalizer.test.ts` covering English books, Portuguese books, abbreviations, multi-verse ranges, and edge-case invalid inputs.
+
