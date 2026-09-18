@@ -1,92 +1,103 @@
----
-labels: ["ready-for-agent"]
----
+# Specification: Three-Tier Scaffolded Recitation & Native Speech Infrastructure
 
-# Specification: Injectable StorageAdapter and Subscription Manager Deepening
+**Status:** ready-for-agent  
+**Domain:** Christian EdTech / Faith-Tech / Spaced Repetition (SRS)  
+**Governing Documents:** `CONTEXT.md`, `docs/adr/0011-three-tier-scaffolded-recitation-and-speech-infrastructure.md`
+
+---
 
 ## Problem Statement
 
-Currently, subscription entitlement and free recitation quota management are implemented via a global static object that couples directly to React Native's asynchronous storage. Because the session coordinator hardcodes calls to this static object rather than receiving it across its public interface, in-memory local substitution is impossible. 
+When learners attempt to memorize new, lengthy, or complex scripture passages, facing an unassisted blank screen immediately creates high cognitive anxiety ("blank-slate paralysis"). Users resort to reading visual text passively or typing on smartphone screens, which feels like data entry and breaks the contemplative, devotional nature of scripture meditation. 
 
-As a result, developer workflows and test suites cannot configure isolated quota states without applying brittle runtime monkey-patches (`jest.spyOn`) across dozens of test cases. When testing quota depletion or subscription transitions, tests verify internal spy calls rather than observable domain outcomes. Furthermore, persistence logic is duplicated between verse storage and subscription management instead of relying on a shared, cohesive storage seam.
+Furthermore, existing voice verification relies on cloud API tokens, leaving offline and free users without live speech verification, while competitors offer no auditory scaffolding to transition users smoothly from first exposure to unassisted recall.
+
+---
 
 ## Solution
 
-Deepen the subscription management architecture to achieve true local substitutability and seam isolation:
+A three-tier scaffolded learning progression powered by on-device Speech Synthesis and Native Speech Recognition:
+1. **Echo Mode (Level 1)**: Auditory-first ear training. The app vocalizes the verse aloud via Speech Synthesis while text is concealed by default, inviting the user to repeat the verse from auditory memory with an optional "Reveal Text" lifeline.
+2. **Cloze Practice (Level 2)**: Visual retrieval scaffolding. Words are displayed as first-letter anchors with blanks (`F___ G__ s_ l____`). Tapping any blanked word reveals it inline permanently for that attempt. Includes on-demand audio vocalization.
+3. **Blind Recitation (Level 3)**: Official active recall from memory with text blanked. Includes a 3-second **Word Peek Lifeline** allowing users to peek at a forgotten word; using a peek caps the session score at 75% to schedule reinforcement tomorrow without a punishing streak reset.
+4. **Pedagogical Separation**: Levels 1 & 2 are free, unmetered **Practice Mode**; only Level 3 consumes trial quota and records official Spaced Repetition (SRS) updates.
+5. **Dual-Tier Speech Infrastructure**: Native on-device dictation provides 100% offline, zero-latency, free voice verification for all users, reserving cloud neural AI for premium subscribers.
 
-1. **Dedicated Storage Adapter Seam**:
-   - Centralize storage interfaces and concrete implementations into an authoritative persistence module.
-   - Support both production asynchronous storage and in-memory key-value mapping for fast, isolated execution.
-   - Maintain backward compatibility for existing domain engine consumers.
-
-2. **Deep Subscription Manager Module**:
-   - Refactor subscription and quota management from a static object literal into an instantiable, deep domain module.
-   - Accept the storage adapter via constructor injection, defaulting to production storage when unsupplied.
-   - Provide a shared singleton instance for standard user interface callers alongside an alias preserving backward compatibility.
-
-3. **Constructor Injection Across Session Seam**:
-   - Allow the recitation session coordinator to receive an optional subscription manager dependency.
-   - Default cleanly to the shared singleton in production while enabling test harnesses to supply isolated in-memory instances.
-
-4. **Elimination of Fragile Test Monkey-Patches**:
-   - Replace all runtime spy interventions in recitation test suites with real in-memory state setup.
-   - Verify quota exhaustion and subscription state transitions through actual domain behavior at the public interface.
+---
 
 ## User Stories
 
-1. As an offline-first learner, I want my free recitation quota and subscription status reliably saved to local device storage, so that my entitlement is preserved across application launches.
-2. As a new user practicing scripture, I want my quota to decrement accurately upon each recitation attempt, so that my remaining free trial allowance is correctly calculated.
-3. As an active learner whose quota is exhausted, I want the session coordinator to detect my depleted quota and surface the paywall, so that I am guided to subscribe.
-4. As a subscriber upgrading to premium, I want my subscription status recorded in local storage, so that I enjoy unlimited recitations without interruption.
-5. As a developer running automated tests, I want subscription management to operate completely in-memory without touching native mobile storage, so that test suites execute quickly and deterministically.
-6. As a test author, I want to inject pre-configured subscription and quota states into the recitation session coordinator, so that I can verify paywall triggers without monkey-patching global service methods.
-7. As an engineer extending the codebase, I want a single, standard storage adapter seam across both verse persistence and subscription tracking, so that storage implementations are not fragmented or duplicated.
-8. As a maintainer, I want existing UI screens and hooks to continue consuming subscription methods without changing their import signatures, so that the refactoring is zero-churn for presentation code.
-9. As a mobile developer, I want all recitation session tests to pass purely on observable domain results, so that internal refactorings do not break tests that rely on spy call counts.
-10. As an engineer navigating the repository, I want clear module depth where complex quota logic is hidden behind a small, cohesive interface, so that the code is easily understood by human and AI agents.
+1. As a learner memorizing a new verse, I want the app to vocalize the verse aloud in its native language while concealing the text, so that I train my auditory ear before reading visually.
+2. As a learner in Echo Mode, I want an optional "Reveal Text" button, so that I can verify difficult spellings or pronunciations if I miss words in the audio.
+3. As a learner in Echo Mode, I want to recite the verse aloud and see my recitation verified without consuming my trial quota or resetting my memory streak.
+4. As a learner practicing in Level 2 (Cloze Practice), I want every word displayed with its first letter and blanks (e.g. `F___ G__ s_ l____`), so that my brain gets minimal visual scaffolding without giving away the answer.
+5. As a learner in Cloze Practice, I want to tap any individual blanked word to reveal it inline, so that I can unblock myself if I only forgot one specific word.
+6. As a learner in Cloze Practice, I want an on-demand audio button, so that I can listen to the verse vocalized again without leaving the first-letter cloze view.
+7. As a learner conducting an official due review in Level 3 (Blind Recitation), I want the words blanked out completely, so that I test pure active recall from memory.
+8. As a learner stuck on a word during Blind Recitation, I want to tap a blanked word to peek at it for 3 seconds before it re-blanks, so that I can complete my recitation without quitting in frustration.
+9. As a learner who used a Word Peek Lifeline in Level 3, I want my recitation score capped at 75%, so that Spaced Repetition schedules a reinforcement review for tomorrow without wiping out my multi-day streak.
+10. As a learner completing an unassisted 100% Blind Recitation in Level 3, I want full Spaced Repetition credit, so that my streak increases and my review interval advances according to the SM-2 algorithm.
+11. As a learner opening a due verse in ReviewScreen, I want the screen to default directly to Level 3 (Recite) while offering one-tap segmented tabs to jump to Level 1 or Level 2, so that experienced reviews remain fast and friction-free.
+12. As a Portuguese-language learner, I want Speech Synthesis and voice verification to automatically speak and listen in Portuguese (`pt-BR`) when reviewing Portuguese translations (e.g., Almeida, ONBV, NVI), so that pronunciation and verification are accurate.
+13. As an English-language learner, I want Speech Synthesis and voice verification to automatically speak and listen in English (`en-US`) when reviewing English translations (e.g., WEB, KJV), so that the experience matches the text.
+14. As a mobile user without cellular reception or Wi-Fi, I want Speech Synthesis and voice verification to work 100% offline, so that I can practice scripture anywhere without network errors.
+15. As a free-tier user without a personal OpenAI API key, I want real voice recitation verification on my device, so that I can experience voice verification without setup friction.
+16. As an engineer navigating the repository, I want pure cloze token generation and masking isolated into a deterministic domain module (`clozeEngine`), so that UI components remain thin and testable.
+17. As an engineer maintaining test suites, I want Speech Synthesis and Native Speech Transcriber to expose clean in-memory test doubles, so that all 20+ test suites run fast and hermetically in Node/Jest.
+
+---
 
 ## Implementation Decisions
 
-1. **Dedicated Persistence Seam (`StorageAdapter`)**:
-   - Create an independent persistence module defining the `StorageAdapter` interface with `getItem(key: string): Promise<string | null>` and `setItem(key: string, value: string): Promise<void>`.
-   - Provide `MapStorageAdapter` (in-memory map) and `AsyncStorageAdapter` (delegating to React Native storage).
-   - Re-export `StorageAdapter`, `MapStorageAdapter`, and `AsyncStorageAdapter` from `VerseEngine` to preserve backward compatibility.
+1. **Pure Cloze Logic Engine (`clozeEngine.ts`)**:
+   - Expose pure domain functions:
+     - `generateClozeTokens(text: string, mode: 'first-letter' | 'blank'): ClozeToken[]`
+     - `revealWord(tokens: ClozeToken[], index: number): ClozeToken[]`
+     - `hideWord(tokens: ClozeToken[], index: number): ClozeToken[]`
+     - `evaluateAssistedScore(score: number, assistanceUsed: boolean): number` (caps score at 75% if assistance was utilized).
+   - Each `ClozeToken` encapsulates: `word`, `firstLetter`, `punctuation`, `isRevealed`.
 
-2. **Instantiable `SubscriptionService` Class**:
-   - Convert `SubscriptionService` into a TypeScript class accepting an optional `storage: StorageAdapter = new AsyncStorageAdapter()`.
-   - Encapsulate storage key constants (`user_is_subscribed`, `free_recitations_remaining`) and default quota limits (initial: 3).
-   - Expose public methods: `isSubscribed()`, `getRemainingFreeRecitations()`, `consumeRecitation()`, `subscribePremium()`, and `cancelSubscription()`.
-   - Export an instantiated singleton `subscriptionService` as the standard export, and export `const SubscriptionService = subscriptionService` for seamless compatibility with UI screens (`ReviewScreen`).
+2. **Speech Synthesis Seam (`SpeechSynthesizer.ts`)**:
+   - Provide a deep interface:
+     - `speak(text: string, options?: { language?: 'en' | 'pt'; onDone?: () => void }): Promise<void>`
+     - `stop(): Promise<void>`
+     - `isSpeaking(): Promise<boolean>`
+   - Production implementation delegates to `expo-speech`.
+   - In-memory mock implementation (`MockSpeechSynthesizer`) captures spoken text and execution callbacks for automated testing.
 
-3. **Recitation Session Constructor Seam Extension**:
-   - Update `RecitationSession` constructor options to accept `subscriptionService?: SubscriptionService`.
-   - When not supplied in constructor options, default to the exported `subscriptionService` singleton.
-   - Internal recitation initiation invokes `this.subscriptionService.consumeRecitation()`.
+3. **Native Speech Transcriber (`NativeSpeechTranscriber.ts`)**:
+   - Implements the existing `SpeechTranscriber` seam (`transcribe(audioUri: string, options?: TranscriptionOptions): Promise<TranscriptionResult>`).
+   - Delegates on-device dictation to native mobile speech recognition services (iOS Apple Speech framework and Android SpeechRecognizer).
+   - Injected seamlessly into `createDefaultTranscriber()` alongside `OpenAISpeechTranscriber` and `SimulatedTranscriber`.
 
-4. **Testing Surface Replacement ("Replace, Don't Layer")**:
-   - Update `SubscriptionService.test.ts` to instantiate `SubscriptionService` with `MapStorageAdapter` for all test cases.
-   - Update `RecitationSession.test.ts` to instantiate `SubscriptionService` with `MapStorageAdapter` for quota scenarios, removing all `jest.spyOn(SubscriptionService, 'consumeRecitation')` calls.
+4. **ReviewScreen UI & Segmented Navigation**:
+   - Replace the two-way mode toggle with a three-tier segmented control: `[1. Echo | 2. Practice | 3. Recite]`.
+   - Level 1 (Echo): Concealed text card with "Reveal Text" toggle; auto-vocalizes via `SpeechSynthesizer` on entry.
+   - Level 2 (Practice): Interactive cloze view displaying first letters; tapping any blank reveals the word persistently for the attempt; includes an on-demand "🔊 Listen" button.
+   - Level 3 (Recite): Blanked text view; tapping any word reveals it temporarily for 3 seconds and sets `assistanceUsed = true`; records official SRS review upon completion.
+
+---
 
 ## Testing Decisions
 
-- **Seam 1: Persistence Module**:
-  - Test that `MapStorageAdapter` stores and retrieves string values, returning `null` for missing keys.
-  - Test that `AsyncStorageAdapter` calls underlying storage methods.
-- **Seam 2: Subscription Manager**:
-  - Test that a fresh in-memory instance returns default free quota (3) and unsubscribed status (`false`).
-  - Test that `consumeRecitation()` decrements quota until 0, then returns `allowed: false`.
-  - Test that `subscribePremium()` grants unlimited recitations (`allowed: true, remaining: Infinity`).
-- **Seam 3: Recitation Session Integration**:
-  - Test that a session initialized with an exhausted quota subscription service immediately transitions to `quota_exhausted` status.
-  - Test that a session initialized with an active subscription proceeds to record and verify without quota blockage.
-  - Prior art: Existing `VerseEngine.test.ts` using `MapStorageAdapter`.
+- **Seam 1: Cloze Engine (`clozeEngine.test.ts`)**:
+  - Test first-letter masking across punctuation, quotes, and hyphens (e.g., `"For God so loved..."` $\rightarrow$ `"F__ G__ s_ l____..."`).
+  - Test persistent vs. temporary word reveal mutations.
+  - Test assisted score capping (score of 95% with assistance caps to 75%; score of 60% remains 60%).
+- **Seam 2: Speech Synthesis (`SpeechSynthesizer.test.ts`)**:
+  - Test language priming and stop/cancel semantics using `MockSpeechSynthesizer`.
+- **Seam 3: Native Speech Transcriber (`NativeSpeechTranscriber.test.ts`)**:
+  - Test integration with `SpeechTranscriber` seam, prompt conditioning, and error handling.
+- **Seam 4: ReviewScreen & Recitation Integration (`ReviewScreen.test.tsx`)**:
+  - Test segmented level switching (Echo $\rightarrow$ Practice $\rightarrow$ Recite).
+  - Test Level 1 text reveal toggle.
+  - Test Level 2 tap-to-reveal word peek.
+  - Test Level 3 3-second temporary peek and resulting 75% score cap on Spaced Repetition review recording.
+
+---
 
 ## Out of Scope
 
-- Remote billing SDK integration (RevenueCat / StoreKit) — remains simulated in local storage.
-- Multi-user account sync or server-side quota reconciliation.
-- UI changes to `PaywallModal` or `ReviewScreen` (interfaces remain identical).
-
-## Further Notes
-
-- Aligns with ADR 0010 (`docs/adr/0010-injectable-storage-adapter-and-subscription-service-deepening.md`) and ubiquitous domain language in `CONTEXT.md`.
+- Cloud audio streaming from ElevenLabs or custom neural voice cloning (reserved for future cloud voice packs).
+- Community social leaderboards or multiplayer recitation challenges.
+- In-App Purchase billing SDK integration (StoreKit/Google Play Billing), which will be addressed in a dedicated monetization release.
