@@ -11,7 +11,7 @@ import {
   TranscriptionOptions,
   TranscriptionResult,
   TranscriptionError,
-} from './SpeechTranscriber';
+} from './SpeechTranscriberTypes';
 
 export interface NativeSpeechRecognizerDriver {
   isAvailable(): Promise<boolean>;
