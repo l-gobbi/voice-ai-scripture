@@ -11,7 +11,8 @@ import { Verse } from '../services/VerseEngine';
 
 export interface DeleteConfirmationModalProps {
   visible: boolean;
-  verse: Verse | null;
+  verse?: Verse | null;
+  reference?: string;
   onConfirm: () => void;
   onCancel: () => void;
 }
@@ -19,14 +20,16 @@ export interface DeleteConfirmationModalProps {
 export default function DeleteConfirmationModal({
   visible,
   verse,
+  reference,
   onConfirm,
   onCancel,
 }: DeleteConfirmationModalProps) {
-  if (!verse && !visible) {
+  if (!visible || (!verse && !reference)) {
     return null;
   }
 
-  const streak = verse?.srs?.streak ?? 0;
+  const targetReference = verse?.reference ?? reference ?? '';
+  const streak = verse?.srs?.streak ?? (verse?.srs as { repetitions?: number } | undefined)?.repetitions ?? 0;
 
   return (
     <Modal
@@ -41,11 +44,11 @@ export default function DeleteConfirmationModal({
             <View style={styles.dialog}>
               <Text style={styles.title}>Excluir versículo?</Text>
 
-              {verse ? (
+              {verse || reference ? (
                 <View style={styles.verseInfoContainer}>
                   <Text style={styles.referenceText}>
-                    {verse.reference}
-                    {verse.translation ? (
+                    {targetReference}
+                    {verse?.translation ? (
                       <Text style={styles.translationText}> [{verse.translation}]</Text>
                     ) : null}
                   </Text>
@@ -75,7 +78,7 @@ export default function DeleteConfirmationModal({
                   onPress={onConfirm}
                   testID="confirm-delete-button"
                   accessibilityRole="button"
-                  accessibilityLabel={`Excluir definitivamente ${verse?.reference ?? ''}`}
+                  accessibilityLabel={`Excluir definitivamente ${targetReference}`.trim()}
                 >
                   <Text style={styles.confirmButtonText}>Excluir definitivamente</Text>
                 </TouchableOpacity>

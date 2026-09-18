@@ -123,4 +123,56 @@ describe('DeleteConfirmationModal (Ticket 22)', () => {
 
     expect(queryByText(/Streak atual/)).toBeNull();
   });
+
+  it('returns null when visible is true but neither verse nor reference is provided', async () => {
+    const { queryByText } = await render(
+      <DeleteConfirmationModal
+        visible={true}
+        verse={null}
+        onConfirm={jest.fn()}
+        onCancel={jest.fn()}
+      />
+    );
+
+    expect(queryByText('Excluir versículo?')).toBeNull();
+  });
+
+  it('renders reference and allows confirmation when standalone reference prop is passed without verse', async () => {
+    const onConfirm = jest.fn();
+    const { getByText, getByTestId } = await render(
+      <DeleteConfirmationModal
+        visible={true}
+        reference="João 3:16"
+        onConfirm={onConfirm}
+        onCancel={jest.fn()}
+      />
+    );
+
+    expect(getByText('Excluir versículo?')).toBeTruthy();
+    expect(getByText('João 3:16')).toBeTruthy();
+    fireEvent.press(getByTestId('confirm-delete-button'));
+    expect(onConfirm).toHaveBeenCalledTimes(1);
+  });
+
+  it('falls back to srs.repetitions for streak calculation when srs.streak is undefined', async () => {
+    const verseWithRepetitions: Verse = {
+      ...mockVerse,
+      srs: {
+        repetitions: 7,
+        intervalDays: 14,
+        easeFactor: 2.5,
+      } as any,
+    };
+
+    const { getByText } = await render(
+      <DeleteConfirmationModal
+        visible={true}
+        verse={verseWithRepetitions}
+        onConfirm={jest.fn()}
+        onCancel={jest.fn()}
+      />
+    );
+
+    expect(getByText(/Streak atual: 7/)).toBeTruthy();
+  });
 });

@@ -98,36 +98,41 @@ export default function HomeScreen() {
         renderItem={({ item }) => {
           const streak = item.srs?.streak ?? item.srs?.repetitions;
           return (
-            <TouchableOpacity
-              style={styles.verseItem}
-              onPress={() => setActiveReviewVerse(item)}
-              activeOpacity={0.7}
-            >
-              <View style={styles.verseHeader}>
-                <View style={styles.verseTitleContainer}>
-                  <Text style={styles.verseReference}>{item.reference}</Text>
-                  {item.translation ? (
-                    <Text style={styles.translationBadge}>[{item.translation}]</Text>
-                  ) : null}
-                </View>
-                <View style={styles.verseHeaderRight}>
+            <View style={styles.verseItem}>
+              <TouchableOpacity
+                style={styles.verseContentTouchable}
+                testID={`verse-recite-${item.id}`}
+                onPress={() => setActiveReviewVerse(item)}
+                activeOpacity={0.7}
+              >
+                <View style={styles.verseHeader}>
+                  <View style={styles.verseTitleContainer}>
+                    <Text style={styles.verseReference}>{item.reference}</Text>
+                    {item.translation ? (
+                      <Text style={styles.translationBadge}>[{item.translation}]</Text>
+                    ) : null}
+                  </View>
                   {streak !== undefined && streak > 0 && (
                     <Text style={styles.streakBadge}>Streak: {streak}</Text>
                   )}
-                  <TouchableOpacity
-                    style={styles.deleteButton}
-                    onPress={() => setVerseToDelete(item)}
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                    testID={`delete-verse-${item.id}`}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Excluir versículo ${item.reference}`}
-                  >
-                    <Text style={styles.deleteButtonText}>🗑️</Text>
-                  </TouchableOpacity>
                 </View>
-              </View>
-              <Text style={styles.tapPrompt}>Tap to practice →</Text>
-            </TouchableOpacity>
+                <Text style={styles.tapPrompt}>Tap to practice →</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.deleteButton}
+                onPress={(e) => {
+                  e?.stopPropagation?.();
+                  setVerseToDelete(item);
+                }}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                testID={`delete-verse-${item.id}`}
+                accessibilityRole="button"
+                accessibilityLabel={`Excluir versículo ${item.reference}`}
+              >
+                <Text style={styles.deleteButtonText}>🗑️</Text>
+              </TouchableOpacity>
+            </View>
           );
         }}
         ListEmptyComponent={
@@ -209,15 +214,17 @@ const styles = StyleSheet.create({
     elevation: 2,
     borderWidth: 1,
     borderColor: '#e5e7eb',
-  },
-  verseHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  verseHeaderRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    justifyContent: 'space-between',
   },
+  verseContentTouchable: {
+    flex: 1,
+  },
+  verseHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   deleteButton: {
-    padding: 6,
+    padding: 8,
+    marginLeft: 8,
     borderRadius: 6,
     alignItems: 'center',
     justifyContent: 'center',

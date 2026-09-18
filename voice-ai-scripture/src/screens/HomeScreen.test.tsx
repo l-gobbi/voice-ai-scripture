@@ -336,11 +336,11 @@ describe('HomeScreen Integration (Ticket 16)', () => {
     });
   });
 
-  describe('Verse Card Deletion Integration (Ticket 23)', () => {
+  describe('Verse Deletion Integration (Ticket 23)', () => {
     const verse1 = { id: 'v1', reference: 'Romans 8:28', text: 'And we know...', translation: 'WEB' };
     const verse2 = { id: 'v2', reference: 'Philippians 4:6', text: 'Be anxious for nothing...', translation: 'WEB' };
 
-    it('renders delete button on each verse card with testID and accessible label', async () => {
+    it('renders delete button on each verse with testID and accessible label', async () => {
       (verseEngine.getVersesSummary as jest.Mock).mockResolvedValueOnce({
         allVerses: [verse1, verse2],
         dueVerses: [verse1, verse2],
@@ -351,6 +351,28 @@ describe('HomeScreen Integration (Ticket 16)', () => {
 
       expect(getByTestId('delete-verse-v1')).toBeTruthy();
       expect(getByTestId('delete-verse-v2')).toBeTruthy();
+    });
+
+    it('decouples recitation tap target from delete button (sibling layout)', async () => {
+      (verseEngine.getVersesSummary as jest.Mock).mockResolvedValueOnce({
+        allVerses: [verse1],
+        dueVerses: [verse1],
+        dueCount: 1,
+      });
+
+      const { getByTestId, queryByText } = await render(<HomeScreen />);
+
+      const reciteTarget = getByTestId('verse-recite-v1');
+      const deleteTarget = getByTestId('delete-verse-v1');
+
+      expect(reciteTarget).toBeTruthy();
+      expect(deleteTarget).toBeTruthy();
+
+      await act(async () => {
+        fireEvent.press(reciteTarget);
+      });
+
+      expect(queryByText('🎤 Voice AI')).toBeTruthy();
     });
 
     it('opens DeleteConfirmationModal when delete button is pressed without triggering review', async () => {
