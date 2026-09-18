@@ -26,6 +26,10 @@ _Avoid_: Grading, checking, validation, correction
 A discrete normalized word result produced by alignment during verification, classified as `correct`, `missed`, or `added`.
 _Avoid_: Diff chunk, word status, diff node
 
+**Verse Removal**:
+The permanent removal of a stored verse and its associated Spaced Repetition scheduling data from the user's repository.
+_Avoid_: Trashing, erasing, dropping verse, discard card
+
 ### Memory & Learning
 
 **Spaced Repetition (SRS)**:

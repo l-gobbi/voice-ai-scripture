@@ -1,148 +1,92 @@
-﻿---
+---
 labels: ["ready-for-agent"]
 ---
 
-# Specification: Guided Reference Picker & Static Canon Matrix
+# Specification: Verse Removal & Deletion Confirmation Modal
 
 ## Problem Statement
 
-Users frequently encounter friction when adding scripture verses to their memory repository. While `ReferenceNormalizer` and `BibleProvider` support automatic scripture fetching, users are currently forced to manually type book names and citations into a raw text input field ("Referência Bíblica"). On mobile devices, typing references like `Filipenses 4:6-7` or `2 Coríntios 5:7` is tedious, error-prone due to mobile keyboard autocorrect, and requires users to already know exact book spellings or supported abbreviations. Furthermore, novice believers or users wanting to visually explore what to memorize have no way to browse books, chapters, and verses.
+Users actively add scripture verses to their memory repository through various channels (manual typing, YouVersion clipboard import, topical packs, and the guided Bible reference picker). Inevitably, users add verses by mistake, mistype citations, change their study focus, or decide they no longer wish to maintain certain verses in their daily review queue.
 
-Most standard Bible applications (such as YouVersion, Logos, and Blue Letter Bible) provide a guided, thumb-friendly 3-stage selection hierarchy (Book → Chapter → Verse). Without this visual flow, mobile user drop-off during verse addition remains higher than necessary.
+Currently, there is no way to remove an inserted verse from the application. Once a verse is saved, it remains permanently in `AsyncStorage`, appears in the review queue whenever due, and clutters the user's repository. This causes frustration, artificial review burdens, and prevents users from curating their personal memorization deck.
 
 ## Solution
 
-Implement an instant, thumb-friendly, offline-first **Reference Picker** modal integrated into `AddVerseModal`:
-1. **Hybrid Coexistence**:
-   - Keep the existing free-text input and 1-tap YouVersion clipboard import in `AddVerseModal` for fast typists and direct copying.
-   - Add a prominent **"📖 Escolher da Bíblia"** button that opens the dedicated `ReferencePickerModal`.
-2. **Three-Stage Drill-Down Selection Hierarchy**:
-   - **Stage 1 (Livro)**:
-     - Segmented testament filter tabs: `[Todos (66)]`, `[Antigo Testamento (39)]`, `[Novo Testamento (27)]`.
-     - Live search filter at the top with auto-focus, matching book names and bilingual abbreviations (e.g., typing `"Jo"` immediately narrows to *João, 1 João, 2 João, 3 João, Joel, Jonas, Josué, Jó*).
-     - Selecting a book immediately transitions to its chapter grid.
-   - **Stage 2 (Capítulo)**:
-     - Sized numeric grid (1..N) displaying exactly the canonical number of chapters for the selected book (e.g. 50 for Genesis, 150 for Psalms, 1 for Obadiah).
-     - Selecting a chapter immediately transitions to its verse grid.
-   - **Stage 3 (Versículo & Range Selection)**:
-     - Sized numeric grid (1..M) displaying exactly the canonical number of verses for the chosen chapter.
-     - **1-Tap Single Verse Selection**: Tapping a verse highlights it and displays a floating action pill: `"Inserir [Livro C:V]"`.
-     - **2-Tap Multi-Verse Range**: Tapping a second verse highlights the contiguous span (e.g., verses 6 through 7), updating the pill to `"Inserir [Livro C:V1-V2]"`.
-     - Tapping the confirmation pill closes the picker and passes the formatted canonical reference back to `AddVerseModal`.
-3. **Persistent Breadcrumb Navigation**:
-   - A sticky header displays the selection path: `[Livro] › [Capítulo] › [Versículo]`.
-   - Tapping any previous breadcrumb item returns immediately to that step without losing state.
-   - A `< Voltar` chevron provides sequential back-stepping.
-4. **Static Protestant 66-Book Canon Matrix**:
-   - An immutable, ultra-lightweight (~4KB) data module `src/data/bibleCanon.ts` defining all 66 books, their testament (OT/NT), canonical chapter counts, and verse counts per chapter.
-   - 100% offline, zero network latency, instant grid rendering.
-5. **Bilingual Display & Auto-Fetch Integration**:
-   - Book and testament names render in Portuguese or English matching the user's active translation in `AddVerseModal` (`ALMEIDA`, `ONBV`, `NVI`, `ARA` → PT; `WEB`, `KJV`, `ESV` → EN).
-   - Once confirmed, `AddVerseModal` populates `"Referência Bíblica"` and triggers debounced auto-fetch for bundled translations (`WEB`, `KJV`, `ALMEIDA`, `ONBV`), or provides clipboard guidance for copyrighted translations (`NVI`, `ARA`, `CUSTOM`).
+Provide a clean, safe, and thumb-friendly **Verse Removal** flow:
+1. **Dedicated Trash Button on Verse Cards**:
+   - Each verse card on the Home Screen features a discrete, accessible delete action icon (`🗑️`) isolated in the upper-right corner.
+   - Touching the delete action does not trigger the card's practice session.
+2. **Accessible In-App Confirmation Modal (`DeleteConfirmationModal`)**:
+   - Tapping the delete action opens an explicit confirmation dialog.
+   - The modal identifies the exact verse reference being deleted (e.g. "Filipenses 4:6-7") and warns that all memorization history and Spaced Repetition (SRS) streak data will be permanently removed.
+   - Provides clear, high-contrast `Cancelar` (dismiss) and `Excluir definitivamente` (destructive red) buttons.
+3. **Immediate Hard Deletion & State Recalculation**:
+   - Confirming deletion invokes `VerseEngine.deleteVerse`, which immediately removes the verse from storage.
+   - The Home Screen reloads its list and updates the `All` and `Due` tab counters without requiring a page reload.
+   - If the deleted verse was imported from a Topical Pack, the user is free to re-import it later if desired.
 
 ## User Stories
 
-1. As a believer opening the "Add Verse" modal on a phone, I want to tap "📖 Escolher da Bíblia", so that I can pick a passage with my thumbs without typing on a mobile keyboard.
-2. As a user browsing books, I want segmented tabs for "Antigo Testamento" (39) and "Novo Testamento" (27), so that I can quickly cut the list in half and find my book without excessive scrolling.
-3. As a user who knows the book name, I want a live search bar that filters the book list as I type, so that typing "Rom" instantly narrows the list to "Romanos".
-4. As a Brazilian user typing common abbreviations like "Jo" or "Sl", I want the search filter to recognize Portuguese aliases and immediately show "João" or "Salmos".
-5. As an English user typing "Jn" or "Ps", I want the search filter to recognize English aliases and immediately show "John" or "Psalms".
-6. As a user who selected a book, I want to see a clean numeric grid of chapters matching that book's exact canon count, so that I cannot pick non-existent chapters like Jude 2 or Obadiah 2.
-7. As a user who selected a chapter, I want to see a numeric grid of verses matching that chapter's exact canon count, so that I cannot pick non-existent verses like John 3:37.
-8. As a user wanting to memorize a single verse (e.g. João 3:16), I want to tap verse 16 and tap "Inserir João 3:16", so that I can complete selection in seconds.
-9. As a user wanting to memorize a multi-verse passage (e.g. Filipenses 4:6-7), I want to tap verse 6 and then verse 7 to highlight the range and tap "Inserir Filipenses 4:6-7", so that I can memorize continuous passages effortlessly.
-10. As a user on the verse selection step who realized they picked the wrong chapter, I want to tap the chapter breadcrumb in the header, so that I can jump back to chapter selection in one tap.
-11. As a user on the chapter selection step who wants a different book, I want to tap the book breadcrumb or back arrow, so that I can change the book easily.
-12. As a user memorizing in Portuguese (Almeida), I want book names to display in Portuguese (e.g., "Gênesis", "Mateus"), so that the terminology matches my Bible.
-13. As a user memorizing in English (WEB or KJV), I want book names to display in English (e.g., "Genesis", "Matthew"), so that the terminology matches my Bible.
-14. As a fast typist who prefers typing "Rm 8:28" directly, I want the free-text input to remain fully functional, so that the picker does not slow down experienced typists.
-15. As a user selecting a verse in a bundled translation (e.g. Almeida), I want the verse text to auto-populate immediately upon returning from the picker, so that I am ready to save with one tap.
-16. As a user selecting a verse in a copyrighted translation (e.g. NVI), I want the picker to fill the reference and focus the text box with helpful guidance, so that I can paste my copied text cleanly.
-17. As an automated test runner, I want pure-logic helper functions in the canon matrix to test chapter/verse boundaries without rendering UI, so that edge cases are verified quickly.
+1. As a believer curating my memorization deck, I want to delete a verse I added by accident, so that it no longer appears in my daily review queue.
+2. As a user reviewing my verse cards on the Home Screen, I want to see a clear delete action on each card, so that I can initiate removal without digging through sub-menus.
+3. As a mobile user tapping with my thumb, I want the delete button isolated from the main card touch area, so that I don't accidentally start a recitation review session when trying to delete.
+4. As a user tapping the delete button, I want an explicit confirmation modal to pop up, so that accidental taps do not immediately destroy my verse.
+5. As a user viewing the confirmation modal, I want to see the specific biblical citation displayed in the dialog, so that I can double-check which verse I am about to delete.
+6. As a user who has built a streak on a verse, I want the confirmation modal to warn me that progress and streaks will be lost, so that I can make an informed decision before proceeding.
+7. As a user who tapped delete by mistake, I want a prominent "Cancelar" button in the confirmation modal, so that I can safely dismiss the dialog and keep my verse intact.
+8. As a user tapping "Excluir definitivamente", I want the modal to close and the verse to disappear immediately from the list, so that the action feels instantaneous and responsive.
+9. As a user in the "Due" tab who deletes a due verse, I want the due count badge to decrement immediately, so that the counter accurately reflects my pending review workload.
+10. As a user in the "All" tab who deletes a verse, I want the total verse count to decrement immediately, so that my repository totals remain accurate.
+11. As a user who deletes the very last due verse, I want the empty state message ("All caught up for today!") to appear automatically, so that I know my queue is clear.
+12. As a user who deletes the only verse in my repository, I want the general empty state ("No verses added yet") to appear automatically, so that I am guided to add new verses.
+13. As a user running the app on a web browser, I want the deletion confirmation modal to render cleanly as an in-app overlay, so that behavior is consistent across desktop and mobile.
+14. As a user using screen readers or assistive technology, I want the delete button to have an accessible label indicating which verse will be removed, so that I have clear context before activating it.
+15. As a user who previously imported a verse from a Topical Pack and deleted it, I want to be able to re-import that verse from the Topical Pack browser later if I change my mind, so that deletion is never an irreversible lockout.
 
 ## Implementation Decisions
 
-- **Static Canon Matrix (`src/data/bibleCanon.ts`)**:
-  - Contains array of all 66 Protestant canon books with fields:
-    - `id`: Canonical OSIS book ID (e.g. `'GEN'`, `'MAT'`, `'JHN'`)
-    - `testament`: `'OT' | 'NT'`
-    - `enName`: English name (e.g. `'Genesis'`)
-    - `ptName`: Portuguese name (e.g. `'Gênesis'`)
-    - `chapters`: Number of chapters in the book
-    - `verseCounts`: Array where `verseCounts[chapter - 1]` contains the number of verses in that chapter
-  - Exports domain query functions:
-    - `getCanonBooks(testament?: 'OT' | 'NT', language?: 'en' | 'pt'): CanonBook[]`
-    - `getCanonBook(bookId: string): CanonBook | undefined`
-    - `searchCanonBooks(query: string, language?: 'en' | 'pt'): CanonBook[]`
-    - `getChapterCount(bookId: string): number`
-    - `getVerseCount(bookId: string, chapter: number): number`
-
-- **Reference Picker Modal (`src/components/ReferencePickerModal.tsx`)**:
-  - Props contract:
-    ```typescript
-    export interface ReferencePickerModalProps {
-      visible: boolean;
-      translation: VerseTranslation;
-      onClose: () => void;
-      onSelectReference: (canonicalReference: string) => void;
-    }
-    ```
-  - Internal state:
-    - `step`: `'book' | 'chapter' | 'verse'`
-    - `selectedBook`: `CanonBook | null`
-    - `selectedChapter`: `number | null`
-    - `startVerse`: `number | null`
-    - `endVerse`: `number | null`
-    - `searchQuery`: `string`
-    - `testamentFilter`: `'all' | 'OT' | 'NT'`
-  - UI Sub-views:
-    - **Header**: Breadcrumbs row (`[Livro] › [Capítulo] › [Versículo]`) with touchable items to jump back, plus a close button `✕` and back button `‹`.
-    - **Book Step**:
-      - Search bar with clear button (`✕`).
-      - Testament filter tabs: `Todos`, `Antigo Testamento`, `Novo Testamento`.
-      - Scrollable FlatList of book items showing book name and testament badge.
-    - **Chapter Step**:
-      - Number grid rendered with `flexWrap: 'wrap'` or FlatList `numColumns={5}`.
-      - Large, accessible touch targets with active press feedback.
-    - **Verse Step**:
-      - Number grid (1..M).
-      - Single verse or range selection state (highlighted in indigo/blue).
-      - Floating bottom confirmation bar: `"Inserir <Reference>"`.
-
-- **Integration into `AddVerseModal` (`src/components/AddVerseModal.tsx`)**:
-  - Add a `"📖 Escolher da Bíblia"` button styled beside or below the `"Referência Bíblica"` label.
-  - When pressed, open `ReferencePickerModal`.
-  - On `onSelectReference(ref)`:
-    - Set reference state to `ref`.
-    - Automatically trigger `fetchVerseText(ref, selectedTranslation, false)`.
-    - Close the picker modal.
+1. **Hard Deletion Semantics (`VerseEngine.deleteVerse`)**:
+   - `VerseEngine` will expose a `deleteVerse(id: string): Promise<boolean>` method.
+   - It searches the stored verse collection for a verse matching the given `id`.
+   - If found, it filters out the record and persists the updated array to storage, returning `true`.
+   - If not found, it leaves storage intact and returns `false`.
+2. **Cross-Platform In-App Confirmation Modal (`DeleteConfirmationModal`)**:
+   - Implemented as a reusable React Native `Modal` component rather than platform-varying `Alert.alert`.
+   - Accepts `visible: boolean`, `verse: Verse | null`, `onConfirm: () => void`, and `onCancel: () => void`.
+   - Renders a semi-transparent backdrop, centered dialog card, clear title ("Excluir versículo?"), descriptive text with the canonical reference and streak warning, and two accessible action buttons.
+3. **Card Layout & Event Decoupling in `HomeScreen`**:
+   - The verse card `TouchableOpacity` handles navigation to `ReviewScreen`.
+   - Within the card header, a nested or adjacent `TouchableOpacity` with `testID="delete-verse-{id}"` and `hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}` triggers the deletion confirmation.
+   - Prevents bubbling into the practice session.
+4. **State Refresh & Synchronization**:
+   - Upon successful confirmation, `loadVerses()` is called on `HomeScreen`.
+   - Automatically recalculates `VerseSummary` (`allVerses`, `dueVerses`, `dueCount`).
+   - If daily reminder notifications are active, `ReminderService` synchronizes naturally with the updated counts.
+5. **Topical Pack Re-import Compatibility**:
+   - `VerseEngine.importVerses` checks existing references. Because the deleted verse reference no longer exists in storage, re-importing the pack later will cleanly allow re-adding the verse.
 
 ## Testing Decisions
 
-- **Good Test Philosophy**: Tests verify public behavior through defined seams, not internal component state or private helper implementation details.
-- **Seams Under Test**:
-  1. **Canon Matrix Seam (`src/data/bibleCanon.test.ts`)**:
-     - Verifies all 66 books exist with correct OT (39) and NT (27) classifications.
-     - Verifies boundary chapter counts (e.g. Obadiah: 1 chapter, Psalms: 150 chapters).
-     - Verifies verse counts for landmark chapters (e.g. John 3: 36 verses, Psalm 23: 6 verses, Psalm 119: 176 verses).
-     - Verifies bilingual search queries matching full names and common abbreviations in both languages.
-  2. **Reference Picker Modal Component Seam (`src/components/ReferencePickerModal.test.tsx`)**:
-     - Verifies testament filtering (Todos / Antigo / Novo) renders correct book subsets.
-     - Verifies live search query filters book list instantly.
-     - Verifies navigation from Book → Chapter → Verse updates breadcrumbs.
-     - Verifies tapping breadcrumb returns to previous step.
-     - Verifies single verse selection emits `Book Chapter:Verse` on confirm.
-     - Verifies two-verse selection emits `Book Chapter:V1-V2` on confirm.
-  3. **AddVerseModal Integration Seam (`src/screens/HomeScreen.test.tsx`)**:
-     - Verifies opening picker from `AddVerseModal`, selecting a verse, and observing reference field populated and auto-fetch triggered.
+1. **Unit / Logic Tests (`VerseEngine.test.ts`)**:
+   - Test that `deleteVerse(id)` removes the target verse from `MapStorageAdapter` while preserving other verses.
+   - Test that `deleteVerse(id)` returns `true` when a verse is successfully removed and `false` when the ID does not exist.
+   - Test that `getVersesSummary()` accurately reflects the updated counts and due lists after a deletion.
+2. **Component Tests (`DeleteConfirmationModal.test.tsx`)**:
+   - Test that the modal displays the verse reference and streak warning when `visible=true`.
+   - Test that tapping "Cancelar" calls `onCancel` without triggering deletion.
+   - Test that tapping "Excluir definitivamente" calls `onConfirm`.
+3. **Integration Tests (`HomeScreen.test.tsx`)**:
+   - Test that each verse card renders the delete button.
+   - Test that clicking delete opens the confirmation modal with the correct verse reference.
+   - Test that confirming deletion removes the card from the UI, updates the `All` and `Due` tab headers, and shows the empty state when the last verse is removed.
+   - Test that canceling dismissal leaves the verse card in the list.
 
 ## Out of Scope
 
-- Audio Bible playback inside the picker.
-- Red-letter text highlighting or cross-reference commentary inside the picker.
-- Custom non-Protestant apocryphal canons (standard Protestant 66-book canon only).
+- Trash bin / Soft-delete recovery tab (deleted verses are permanently removed; can be re-added or re-imported manually).
+- Multi-verse batch selection / bulk deletion (verses are removed individually).
+- Custom undo snackbar with timer (explicit modal confirmation is used instead).
 
 ## Further Notes
 
-- Reuses existing book alias normalization rules from `ReferenceNormalizer` for search queries.
-- Adheres strictly to `CONTEXT.md` ubiquitous language (**Reference Picker**, **Verse**).
+- Aligns with ADR 0009 (`docs/adr/0009-hard-deletion-with-custom-confirmation-modal.md`) and the ubiquitous domain term **Verse Removal** in `CONTEXT.md`.

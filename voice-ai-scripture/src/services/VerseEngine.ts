@@ -178,10 +178,14 @@ export class VerseEngine {
     return updated;
   }
 
-  async deleteVerse(verseId: string): Promise<void> {
+  async deleteVerse(verseId: string): Promise<boolean> {
     const verses = await this.getAllVerses();
     const filtered = verses.filter((verse) => verse.id !== verseId);
+    if (filtered.length === verses.length) {
+      return false;
+    }
     await this.persistVerses(filtered);
+    return true;
   }
 
   async recordReview(verseId: string, score: number, now = new Date()): Promise<SRSResult> {

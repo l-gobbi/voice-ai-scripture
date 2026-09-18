@@ -353,4 +353,69 @@ describe('VerseEngine (Ticket 09)', () => {
       expect(updated.translation).toBe('WEB');
     });
   });
+
+  describe('Slice 6: Verse Removal & Deletion Semantics (Ticket 21)', () => {
+    it('returns true when deleting an existing verse and removes it from storage', async () => {
+      const storage = new MapStorageAdapter();
+      const engine = new VerseEngine(storage);
+
+      const v1 = await engine.addVerse({ reference: 'John 3:16', text: 'For God so loved...' });
+      const v2 = await engine.addVerse({ reference: 'Romans 8:28', text: 'And we know...' });
+
+      const result = await engine.deleteVerse(v1.id);
+      expect(result).toBe(true);
+
+      const all = await engine.getAllVerses();
+      expect(all).toHaveLength(1);
+      expect(all[0].id).toBe(v2.id);
+    });
+
+    it('returns false when verse ID is not found and leaves storage unchanged', async () => {
+      const storage = new MapStorageAdapter();
+      const engine = new VerseEngine(storage);
+
+      const v1 = await engine.addVerse({ reference: 'Psalm 23:1', text: 'The Lord is my shepherd...' });
+
+      const result = await engine.deleteVerse('non-existent-id-999');
+      expect(result).toBe(false);
+
+      const all = await engine.getAllVerses();
+      expect(all).toHaveLength(1);
+      expect(all[0].id).toBe(v1.id);
+    });
+
+    it('updates getVersesSummary counts and excludes deleted verse from due queue', async () => {
+      const storage = new MapStorageAdapter();
+      const engine = new VerseEngine(storage);
+
+      const due1 = await engine.addVerse({ reference: 'Salmos 91:1', text: 'Aquele que habita...' });
+      const due2 = await engine.addVerse({ reference: 'Filipenses 4:6', text: 'Não andeis ansiosos...' });
+
+      const initialSummary = await engine.getVersesSummary();
+      expect(initialSummary.allVerses).toHaveLength(2);
+      expect(initialSummary.dueCount).toBe(2);
+
+      const deleted = await engine.deleteVerse(due1.id);
+      expect(deleted).toBe(true);
+
+      const updatedSummary = await engine.getVersesSummary();
+      expect(updatedSummary.allVerses).toHaveLength(1);
+      expect(updatedSummary.dueCount).toBe(1);
+      expect(updatedSummary.dueVerses[0].id).toBe(due2.id);
+    });
+
+    it('reaches empty repository state cleanly when all verses are deleted', async () => {
+      const storage = new MapStorageAdapter();
+      const engine = new VerseEngine(storage);
+
+      const soleVerse = await engine.addVerse({ reference: 'Gênesis 1:1', text: 'No princípio...' });
+      await engine.deleteVerse(soleVerse.id);
+
+      const summary = await engine.getVersesSummary();
+      expect(summary.allVerses).toHaveLength(0);
+      expect(summary.dueVerses).toHaveLength(0);
+      expect(summary.dueCount).toBe(0);
+    });
+  });
 });
+
