@@ -39,6 +39,7 @@ describe('ReviewScreen Integration (Ticket 08)', () => {
       intervalDays: 1,
       easeFactor: 2.5,
       nextReviewDate: new Date(),
+      passed: true,
     });
 
     const { getByText, queryByText } = await render(

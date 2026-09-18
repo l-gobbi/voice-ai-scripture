@@ -26,10 +26,10 @@ export const SubscriptionService = {
     }
   },
 
-  async consumeRecitation(): Promise<{ allowed: boolean; remaining: number }> {
+  async consumeRecitation(): Promise<{ allowed: boolean; remaining: number; isSubscribed?: boolean }> {
     const subscribed = await this.isSubscribed();
     if (subscribed) {
-      return { allowed: true, remaining: Infinity };
+      return { allowed: true, remaining: Infinity, isSubscribed: true };
     }
 
     const currentRemaining = await this.getRemainingFreeRecitations();

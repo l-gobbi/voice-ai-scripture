@@ -159,4 +159,7 @@ const styles = StyleSheet.create({
   resultBox: { marginTop: 24, padding: 16, backgroundColor: '#f0fdf4', borderRadius: 8, borderWidth: 1, borderColor: '#bbf7d0' },
   resultLabel: { fontSize: 12, fontWeight: '700', color: '#166534', textTransform: 'uppercase', marginBottom: 4 },
   resultText: { fontSize: 16, color: '#14532d', fontStyle: 'italic' },
+  simWrapper: { marginTop: 16, padding: 12, backgroundColor: '#f3f4f6', borderRadius: 8 },
+  simLabel: { fontSize: 13, color: '#4b5563', marginBottom: 8, textAlign: 'center' },
+  simRow: { flexDirection: 'row', justifyContent: 'center', gap: 12 },
 });
