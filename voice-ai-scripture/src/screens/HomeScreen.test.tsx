@@ -372,7 +372,7 @@ describe('HomeScreen Integration (Ticket 16)', () => {
         fireEvent.press(reciteTarget);
       });
 
-      expect(queryByText('🎤 Voice AI')).toBeTruthy();
+      expect(queryByText('🎤 Start Reciting')).toBeTruthy();
     });
 
     it('opens DeleteConfirmationModal when delete button is pressed without triggering review', async () => {

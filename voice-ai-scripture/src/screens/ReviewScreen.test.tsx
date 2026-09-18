@@ -3,37 +3,112 @@ import { render, fireEvent, act } from '@testing-library/react-native';
 import ReviewScreen from './ReviewScreen';
 import { Verse, verseEngine } from '../services/VerseEngine';
 import { SubscriptionService } from '../services/SubscriptionService';
+import { audioRecorder } from '../services/AudioRecorderService';
+import {
+  setDefaultSpeechSynthesizer,
+  MockSpeechSynthesizer,
+} from '../services/SpeechSynthesizer';
 
 jest.mock('@react-native-async-storage/async-storage', () =>
   require('@react-native-async-storage/async-storage/jest/async-storage-mock')
 );
 
-describe('ReviewScreen Integration (Ticket 08)', () => {
+describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)', () => {
   const mockVerse: Verse = {
     id: 'verse-1',
     reference: 'Philippians 4:13',
     text: 'I can do all this through him who gives me strength.',
   };
 
+  let mockSynthesizer: MockSpeechSynthesizer;
+
   beforeEach(() => {
     jest.clearAllMocks();
+    mockSynthesizer = new MockSpeechSynthesizer();
+    setDefaultSpeechSynthesizer(mockSynthesizer);
+
+    // Mock AudioRecorderService methods for unit testing environment
+    jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValue(true);
+    jest.spyOn(audioRecorder, 'startRecording').mockResolvedValue(undefined);
+    jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValue('file:///recording.m4a');
+    jest.spyOn(audioRecorder, 'deleteAudioFile').mockResolvedValue(true);
   });
 
-  it('renders initial voice AI recitation screen', async () => {
+  afterEach(() => {
+    setDefaultSpeechSynthesizer(null);
+  });
+
+  it('renders default Level 3 (Blind Recitation) with 3-tier segmented control', async () => {
     const onComplete = jest.fn();
     const { getByText } = await render(
       <ReviewScreen verse={mockVerse} onComplete={onComplete} />
     );
 
     expect(getByText('Philippians 4:13')).toBeTruthy();
+    expect(getByText('1. Echo')).toBeTruthy();
+    expect(getByText('2. Practice')).toBeTruthy();
+    expect(getByText('3. Recite')).toBeTruthy();
+    expect(getByText('Level 3: Blind Recitation (Active Recall)')).toBeTruthy();
     expect(getByText('🎤 Start Reciting')).toBeTruthy();
-    expect(getByText('🎤 Voice AI')).toBeTruthy();
-    expect(getByText('📄 Self-Review')).toBeTruthy();
   });
 
-  it('switches to self-review mode and allows manual pass/fail verification', async () => {
+  it('switches to Level 1 (Echo Mode), auto-vocalizes, and toggles text reveal', async () => {
     const onComplete = jest.fn();
-    const recordSpy = jest.spyOn(verseEngine, 'recordReview').mockResolvedValueOnce({
+    const { getByText, queryByText } = await render(
+      <ReviewScreen verse={mockVerse} onComplete={onComplete} />
+    );
+
+    // Switch to Level 1: Echo Mode
+    await act(async () => {
+      fireEvent.press(getByText('1. Echo'));
+    });
+
+    expect(getByText('Level 1: Echo Mode (Ear Training)')).toBeTruthy();
+    expect(getByText('Reveal Text')).toBeTruthy();
+    expect(queryByText('I can do all this through him who gives me strength.')).toBeNull();
+
+    // Verify auto-vocalization called
+    expect(mockSynthesizer.getSpokenUtterances().length).toBeGreaterThan(0);
+    expect(mockSynthesizer.getSpokenUtterances()[0].text).toBe(mockVerse.text);
+
+    // Toggle reveal text
+    await act(async () => {
+      fireEvent.press(getByText('Reveal Text'));
+    });
+
+    expect(getByText('I can do all this through him who gives me strength.')).toBeTruthy();
+    expect(getByText('Conceal Text')).toBeTruthy();
+  });
+
+  it('switches to Level 2 (Cloze Practice) and reveals a tapped blanked word inline permanently', async () => {
+    const onComplete = jest.fn();
+    const { getByText, findByText } = await render(
+      <ReviewScreen verse={mockVerse} onComplete={onComplete} />
+    );
+
+    // Switch to Level 2: Cloze Practice
+    await act(async () => {
+      fireEvent.press(getByText('2. Practice'));
+    });
+
+    expect(getByText('Level 2: Cloze Practice')).toBeTruthy();
+    expect(getByText('🔊 Listen')).toBeTruthy();
+
+    // In first-letter cloze mode, 'through' (7 chars) is masked as 't______ '
+    const maskedWord = await findByText(/t______/);
+    expect(maskedWord).toBeTruthy();
+
+    // Tap word to reveal inline
+    await act(async () => {
+      fireEvent.press(maskedWord);
+    });
+
+    expect(await findByText(/through/)).toBeTruthy();
+  });
+
+  it('in Level 3 (Blind Recitation), tapping a word triggers Word Peek Lifeline and caps score at 75%', async () => {
+    const onComplete = jest.fn();
+    const recordSpy = jest.spyOn(verseEngine, 'recordReview').mockResolvedValue({
       streak: 1,
       repetitions: 1,
       intervalDays: 1,
@@ -42,36 +117,41 @@ describe('ReviewScreen Integration (Ticket 08)', () => {
       passed: true,
     });
 
-    const { getByText, queryByText } = await render(
+    const { getByText, findAllByText, findByText } = await render(
       <ReviewScreen verse={mockVerse} onComplete={onComplete} />
     );
 
-    // Switch to Self-Review
+    // In Level 3, all words are blanked. Find the blank tokens
+    const blankTokens = await findAllByText(/_+/);
+    expect(blankTokens.length).toBeGreaterThan(0);
+
+    // Tap the first blank word lifeline
     await act(async () => {
-      fireEvent.press(getByText('📄 Self-Review'));
+      fireEvent.press(blankTokens[0]);
     });
 
-    expect(getByText('Reveal Text')).toBeTruthy();
-    expect(queryByText('I can do all this through him who gives me strength.')).toBeNull();
+    // Lifeline banner is visible
+    expect(getByText(/Word Peek Lifeline used/)).toBeTruthy();
 
-    // Reveal text
+    // Start & stop voice recitation
     await act(async () => {
-      fireEvent.press(getByText('Reveal Text'));
+      fireEvent.press(getByText('🎤 Start Reciting'));
     });
 
-    expect(getByText('I can do all this through him who gives me strength.')).toBeTruthy();
-    expect(getByText('✅ Pass')).toBeTruthy();
+    const stopButton = await findByText('⏹ Stop & Verify');
+    expect(stopButton).toBeTruthy();
 
-    // Verify Pass
     await act(async () => {
-      fireEvent.press(getByText('✅ Pass'));
+      fireEvent.press(stopButton);
     });
 
-    expect(recordSpy).toHaveBeenCalledWith('verse-1', 100);
-    expect(onComplete).toHaveBeenCalled();
+    // Verify assisted score is recorded and capped at 75%
+    expect(recordSpy).toHaveBeenCalled();
+    const recordedScore = recordSpy.mock.calls[0][1];
+    expect(recordedScore).toBeLessThanOrEqual(75);
   });
 
-  it('shows paywall modal when quota is exhausted', async () => {
+  it('shows paywall modal when quota is exhausted in Level 3', async () => {
     jest.spyOn(SubscriptionService, 'consumeRecitation').mockResolvedValueOnce({
       allowed: false,
       remaining: 0,
@@ -79,15 +159,15 @@ describe('ReviewScreen Integration (Ticket 08)', () => {
     });
 
     const onComplete = jest.fn();
-    const { getByText, findByText } = await render(
+    const { findByText } = await render(
       <ReviewScreen verse={mockVerse} onComplete={onComplete} />
     );
 
+    const startButton = await findByText('🎤 Start Reciting');
     await act(async () => {
-      fireEvent.press(getByText('🎤 Start Reciting'));
+      fireEvent.press(startButton);
     });
 
-    // Paywall appears
     const paywallHeader = await findByText('Unlock Unlimited Voice AI');
     expect(paywallHeader).toBeTruthy();
   });

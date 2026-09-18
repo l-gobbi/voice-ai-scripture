@@ -47,13 +47,19 @@ export function useRecitationSession(
     };
   }, [verse.id, verse.text]);
 
-  const startReciting = useCallback(async () => {
-    await sessionRef.current?.startReciting();
+  const startReciting = useCallback(async (opts?: { unmetered?: boolean }) => {
+    await sessionRef.current?.startReciting(opts);
   }, []);
 
-  const stopAndVerify = useCallback(async (): Promise<VoiceRecitationResult | null> => {
-    return (await sessionRef.current?.stopAndVerify()) ?? null;
-  }, []);
+  const stopAndVerify = useCallback(
+    async (opts?: {
+      unmetered?: boolean;
+      assistanceUsed?: boolean;
+    }): Promise<VoiceRecitationResult | null> => {
+      return (await sessionRef.current?.stopAndVerify(opts)) ?? null;
+    },
+    []
+  );
 
   const reset = useCallback(async () => {
     await sessionRef.current?.reset();

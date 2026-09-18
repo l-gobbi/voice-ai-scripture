@@ -4,11 +4,11 @@
 
 **Blocked by:** 26, 27, 28
 
-**Status:** ready-for-agent
+**Status:** closed
 
-- [ ] Update `ReviewScreen` UI with a 3-tier segmented control replacing the previous two-state Practice/Test toggle.
-- [ ] **Level 1 (Echo Mode)**: Conceal verse text by default; provide a "Reveal Text" toggle; trigger `SpeechSynthesizer.speak()` on entry or replay tap; enable microphone recording for voice AI verification with feedback displayed; practice is unmetered and does not consume quota or record SRS updates.
-- [ ] **Level 2 (Cloze Practice)**: Render first-letter blanks using `clozeEngine.generateClozeTokens(text, 'first-letter')`; allow tapping any blanked word to reveal it persistently inline for that session; provide an on-demand audio vocalization button; enable microphone recording for voice AI verification with feedback; practice is unmetered and does not consume quota or record SRS updates.
-- [ ] **Level 3 (Blind Recitation)**: Render all-blank tokens using `clozeEngine.generateClozeTokens(text, 'blank')`; allow tapping any blanked word to trigger a 3-second temporary Word Peek Lifeline (reveals word, flags `assistanceUsed = true`, then re-hides); enable microphone recording for voice AI verification; evaluate score using `evaluateAssistedScore()`; gate trial quota deduction and official SRS progress update strictly to this level.
-- [ ] Write integration tests in `src/screens/ReviewScreen.test.tsx` verifying segmented navigation across all 3 levels, voice recording on each level, Level 1 text reveal, Level 2 persistent tap-to-reveal, Level 3 3-second temporary peek and 75% score capping on recorded SRS review.
-- [ ] Ensure all 20+ test suites and TypeScript typechecking remain 100% green.
+- [x] Update `ReviewScreen` UI with a 3-tier segmented control replacing the previous two-state Practice/Test toggle.
+- [x] **Level 1 (Echo Mode)**: Conceal verse text by default; provide a "Reveal Text" toggle; trigger `SpeechSynthesizer.speak()` on entry or replay tap; enable microphone recording for voice AI verification with feedback displayed; practice is unmetered and does not consume quota or record SRS updates.
+- [x] **Level 2 (Cloze Practice)**: Render first-letter blanks using `clozeEngine.generateClozeTokens(text, 'first-letter')`; allow tapping any blanked word to reveal it persistently inline for that session; provide an on-demand audio vocalization button; enable microphone recording for voice AI verification with feedback; practice is unmetered and does not consume quota or record SRS updates.
+- [x] **Level 3 (Blind Recitation)**: Render all-blank tokens using `clozeEngine.generateClozeTokens(text, 'blank')`; allow tapping any blanked word to trigger a 3-second temporary Word Peek Lifeline (reveals word, flags `assistanceUsed = true`, then re-hides); enable microphone recording for voice AI verification; evaluate score using `evaluateAssistedScore()`; gate trial quota deduction and official SRS progress update strictly to this level.
+- [x] Write integration tests in `src/screens/ReviewScreen.test.tsx` verifying segmented navigation across all 3 levels, voice recording on each level, Level 1 text reveal, Level 2 persistent tap-to-reveal, Level 3 3-second temporary peek and 75% score capping on recorded SRS review.
+- [x] Ensure all 20+ test suites and TypeScript typechecking remain 100% green.

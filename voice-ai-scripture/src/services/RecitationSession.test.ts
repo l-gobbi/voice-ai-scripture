@@ -625,6 +625,69 @@ describe('RecitationSession (Ticket 07)', () => {
     });
   });
 
+  describe('Slice 7: Scaffolded Review, Unmetered Practice, and Assisted Score Capping (Ticket 29)', () => {
+    it('in unmetered practice mode, does not consume subscription quota and does not record review on verseEngine', async () => {
+      jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValue(true);
+      jest.spyOn(audioRecorder, 'startRecording').mockResolvedValue(undefined);
+      jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValue('file:///audio/unmetered.m4a');
+      jest.spyOn(audioRecorder, 'deleteAudioFile').mockResolvedValue(true);
+
+      const consumeSpy = jest.spyOn(SubscriptionService, 'consumeRecitation');
+      const recordSpy = jest.spyOn(verseEngine, 'recordReview');
+
+      const mockTranscriber: SpeechTranscriber = {
+        transcribe: jest.fn().mockResolvedValue({ text: mockVerse.text }),
+      };
+
+      const session = createTestSession(mockVerse, { transcriber: mockTranscriber });
+      await session.startReciting({ unmetered: true });
+
+      expect(consumeSpy).not.toHaveBeenCalled();
+      expect(session.getState().status).toBe('reciting');
+
+      const result = await session.stopAndVerify({ unmetered: true });
+
+      expect(recordSpy).not.toHaveBeenCalled();
+      expect(result?.score).toBe(100);
+      expect(result?.passed).toBe(true);
+      expect(session.getState().status).toBe('verified');
+    });
+
+    it('when assistanceUsed is true, caps score at 75% and records capped score to verseEngine', async () => {
+      jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValue(true);
+      jest.spyOn(audioRecorder, 'startRecording').mockResolvedValue(undefined);
+      jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValue('file:///audio/assisted.m4a');
+      jest.spyOn(audioRecorder, 'deleteAudioFile').mockResolvedValue(true);
+
+      jest.spyOn(SubscriptionService, 'consumeRecitation').mockResolvedValue({
+        allowed: true,
+        remaining: 5,
+        isSubscribed: false,
+      });
+
+      const recordSpy = jest.spyOn(verseEngine, 'recordReview').mockResolvedValue({
+        streak: 1,
+        repetitions: 1,
+        intervalDays: 1,
+        easeFactor: 2.5,
+        nextReviewDate: new Date(),
+        passed: false, // 75% is < 80% passing threshold
+      });
+
+      const mockTranscriber: SpeechTranscriber = {
+        transcribe: jest.fn().mockResolvedValue({ text: mockVerse.text }), // 100% raw accuracy
+      };
+
+      const session = createTestSession(mockVerse, { transcriber: mockTranscriber });
+      await session.startReciting({ unmetered: false });
+      const result = await session.stopAndVerify({ unmetered: false, assistanceUsed: true });
+
+      expect(recordSpy).toHaveBeenCalledWith(mockVerse.id, 75);
+      expect(result?.score).toBe(75);
+      expect(session.getState().result?.score).toBe(75);
+    });
+  });
+
   describe('inferVerseLanguage domain helper', () => {
     it('infers pt for Portuguese translations (ALMEIDA, ONBV, NVI, ARA, NAA, NTLH, ARC, NVT)', () => {
       expect(inferVerseLanguage({ translation: 'ALMEIDA', reference: 'Any 1:1' })).toBe('pt');

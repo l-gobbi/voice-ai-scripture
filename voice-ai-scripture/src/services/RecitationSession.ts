@@ -2,6 +2,7 @@ import { Verse, VerseEngine, verseEngine, SRSResult } from './VerseEngine';
 import { SubscriptionService, subscriptionService } from './SubscriptionService';
 import { audioRecorder, AudioRecorderService } from './AudioRecorderService';
 import { diffVerses, calculateScore, DiffToken } from '../engines/diffEngine';
+import { evaluateAssistedScore } from '../engines/clozeEngine';
 import {
   SpeechTranscriber,
   TranscriptionOptions,
@@ -101,7 +102,7 @@ export class RecitationSession {
     this.listeners.forEach((listener) => listener(current));
   }
 
-  async startReciting(): Promise<void> {
+  async startReciting(options?: { unmetered?: boolean }): Promise<void> {
     this.setState({ errorMessage: null, result: null, volumeLevel: 0 });
 
     try {
@@ -115,11 +116,13 @@ export class RecitationSession {
         return;
       }
 
-      // 2. Quota Gating Check
-      const quota = await this.subscriptionService.consumeRecitation();
-      if (!quota.allowed) {
-        this.setState({ status: 'quota_exhausted' });
-        return;
+      // 2. Quota Gating Check (skipped for unmetered practice modes)
+      if (!options?.unmetered) {
+        const quota = await this.subscriptionService.consumeRecitation();
+        if (!quota.allowed) {
+          this.setState({ status: 'quota_exhausted' });
+          return;
+        }
       }
 
       // 3. Start Recording & Metering
@@ -136,7 +139,10 @@ export class RecitationSession {
     }
   }
 
-  async stopAndVerify(): Promise<VoiceRecitationResult | null> {
+  async stopAndVerify(options?: {
+    unmetered?: boolean;
+    assistanceUsed?: boolean;
+  }): Promise<VoiceRecitationResult | null> {
     if (this.state.status !== 'reciting') {
       return null;
     }
@@ -164,10 +170,27 @@ export class RecitationSession {
       const transcript = res.text;
 
       const tokens = diffVerses(this.verse.text, transcript);
-      const score = calculateScore(tokens);
+      const rawScore = calculateScore(tokens);
+      const score = options?.assistanceUsed
+        ? evaluateAssistedScore(rawScore, true)
+        : rawScore;
 
       // Coordinate review recording and SM-2 progression via VerseEngine
-      const srsResult = await this.verseEngine.recordReview(this.verse.id, score);
+      let srsResult: SRSResult;
+      if (options?.unmetered) {
+        srsResult = {
+          nextReviewDate: this.verse.srs?.nextReviewDate
+            ? new Date(this.verse.srs.nextReviewDate)
+            : new Date(),
+          intervalDays: this.verse.srs?.intervalDays ?? 0,
+          streak: this.verse.srs?.streak ?? 0,
+          repetitions: this.verse.srs?.repetitions ?? 0,
+          easeFactor: this.verse.srs?.easeFactor ?? 2.5,
+          passed: score >= 80,
+        };
+      } else {
+        srsResult = await this.verseEngine.recordReview(this.verse.id, score);
+      }
       const passed = srsResult.passed;
 
       const result: VoiceRecitationResult = {
