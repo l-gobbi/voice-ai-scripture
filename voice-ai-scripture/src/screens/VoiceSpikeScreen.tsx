@@ -73,7 +73,7 @@ export default function VoiceSpikeScreen({ onBack }: VoiceSpikeScreenProps) {
 
         const transcriber = createDefaultTranscriber();
         const result = await transcriber.transcribe(uri);
-        setTranscription(result.text);
+        setTranscription(result.text || '(Simulated audio - no speech detected)');
         setIsTranscribing(false);
       }
     } catch (err: any) {

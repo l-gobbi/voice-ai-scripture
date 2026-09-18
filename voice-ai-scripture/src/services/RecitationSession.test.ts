@@ -370,11 +370,11 @@ describe('RecitationSession (Ticket 07)', () => {
       await session.stopAndVerify();
 
       expect(mockTranscribe).toHaveBeenCalledWith('file:///audio/prompt-test.m4a', {
-        prompt: mockVerse.text,
+        prompt: `${mockVerse.reference}: ${mockVerse.text}`,
       });
     });
 
-    it('achieves 100% verified recitation score using default SimulatedTranscriber without prompt reference pollution', async () => {
+    it('achieves 100% verified recitation score using default SimulatedTranscriber with canonical prompt conditioning', async () => {
       jest.spyOn(SubscriptionService, 'consumeRecitation').mockResolvedValueOnce({
         allowed: true,
         remaining: 3,

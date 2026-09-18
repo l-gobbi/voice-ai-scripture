@@ -47,8 +47,13 @@ export interface SpeechTranscriber {
 export class WhisperTranscriber implements SpeechTranscriber {
   private apiKey: string;
 
-  constructor(apiKey: string) {
-    this.apiKey = (apiKey ?? '').trim();
+  constructor(apiKey?: string) {
+    const resolvedKey =
+      apiKey ??
+      (typeof process !== 'undefined'
+        ? process.env.EXPO_PUBLIC_OPENAI_API_KEY || process.env.OPENAI_API_KEY || ''
+        : '');
+    this.apiKey = resolvedKey.trim();
   }
 
   async transcribe(audioUri: string, options?: TranscriptionOptions): Promise<TranscriptionResult> {
@@ -132,6 +137,14 @@ export class SimulatedTranscriber implements SpeechTranscriber {
     }
 
     if (options?.prompt) {
+      // If conditioned with canonical scripture reference (e.g. "John 3:16: For God so loved..."),
+      // extract and return the scripture text to simulate 100% accurate recitation of the verse.
+      const scriptureMatch = options.prompt.match(
+        /^(?:[1-3]?\s*[A-Za-z\s]+?\s+\d+:\d+(?:-\d+)?):\s+([\s\S]*)$/
+      );
+      if (scriptureMatch) {
+        return { text: scriptureMatch[1] };
+      }
       return { text: options.prompt };
     }
 

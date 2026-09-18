@@ -8,14 +8,25 @@ import {
 
 describe('SpeechTranscriber Seam (Ticket 11)', () => {
   describe('Slice 1: SimulatedTranscriber & Fallback Default Factory', () => {
-    it('echoes options.prompt by default when provided', async () => {
+    it('simulates 100% accurate recitation by stripping reference prefix from prompt when present', async () => {
       const transcriber: SpeechTranscriber = new SimulatedTranscriber();
       const result = await transcriber.transcribe('file:///dummy/audio.m4a', {
-        prompt: 'John 3:16: For God so loved the world...',
+        prompt: 'John 3:16: For God so loved the world, that he gave his only begotten Son...',
       });
 
       expect(result).toEqual({
-        text: 'John 3:16: For God so loved the world...',
+        text: 'For God so loved the world, that he gave his only begotten Son...',
+      });
+    });
+
+    it('echoes prompt as-is when no reference prefix is present', async () => {
+      const transcriber: SpeechTranscriber = new SimulatedTranscriber();
+      const result = await transcriber.transcribe('file:///dummy/audio.m4a', {
+        prompt: 'For God so loved the world',
+      });
+
+      expect(result).toEqual({
+        text: 'For God so loved the world',
       });
     });
 
@@ -71,12 +82,51 @@ describe('SpeechTranscriber Seam (Ticket 11)', () => {
       global.fetch = originalFetch;
     });
 
-    it('throws TranscriptionError with code unauthorized if instantiated without API key', async () => {
-      const whisper = new WhisperTranscriber('');
-      await expect(whisper.transcribe('file:///dummy.m4a')).rejects.toMatchObject({
-        name: 'TranscriptionError',
-        code: 'unauthorized',
-      });
+    it('throws TranscriptionError with code unauthorized if instantiated without API key and no environment key exists', async () => {
+      const previousKey = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
+      delete process.env.EXPO_PUBLIC_OPENAI_API_KEY;
+
+      try {
+        const whisper = new WhisperTranscriber();
+        await expect(whisper.transcribe('file:///dummy.m4a')).rejects.toMatchObject({
+          name: 'TranscriptionError',
+          code: 'unauthorized',
+        });
+      } finally {
+        if (previousKey) {
+          process.env.EXPO_PUBLIC_OPENAI_API_KEY = previousKey;
+        }
+      }
+    });
+
+    it('uses process.env.EXPO_PUBLIC_OPENAI_API_KEY if apiKey argument is undefined in constructor', async () => {
+      const previousKey = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
+      process.env.EXPO_PUBLIC_OPENAI_API_KEY = 'sk-from-env';
+
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ text: 'Transcribed from env key' }),
+      }) as any;
+
+      try {
+        const whisper = new WhisperTranscriber();
+        const result = await whisper.transcribe('file:///audio.m4a');
+        expect(result.text).toBe('Transcribed from env key');
+        expect(global.fetch).toHaveBeenCalledWith(
+          expect.any(String),
+          expect.objectContaining({
+            headers: {
+              Authorization: 'Bearer sk-from-env',
+            },
+          })
+        );
+      } finally {
+        if (previousKey) {
+          process.env.EXPO_PUBLIC_OPENAI_API_KEY = previousKey;
+        } else {
+          delete process.env.EXPO_PUBLIC_OPENAI_API_KEY;
+        }
+      }
     });
 
     it('sends audio file, model, language, and optional prompt to OpenAI Whisper API', async () => {

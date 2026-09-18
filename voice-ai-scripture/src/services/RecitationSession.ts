@@ -132,7 +132,7 @@ export class RecitationSession {
         return null;
       }
 
-      const prompt = this.verse.text;
+      const prompt = `${this.verse.reference}: ${this.verse.text}`;
       const res = await this.transcriber.transcribe(this.currentAudioUri, { prompt });
       const transcript = res.text;
 
