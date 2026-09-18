@@ -31,6 +31,12 @@ const DATASETS: Record<SupportedTranslation, BibleDataset> = {
   ONBV: onbvData as BibleDataset,
 };
 
+export const BUNDLED_TRANSLATIONS: readonly SupportedTranslation[] = ['WEB', 'KJV', 'ALMEIDA', 'ONBV'] as const;
+
+export function isBundledTranslation(raw: string): raw is SupportedTranslation {
+  return canonicalizeTranslation(raw) !== null;
+}
+
 function canonicalizeTranslation(raw: string): SupportedTranslation | null {
   if (!raw || typeof raw !== 'string') {
     return null;

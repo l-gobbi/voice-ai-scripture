@@ -1,9 +1,10 @@
 import { normalizeReference } from '../services/ReferenceNormalizer';
+import { VerseTranslation } from '../services/VerseEngine';
 
 export interface ParsedScriptureClipboard {
   reference: string;
   text: string;
-  translation?: string;
+  translation?: VerseTranslation;
 }
 
 const KNOWN_TRANSLATIONS = new Set([
@@ -35,8 +36,15 @@ function cleanInvisibleChars(str: string): string {
 }
 
 /**
+ * Strips surrounding quotation marks (", “, ”, «, »)
+ */
+function stripQuotes(str: string): string {
+  return str.replace(/^[“"«]\s*/, '').replace(/\s*[”"»]$/, '').trim();
+}
+
+/**
  * Parses copied scripture text from YouVersion, Bible.com, or user clipboard,
- * extracting the biblical reference, passage text, and optional translation tag.
+ * extracting the biblical reference, verse text, and optional translation tag.
  */
 export function parseScriptureClipboard(rawText: string): ParsedScriptureClipboard | null {
   if (!rawText || !rawText.trim()) {
@@ -62,7 +70,7 @@ export function parseScriptureClipboard(rawText: string): ParsedScriptureClipboa
   // YouVersion usually puts the citation at the bottom or following a dash/em-dash
   let citationLineIndex = -1;
   let detectedRef = '';
-  let detectedTranslation: string | undefined;
+  let detectedTranslation: VerseTranslation | undefined;
 
   // Regex matching reference followed by optional translation:
   // e.g., "— João 3:16 NVI", "- John 3:16 NIV", "Psalm 28:7 ESV", "João 1:1"
@@ -88,12 +96,8 @@ export function parseScriptureClipboard(rawText: string): ParsedScriptureClipboa
 
   // If citation line was found
   if (citationLineIndex !== -1) {
-    // Text is all preceding lines (or following lines if citation was at index 0)
     const textLines = lines.filter((_, idx) => idx !== citationLineIndex);
-    let verseText = textLines.join(' ').trim();
-
-    // Strip wrapping quotation marks (", “, ”, «, »)
-    verseText = verseText.replace(/^[“"«]\s*/, '').replace(/\s*[”"»]$/, '');
+    const verseText = stripQuotes(textLines.join(' '));
 
     return {
       reference: detectedRef,
@@ -105,7 +109,7 @@ export function parseScriptureClipboard(rawText: string): ParsedScriptureClipboa
   // Fallback: Check if the text itself ends with a reference, or is just plain text
   return {
     reference: '',
-    text: lines.join(' ').replace(/^[“"«]\s*/, '').replace(/\s*[”"»]$/, '').trim(),
+    text: stripQuotes(lines.join(' ')),
     translation: undefined,
   };
 }

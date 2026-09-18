@@ -23,11 +23,15 @@ jest.mock('../services/VerseEngine', () => ({
 }));
 
 // Mock bibleProvider
-jest.mock('../services/BibleProvider', () => ({
-  bibleProvider: {
-    fetchPassage: jest.fn(),
-  },
-}));
+jest.mock('../services/BibleProvider', () => {
+  const actual = jest.requireActual('../services/BibleProvider');
+  return {
+    ...actual,
+    bibleProvider: {
+      fetchPassage: jest.fn(),
+    },
+  };
+});
 
 // Mock expo-clipboard
 jest.mock('expo-clipboard', () => ({
@@ -74,7 +78,7 @@ describe('HomeScreen Integration (Ticket 16)', () => {
 
     // Select KJV
     await act(async () => {
-      fireEvent.press(getByText('KJV'));
+      fireEvent.press(getByText(/KJV/i));
     });
 
     const refInput = getByPlaceholderText('Reference (e.g. John 3:16)');
@@ -168,7 +172,7 @@ describe('HomeScreen Integration (Ticket 16)', () => {
 
     // Select Almeida
     await act(async () => {
-      fireEvent.press(getByText('Almeida'));
+      fireEvent.press(getByText(/Almeida/i));
     });
 
     const refInput = getByPlaceholderText('Reference (e.g. John 3:16)');
