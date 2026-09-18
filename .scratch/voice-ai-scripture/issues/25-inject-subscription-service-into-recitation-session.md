@@ -4,10 +4,10 @@
 
 **Blocked by:** 24: Extract StorageAdapter Seam & Deepen SubscriptionService
 
-**Status:** ready-for-agent
+**Status:** closed
 
-- [ ] Extend `RecitationSession` constructor options in `src/services/RecitationSession.ts` to accept `subscriptionService?: SubscriptionService`, defaulting to the exported singleton `subscriptionService`.
-- [ ] Ensure `RecitationSession.startReciting()` delegates quota checks to `this.subscriptionService.consumeRecitation()`.
-- [ ] Refactor `src/services/RecitationSession.test.ts` to supply an in-memory `SubscriptionService` (backed by `MapStorageAdapter`) where quota states vary, completely eliminating all 15+ `jest.spyOn(SubscriptionService, 'consumeRecitation')` calls.
-- [ ] Verify that quota depletion triggers `quota_exhausted` status and that premium subscriptions allow unrestricted recitations using real in-memory state.
-- [ ] Ensure all 19 test suites and TypeScript typechecking remain 100% green.
+- [x] Extend `RecitationSession` constructor options in `src/services/RecitationSession.ts` to accept `subscriptionService?: SubscriptionService`, defaulting to the exported singleton `subscriptionService`.
+- [x] Ensure `RecitationSession.startReciting()` delegates quota checks to `this.subscriptionService.consumeRecitation()`.
+- [x] Refactor `src/services/RecitationSession.test.ts` to supply an in-memory `SubscriptionService` (backed by `MapStorageAdapter`) where quota states vary, completely eliminating all 15+ `jest.spyOn(SubscriptionService, 'consumeRecitation')` calls.
+- [x] Verify that quota depletion triggers `quota_exhausted` status and that premium subscriptions allow unrestricted recitations using real in-memory state.
+- [x] Ensure all 19 test suites and TypeScript typechecking remain 100% green.
