@@ -1,16 +1,50 @@
 import { Platform } from 'react-native';
+import { normalizeSpeechLanguage } from '../utils/languageNormalizer';
+
+export interface AudioRecordingOptions {
+  language?: string;
+}
 
 export interface AudioDriver {
   requestPermissions(): Promise<boolean>;
-  startRecording(onMeter?: (level: number) => void): Promise<void>;
+  startRecording(
+    onMeter?: (level: number) => void,
+    options?: AudioRecordingOptions
+  ): Promise<void>;
   stopRecording(): Promise<string | null>;
   deleteAudioFile(uri: string): Promise<boolean>;
+}
+
+const webTranscriptStore = new Map<string, string>();
+let lastWebTranscript = '';
+
+export function getWebTranscript(uri?: string): string | undefined {
+  if (uri && webTranscriptStore.has(uri)) {
+    return webTranscriptStore.get(uri);
+  }
+  return lastWebTranscript;
+}
+
+export function setWebTranscript(uri: string, transcript: string): void {
+  webTranscriptStore.set(uri, transcript);
+  lastWebTranscript = transcript;
+}
+
+export function clearWebTranscript(uri?: string): void {
+  if (uri) {
+    webTranscriptStore.delete(uri);
+  }
+  if (!uri || webTranscriptStore.size === 0) {
+    lastWebTranscript = '';
+  }
 }
 
 export class WebAudioDriver implements AudioDriver {
   private mediaRecorder: any = null;
   private audioChunks: Blob[] = [];
   private webStream: any = null;
+  private webSpeechRecognition: any = null;
+  private liveTranscript: string = '';
 
   async requestPermissions(): Promise<boolean> {
     try {
@@ -25,11 +59,15 @@ export class WebAudioDriver implements AudioDriver {
     }
   }
 
-  async startRecording(_onMeter?: (level: number) => void): Promise<void> {
+  async startRecording(
+    _onMeter?: (level: number) => void,
+    options?: AudioRecordingOptions
+  ): Promise<void> {
     if (!this.webStream) {
       this.webStream = await navigator.mediaDevices.getUserMedia({ audio: true });
     }
     this.audioChunks = [];
+    this.liveTranscript = '';
     this.mediaRecorder = new (window as any).MediaRecorder(this.webStream);
     this.mediaRecorder.ondataavailable = (event: any) => {
       if (event.data && event.data.size > 0) {
@@ -37,9 +75,55 @@ export class WebAudioDriver implements AudioDriver {
       }
     };
     this.mediaRecorder.start();
+
+    // Start live browser speech recognition if supported
+    const SpeechRecognitionClass =
+      typeof window !== 'undefined'
+        ? (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+        : null;
+
+    if (SpeechRecognitionClass) {
+      try {
+        const recognition = new SpeechRecognitionClass();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = normalizeSpeechLanguage(options?.language);
+        this.webSpeechRecognition = recognition;
+
+        let accumulatedFinal = '';
+        recognition.onresult = (event: any) => {
+          let interim = '';
+          for (let i = event.resultIndex; i < event.results.length; ++i) {
+            const res = event.results[i];
+            if (res.isFinal) {
+              accumulatedFinal += res[0].transcript + ' ';
+            } else {
+              interim += res[0].transcript;
+            }
+          }
+          this.liveTranscript = (accumulatedFinal + interim).trim();
+          lastWebTranscript = this.liveTranscript;
+        };
+
+        recognition.onerror = (err: any) => {
+          console.warn('[WebSpeechRecognition] Error:', err?.error || err);
+        };
+
+        recognition.start();
+      } catch (err) {
+        console.warn('[WebSpeechRecognition] Could not start speech recognition:', err);
+      }
+    }
   }
 
   async stopRecording(): Promise<string | null> {
+    if (this.webSpeechRecognition) {
+      try {
+        this.webSpeechRecognition.stop();
+      } catch {}
+      this.webSpeechRecognition = null;
+    }
+
     return new Promise((resolve) => {
       if (!this.mediaRecorder) return resolve(null);
 
@@ -50,6 +134,9 @@ export class WebAudioDriver implements AudioDriver {
           this.webStream.getTracks().forEach((track: any) => track.stop());
           this.webStream = null;
         }
+        if (this.liveTranscript) {
+          setWebTranscript(audioUrl, this.liveTranscript);
+        }
         resolve(audioUrl);
       };
       this.mediaRecorder.stop();
@@ -58,6 +145,7 @@ export class WebAudioDriver implements AudioDriver {
 
   async deleteAudioFile(uri: string): Promise<boolean> {
     if (!uri) return false;
+    clearWebTranscript(uri);
     try {
       if (typeof window !== 'undefined' && uri.startsWith('blob:')) {
         URL.revokeObjectURL(uri);
@@ -85,7 +173,10 @@ export class NativeAudioDriver implements AudioDriver {
     }
   }
 
-  async startRecording(onMeter?: (level: number) => void): Promise<void> {
+  async startRecording(
+    onMeter?: (level: number) => void,
+    _options?: AudioRecordingOptions
+  ): Promise<void> {
     this.onMeterCallback = onMeter || null;
     const { AudioModule } = require('expo-audio');
 
@@ -185,7 +276,13 @@ export class AudioRecorderService {
     return this.driver.requestPermissions();
   }
 
-  async startRecording(onMeter?: (level: number) => void): Promise<void> {
+  async startRecording(
+    onMeter?: (level: number) => void,
+    options?: AudioRecordingOptions
+  ): Promise<void> {
+    if (options !== undefined) {
+      return this.driver.startRecording(onMeter, options);
+    }
     return this.driver.startRecording(onMeter);
   }
 

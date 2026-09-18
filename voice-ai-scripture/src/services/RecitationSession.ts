@@ -127,9 +127,13 @@ export class RecitationSession {
       }
 
       // 3. Start Recording & Metering
-      await this.recorder.startRecording((level) => {
-        this.setState({ volumeLevel: level });
-      });
+      const language = inferVerseLanguage(this.verse);
+      await this.recorder.startRecording(
+        (level) => {
+          this.setState({ volumeLevel: level });
+        },
+        { language }
+      );
 
       this.setState({ status: 'reciting' });
     } catch (err: any) {

@@ -25,16 +25,43 @@ import { normalizeSpeechLanguage } from '../utils/languageNormalizer';
 
 export const formatNativeRecognizerLanguage = normalizeSpeechLanguage;
 
-export class DefaultNativeDriver implements NativeSpeechRecognizerDriver {
+import { getWebTranscript } from './AudioRecorderService';
+
+export class WebSpeechRecognizerDriver implements NativeSpeechRecognizerDriver {
   async isAvailable(): Promise<boolean> {
-    // In node/test or web environments, native speech recognition is not directly bundled
+    if (typeof window === 'undefined') return false;
+    return !!(
+      (window as any).SpeechRecognition ||
+      (window as any).webkitSpeechRecognition
+    );
+  }
+
+  async transcribeAudio(
+    audioUri: string,
+    _options?: { language?: string; prompt?: string }
+  ): Promise<string> {
+    const transcript = getWebTranscript(audioUri);
+    return transcript || '';
+  }
+}
+
+export class DefaultNativeDriver implements NativeSpeechRecognizerDriver {
+  private webDriver = new WebSpeechRecognizerDriver();
+
+  async isAvailable(): Promise<boolean> {
+    if (await this.webDriver.isAvailable()) {
+      return true;
+    }
     return false;
   }
 
   async transcribeAudio(
-    _audioUri: string,
-    _options?: { language?: string; prompt?: string }
+    audioUri: string,
+    options?: { language?: string; prompt?: string }
   ): Promise<string> {
+    if (await this.webDriver.isAvailable()) {
+      return this.webDriver.transcribeAudio(audioUri, options);
+    }
     return '';
   }
 }

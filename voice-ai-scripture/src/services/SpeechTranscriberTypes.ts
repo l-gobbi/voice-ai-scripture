@@ -25,7 +25,7 @@ export class TranscriptionError extends Error {
       case 'unauthorized':
         return 'Transcription authentication failed. Please check your API key.';
       case 'unavailable':
-        return 'Speech recognition is not available on this device or browser. Please configure an OpenAI API key in .env or use a supported environment.';
+        return 'Speech recognition is not available on this device or browser. Please use a supported browser (Chrome, Edge, Safari) or configure an OpenAI API key in .env.';
       case 'unintelligible':
         return 'Could not transcribe audio. Please speak clearly and try again.';
       case 'unknown':
