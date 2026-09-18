@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, Button, ActivityIndicator, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { audioRecorder } from '../services/AudioRecorderService';
-import { transcribeAudio } from '../services/WhisperService';
+import { createDefaultTranscriber } from '../services/SpeechTranscriber';
 
 interface VoiceSpikeScreenProps {
   onBack: () => void;
@@ -71,16 +71,10 @@ export default function VoiceSpikeScreen({ onBack }: VoiceSpikeScreenProps) {
           return;
         }
 
-        const apiKey = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
-        if (!apiKey) {
-          setTimeout(() => {
-            setTranscription('For God so loved the world that he gave his only begotten Son');
-            setIsTranscribing(false);
-          }, 1000);
-          return;
-        }
-
-        const result = await transcribeAudio(uri, apiKey);
+        const transcriber = createDefaultTranscriber();
+        const result = await transcriber.transcribe(uri, {
+          prompt: 'For God so loved the world that he gave his only begotten Son',
+        });
         setTranscription(result.text);
         setIsTranscribing(false);
       }

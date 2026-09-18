@@ -2,7 +2,14 @@ import { Verse, VerseEngine, verseEngine, SRSResult } from './VerseEngine';
 import { SubscriptionService } from './SubscriptionService';
 import { audioRecorder, AudioRecorderService } from './AudioRecorderService';
 import { diffVerses, calculateScore, DiffToken } from '../engines/diffEngine';
-import { transcribeAudio } from './WhisperService';
+import {
+  SpeechTranscriber,
+  TranscriptionOptions,
+  TranscriptionError,
+  createDefaultTranscriber,
+} from './SpeechTranscriber';
+
+export { SpeechTranscriber };
 
 export type RecitationStatus =
   | 'idle'
@@ -26,12 +33,14 @@ export interface RecitationState {
   errorMessage: string | null;
 }
 
-export type SpeechTranscriber = (audioUri: string) => Promise<string>;
+export type AnyTranscriber =
+  | SpeechTranscriber
+  | ((audioUri: string, options?: TranscriptionOptions) => Promise<string>);
 
 export class RecitationSession {
   private verse: Verse;
   private recorder: AudioRecorderService;
-  private transcriber: SpeechTranscriber;
+  private transcriber: AnyTranscriber;
   private verseEngine: VerseEngine;
   private currentAudioUri: string | null = null;
   private listeners: Set<(state: RecitationState) => void> = new Set();
@@ -47,21 +56,14 @@ export class RecitationSession {
     verse: Verse,
     options?: {
       recorder?: AudioRecorderService;
-      transcriber?: SpeechTranscriber;
+      transcriber?: AnyTranscriber;
       verseEngine?: VerseEngine;
     }
   ) {
     this.verse = verse;
     this.recorder = options?.recorder ?? audioRecorder;
     this.verseEngine = options?.verseEngine ?? verseEngine;
-    this.transcriber = options?.transcriber ?? (async (uri: string) => {
-      const apiKey = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
-      if (!apiKey) {
-        return this.verse.text;
-      }
-      const res = await transcribeAudio(uri, apiKey);
-      return res.text;
-    });
+    this.transcriber = options?.transcriber ?? createDefaultTranscriber();
   }
 
   getState(): RecitationState {
@@ -134,7 +136,15 @@ export class RecitationSession {
         return null;
       }
 
-      const transcript = await this.transcriber(this.currentAudioUri);
+      const prompt = `${this.verse.reference}: ${this.verse.text}`;
+      let transcript: string;
+      if (typeof this.transcriber === 'function') {
+        transcript = await this.transcriber(this.currentAudioUri, { prompt });
+      } else {
+        const res = await this.transcriber.transcribe(this.currentAudioUri, { prompt });
+        transcript = res.text;
+      }
+
       const tokens = diffVerses(this.verse.text, transcript);
       const score = calculateScore(tokens);
 
@@ -158,9 +168,31 @@ export class RecitationSession {
       this.setState({ status: 'verified', result });
       return result;
     } catch (err: any) {
+      let userMessage = err?.message || 'An error occurred during verification.';
+      if (err instanceof TranscriptionError) {
+        switch (err.code) {
+          case 'network_error':
+            userMessage = 'Network connection failed. Please check your internet connection.';
+            break;
+          case 'rate_limited':
+            userMessage = 'Transcription service is temporarily busy. Please try again shortly.';
+            break;
+          case 'unauthorized':
+            userMessage = 'Transcription authentication failed. Please check your API key.';
+            break;
+          case 'unintelligible':
+            userMessage = 'Could not transcribe audio. Please speak clearly and try again.';
+            break;
+          case 'unknown':
+          default:
+            userMessage = 'An unexpected transcription error occurred.';
+            break;
+        }
+      }
+
       this.setState({
         status: 'error',
-        errorMessage: err.message || 'An error occurred during verification.',
+        errorMessage: userMessage,
       });
       return null;
     } finally {

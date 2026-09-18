@@ -1,7 +1,8 @@
-import { RecitationSession, RecitationState } from './RecitationSession';
+import { RecitationSession, RecitationState, SpeechTranscriber } from './RecitationSession';
 import { Verse, verseEngine } from './VerseEngine';
 import { SubscriptionService } from './SubscriptionService';
 import { audioRecorder } from './AudioRecorderService';
+import { SimulatedTranscriber, TranscriptionError } from './SpeechTranscriber';
 
 jest.mock('@react-native-async-storage/async-storage', () =>
   require('@react-native-async-storage/async-storage/jest/async-storage-mock')
@@ -324,6 +325,112 @@ describe('RecitationSession (Ticket 07)', () => {
         result: null,
         errorMessage: null,
       });
+    });
+  });
+
+  describe('Slice 5: SpeechTranscriber Seam Integration & Error Transitions', () => {
+    it('passes canonical reference and verse text as prompt conditioning to SpeechTranscriber', async () => {
+      jest.spyOn(SubscriptionService, 'consumeRecitation').mockResolvedValueOnce({
+        allowed: true,
+        remaining: 3,
+        isSubscribed: true,
+      });
+      jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValueOnce(true);
+      jest.spyOn(audioRecorder, 'startRecording').mockResolvedValueOnce(undefined);
+      jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValueOnce('file:///audio/prompt-test.m4a');
+      jest.spyOn(audioRecorder, 'deleteAudioFile').mockResolvedValueOnce(true);
+      jest.spyOn(verseEngine, 'recordReview').mockResolvedValueOnce({
+        streak: 1,
+        repetitions: 1,
+        intervalDays: 1,
+        easeFactor: 2.5,
+        nextReviewDate: new Date(),
+        passed: true,
+      });
+
+      const mockTranscribe = jest.fn().mockResolvedValueOnce({ text: mockVerse.text });
+      const customTranscriber: SpeechTranscriber = {
+        transcribe: mockTranscribe,
+      };
+
+      const session = new RecitationSession(mockVerse, { transcriber: customTranscriber });
+      await session.startReciting();
+      await session.stopAndVerify();
+
+      expect(mockTranscribe).toHaveBeenCalledWith('file:///audio/prompt-test.m4a', {
+        prompt: `${mockVerse.reference}: ${mockVerse.text}`,
+      });
+    });
+
+    it('maps network_error TranscriptionError to friendly message without recording review', async () => {
+      jest.spyOn(SubscriptionService, 'consumeRecitation').mockResolvedValueOnce({
+        allowed: true,
+        remaining: 3,
+        isSubscribed: true,
+      });
+      jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValueOnce(true);
+      jest.spyOn(audioRecorder, 'startRecording').mockResolvedValueOnce(undefined);
+      jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValueOnce('file:///audio/network-err.m4a');
+      const deleteSpy = jest.spyOn(audioRecorder, 'deleteAudioFile').mockResolvedValueOnce(true);
+      const recordSpy = jest.spyOn(verseEngine, 'recordReview');
+
+      const failingTranscriber = new SimulatedTranscriber({
+        handler: () => {
+          throw new TranscriptionError('network_error', 'Connection timed out');
+        },
+      });
+
+      const session = new RecitationSession(mockVerse, { transcriber: failingTranscriber });
+      await session.startReciting();
+      const result = await session.stopAndVerify();
+
+      expect(result).toBeNull();
+      expect(session.getState().status).toBe('error');
+      expect(session.getState().errorMessage).toBe(
+        'Network connection failed. Please check your internet connection.'
+      );
+      expect(recordSpy).not.toHaveBeenCalled();
+      expect(deleteSpy).toHaveBeenCalledWith('file:///audio/network-err.m4a');
+    });
+
+    it('maps rate_limited and unauthorized TranscriptionErrors to specific domain messages', async () => {
+      jest.spyOn(SubscriptionService, 'consumeRecitation').mockResolvedValue({
+        allowed: true,
+        remaining: 3,
+        isSubscribed: true,
+      });
+      jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValue(true);
+      jest.spyOn(audioRecorder, 'startRecording').mockResolvedValue(undefined);
+      jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValue('file:///audio/err.m4a');
+      jest.spyOn(audioRecorder, 'deleteAudioFile').mockResolvedValue(true);
+
+      // Rate limited
+      const rateLimitedTranscriber = new SimulatedTranscriber({
+        handler: () => {
+          throw new TranscriptionError('rate_limited', 'Too many requests');
+        },
+      });
+      const session1 = new RecitationSession(mockVerse, { transcriber: rateLimitedTranscriber });
+      await session1.startReciting();
+      await session1.stopAndVerify();
+      expect(session1.getState().status).toBe('error');
+      expect(session1.getState().errorMessage).toBe(
+        'Transcription service is temporarily busy. Please try again shortly.'
+      );
+
+      // Unauthorized
+      const unauthorizedTranscriber = new SimulatedTranscriber({
+        handler: () => {
+          throw new TranscriptionError('unauthorized', 'Invalid token');
+        },
+      });
+      const session2 = new RecitationSession(mockVerse, { transcriber: unauthorizedTranscriber });
+      await session2.startReciting();
+      await session2.stopAndVerify();
+      expect(session2.getState().status).toBe('error');
+      expect(session2.getState().errorMessage).toBe(
+        'Transcription authentication failed. Please check your API key.'
+      );
     });
   });
 });

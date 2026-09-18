@@ -5,18 +5,18 @@ Migrate consumers across the application to consume the formalized `SpeechTransc
 
 **Blocked by:** Ticket 11 (Pluggable Speech Transcriber Seam & Adapters).
 
-**Status:** ready-for-agent
+**Status:** closed
 
-- [ ] Update `RecitationSession` constructor options to accept `transcriber?: SpeechTranscriber`, defaulting to `createDefaultTranscriber()`.
-- [ ] In `RecitationSession.stopAndVerify()`, pass canonical verse reference and text as `prompt` conditioning to `transcriber.transcribe(audioUri, { prompt: `${this.verse.reference}: ${this.verse.text}` })`.
-- [ ] Catch `TranscriptionError` in `RecitationSession.stopAndVerify()`, transitioning session status to `'error'` and populating `errorMessage` based on error code:
-  - [ ] `network_error`: "Network connection failed. Please check your internet connection."
-  - [ ] `rate_limited`: "Transcription service is temporarily busy. Please try again shortly."
-  - [ ] `unauthorized`: "Transcription authentication failed. Please check your API key."
-  - [ ] `unintelligible`: "Could not transcribe audio. Please speak clearly and try again."
-  - [ ] `unknown`: "An unexpected transcription error occurred."
-- [ ] Verify that transcription errors do NOT advance SRS or call `verseEngine.recordReview()`.
-- [ ] Remove all inline `process.env.EXPO_PUBLIC_OPENAI_API_KEY` inspections and fallback lambdas from `RecitationSession.ts`.
-- [ ] Refactor `VoiceSpikeScreen.tsx` to use `createDefaultTranscriber()`, removing inline `setTimeout` simulation and direct `process.env` checks.
-- [ ] Update `RecitationSession.test.ts` and `useRecitationSession.test.ts` to test prompt passing and error transitions using `SimulatedTranscriber`.
-- [ ] Verify all 11+ test suites pass green.
+- [x] Update `RecitationSession` constructor options to accept `transcriber?: SpeechTranscriber`, defaulting to `createDefaultTranscriber()`.
+- [x] In `RecitationSession.stopAndVerify()`, pass canonical verse reference and text as `prompt` conditioning to `transcriber.transcribe(audioUri, { prompt: `${this.verse.reference}: ${this.verse.text}` })`.
+- [x] Catch `TranscriptionError` in `RecitationSession.stopAndVerify()`, transitioning session status to `'error'` and populating `errorMessage` based on error code:
+  - [x] `network_error`: "Network connection failed. Please check your internet connection."
+  - [x] `rate_limited`: "Transcription service is temporarily busy. Please try again shortly."
+  - [x] `unauthorized`: "Transcription authentication failed. Please check your API key."
+  - [x] `unintelligible`: "Could not transcribe audio. Please speak clearly and try again."
+  - [x] `unknown`: "An unexpected transcription error occurred."
+- [x] Verify that transcription errors do NOT advance SRS or call `verseEngine.recordReview()`.
+- [x] Remove all inline `process.env.EXPO_PUBLIC_OPENAI_API_KEY` inspections and fallback lambdas from `RecitationSession.ts`.
+- [x] Refactor `VoiceSpikeScreen.tsx` to use `createDefaultTranscriber()`, removing inline `setTimeout` simulation and direct `process.env` checks.
+- [x] Update `RecitationSession.test.ts` and `useRecitationSession.test.ts` to test prompt passing and error transitions using `SimulatedTranscriber`.
+- [x] Verify all 11+ test suites pass green.
