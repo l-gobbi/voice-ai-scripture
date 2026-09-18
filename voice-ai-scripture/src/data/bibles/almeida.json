@@ -49,6 +49,11 @@
         "5": "Mas ele foi ferido por causa das nossas transgressões, e moído por causa das nossas iniquidades; o castigo que nos traz a paz estava sobre ele, e pelas suas pisaduras fomos sarados."
       }
     },
+    "JER": {
+      "29": {
+        "11": "Porque eu bem sei os pensamentos que penso de vós, diz o Senhor; pensamentos de paz, e não de mal, para vos dar o fim que esperais."
+      }
+    },
     "MAT": {
       "6": {
         "9": "Portanto, vós orareis assim: Pai nosso, que estás nos céus, santificado seja o teu nome;",
@@ -91,11 +96,15 @@
         "28": "E sabemos que todas as coisas contribuem juntamente para o bem daqueles que amam a Deus, daqueles que são chamados segundo o seu propósito."
       },
       "10": {
-        "9": "A saber: Se com a tua boca confessares ao Senhor Jesus, e em teu coração creres que Deus o ressuscitou dentre os mortos, serás salvo."
+        "9": "A saber: Se com a tua boca confessares ao Senhor Jesus, e em teu coração creres que Deus o ressuscitou dentre os mortos, serás salvo.",
+        "17": "De sorte que a fé é pelo ouvir, e o ouvir pela palavra de Deus."
       },
       "12": {
         "1": "Rogo-vos, pois, irmãos, pela compaixão de Deus, que apresenteis os vossos corpos em sacrifício vivo, santo e agradável a Deus, que é o vosso culto racional.",
         "2": "E não sede conformados com este mundo, mas sede transformados pela renovação do vosso entendimento, para que experimenteis qual seja a boa, agradável, e perfeita vontade de Deus."
+      },
+      "15": {
+        "13": "Ora o Deus de esperança vos encha de todo o gozo e paz em crença, para que abundeis em esperança pela virtude do Espírito Santo."
       }
     },
     "1CO": {
@@ -111,6 +120,7 @@
     },
     "2CO": {
       "5": {
+        "7": "Porque andamos por fé, e não por vista.",
         "17": "Assim que, se alguém está em Cristo, nova criatura é; as coisas velhas já passaram; eis que tudo se fez novo."
       },
       "10": {

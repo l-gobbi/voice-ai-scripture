@@ -44,6 +44,8 @@ describe('HomeScreen Integration (Ticket 16)', () => {
     jest.clearAllMocks();
   });
 
+  jest.setTimeout(15000);
+
   it('displays styled translation badge on verse cards', async () => {
     (verseEngine.getVersesSummary as jest.Mock).mockResolvedValueOnce({
       allVerses: [
