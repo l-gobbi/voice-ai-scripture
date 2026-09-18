@@ -86,3 +86,17 @@ _Avoid_: Mock STT, fake whisper, test transcriber
 A domain-level error representation classifying transcription failures (such as network loss, authentication failure, or rate limits) distinctly from verse recitation scoring.
 _Avoid_: Whisper error, API crash, audio failure
 
+### Scripture & Translation Infrastructure
+
+**Translation**:
+A recognized textual and linguistic edition of the Bible (such as `WEB`, `KJV`, `ASV`, `ALMEIDA`, `ONBV`, or `CUSTOM`).
+_Avoid_: Bible version string, text dialect, bible flavor
+
+**Bible Provider**:
+The pluggable adapter seam responsible for querying and resolving canonical scripture passages by reference and translation.
+_Avoid_: Bible client, scripture fetcher, passage scraper
+
+**Reference Normalization**:
+The algorithmic translation of abbreviated or regional book inputs (e.g., `Jo 3:16`, `Rm 8:28`, `1 Co 13:4`) into canonical reference strings before provider resolution.
+_Avoid_: Name cleaning, string fix, reference parse
+

@@ -2,129 +2,118 @@
 labels: ["ready-for-agent"]
 ---
 
-# Specification: Pluggable Speech Transcriber Seam (Ports & Adapters)
+# Specification: Multi-Translation Selection & Offline Bible Synchronization
 
 ## Problem Statement
 
-Speech-to-text audio transcription currently relies on an informal function signature and leaked environment configuration across multiple layers of the application. `RecitationSession` and `VoiceSpikeScreen` both inspect `process.env.EXPO_PUBLIC_OPENAI_API_KEY` directly, implementing ad-hoc simulation fallbacks (e.g. timeout loops or echoing hardcoded strings) when the API key is missing. Furthermore, OpenAI Whisper API calls lack prompt conditioning, resulting in frequent speech recognition errors on Biblical proper nouns and archaic English grammar. Raw HTTP fetch errors are unclassified, making it impossible for recitation workflows to distinguish between infrastructure outages (network timeout, rate limits) and genuine user recitation mistakes.
+Users currently experience significant friction when adding new scripture verses to memorize. The "Add Verse" modal requires manually typing or copying and pasting the complete verse text on a mobile keyboard, which is the primary cause of user drop-off during onboarding. Furthermore, the application is locked to English, with topical packs and hardcoded default texts only available in English. Additionally, Brazilian Portuguese users and users of different theological backgrounds prefer specific biblical translations (such as World English Bible or King James Version for English, and João Ferreira de Almeida or Nova Bíblia Viva for Portuguese). 
+
+Finally, relying on third-party remote Bible REST APIs poses severe operational and commercial risks: strict rate limits (e.g., 15 requests per 30 seconds per IP on public hobbyist endpoints) trigger frequent `429 Rate Limited` errors on carrier-grade cellular NATs or church Wi-Fi networks, while modern copyrighted translations (such as NVI and ARA) carry copyright licensing liabilities if bundled without royalty permissions.
 
 ## Solution
 
-Formalize a clean, pluggable `SpeechTranscriber` interface (Ports & Adapters pattern) backed by two first-class adapters:
-1. **`WhisperTranscriber`**: Production OpenAI Whisper STT client that accepts prompt conditioning and translates vendor HTTP errors into structured domain errors.
-2. **`SimulatedTranscriber`**: Zero-configuration offline test and development adapter that deterministically echoes prompt text or executes configurable custom simulation handlers.
-3. **`createDefaultTranscriber()` Factory**: Encapsulates environment key resolution (`EXPO_PUBLIC_OPENAI_API_KEY`), isolating UI and recitation orchestration completely from API key checks.
-4. **Biblical Vocabulary Conditioning**: `SpeechTranscriber.transcribe(audioUri, options)` accepts optional `prompt?: string`, allowing `RecitationSession` to prime Whisper with canonical scripture text and references.
-5. **Typed `TranscriptionError`**: A domain error model categorizing failures (`network_error`, `unauthorized`, `rate_limited`, `unintelligible`, `unknown`) so the UI displays helpful feedback instead of penalizing user streaks.
-6. **Consumer Migration & Deprecation**: Migrate `RecitationSession` and `VoiceSpikeScreen` to consume `SpeechTranscriber`, deprecating legacy standalone `transcribeAudio` in `WhisperService.ts`.
+Implement an instant, zero-latency, rate-limit-free **Multi-Translation Selection and Offline Bible Synchronization** architecture:
+1. **Commercial-Compliant Translation Catalog**: Support verified Public Domain and Open-Access (CC BY-SA 4.0) translations that permit 100% royalty-free commercial freemium usage:
+   - 🇺🇸 **English**: `WEB` (World English Bible - modern English, default) and `KJV` (King James Version - classic English).
+   - 🇧🇷 **Português**: `ALMEIDA` (João Ferreira de Almeida - traditional Portuguese, default) and `ONBV` (Biblica® Open Nova Bíblia Viva - modern Portuguese, CC BY-SA 4.0).
+2. **Offline-First Bundled `BibleProvider` Seam**: A formalized Ports & Adapters boundary (`BibleProvider`) backed by a lightweight, locally bundled scripture database (`LocalBibleProvider`). Queries run in `<1ms` without network calls, eliminating all server costs, rate limits, and connectivity failures.
+3. **Smart Reference Normalizer**: A forgiving reference parser that recognizes colloquial and localized abbreviations in both English and Portuguese (e.g., `Jo 3:16`, `João 3:16`, `John 3:16`, `Rm 8:28`, `Sl 23:1`, `1 Co 13:4`), automatically resolving multi-verse spans (e.g., `John 3:16-17`) into continuous recitation text.
+4. **Interactive "Add Verse" Auto-Populate & Clipboard Import**:
+   - As the user types a recognized reference and selects a translation, the canonical text auto-populates instantly with zero latency.
+   - For copyrighted translations (e.g. `NVI`, `ARA`), the UI provides a 1-tap **"📋 Paste from Clipboard"** button and editable text area, empowering users to memorize in their favorite translation under personal-study fair use without app copyright liability.
+5. **Whisper Speech Transcriber Language Priming**: Dynamically condition the Whisper speech-to-text language based on the verse's translation (`'pt'` for `ALMEIDA` and `ONBV`; `'en'` for `WEB` and `KJV`), ensuring Brazilian recitations are transcribed with maximum accuracy and zero foreign-language hallucinations.
+6. **Dual-Language Topical Packs**: Expand the topical pack library to include Brazilian Portuguese collections (*Paz*, *Fé*, *Esperança* in Almeida) alongside English collections (*Peace*, *Faith*, *Strength* in WEB).
 
 ## User Stories
 
-1. As a believer reciting a scripture passage containing archaic English (e.g., *"thee"*, *"thou"*, *"begotten"*), I want the transcription engine to be primed with the passage vocabulary, so that accurate recitations are not penalized by modern speech-to-text misspellings.
-2. As a believer reciting a passage with biblical proper nouns (e.g., *"Melchizedek"*, *"Nebuchadnezzar"*, *"Gethsemane"*), I want the speech model to accurately recognize the biblical names, so that my recitation is scored fairly.
-3. As a developer running the mobile app locally without an OpenAI API key configured, I want speech recitation to work seamlessly via offline simulation, so that I can develop, test, and demo UI workflows without runtime crashes or manual code tweaks.
-4. As a believer reciting scripture when my internet connection drops or times out, I want to see a clear "Network connection failed" error message rather than having my streak reset as a failed recitation.
-5. As a believer whose account hits an OpenAI rate limit or API outage, I want the app to gracefully show a temporary service notice rather than grading my attempt as 0% accuracy.
-6. As a developer writing automated unit or integration tests for recitation flows, I want to inject a lightweight `SimulatedTranscriber` with custom failure or typo responses, so that I can test recitation scoring deterministically without making real HTTP requests or mocking global fetch.
-7. As an AI coding agent or engineer modifying `RecitationSession`, I want a clean, single-method `SpeechTranscriber` interface, so that I never have to navigate environment variables, FormData serialization, or audio MIME-type parsing inside domain orchestration.
-8. As a developer testing the `VoiceSpikeScreen`, I want it to use the unified default transcriber, so that spike testing matches production transcription behavior.
-9. As a privacy-conscious user, I want transcription errors to fail fast without hanging the UI or leaking raw API stack traces to the screen.
-10. As a maintainer, I want existing usages of `WhisperService.ts` to remain backward-compatible during the migration phase, so that the codebase remains 100% buildable and green at every commit.
+1. As a believer opening the "Add Verse" modal, I want to select my preferred translation (WEB, KJV, Almeida, ONBV) from a clean dropdown, so that I can memorize in the version my church and community use.
+2. As a Brazilian believer typing "Jo 3:16", I want the app to recognize the Portuguese abbreviation and instantly fill in *"Porque Deus amou o mundo de tal maneira..."*, so that I don't have to painstakingly type out the entire verse on my phone keyboard.
+3. As a user memorizing in English typing "Romans 8:28" in the WEB translation, I want the full passage to load immediately without waiting for a spinning network loader, so that adding verses feels effortless and instantaneous.
+4. As a believer studying inside a church sanctuary or on an airplane with no internet connection, I want verse search and auto-fill to work completely offline, so that lack of Wi-Fi or cellular service never interrupts my spiritual discipline.
+5. As a mobile user connected to carrier-grade cellular data (where thousands of devices share an IP), I want verse lookups to never fail with rate-limit or 429 errors, so that my experience remains stable and frustration-free.
+6. As a believer memorizing a longer passage like "Salmos 23:1-3", I want the app to fetch and concatenate the verses into a unified, continuous recitation text, so that I can practice reciting the full psalm smoothly.
+7. As a believer whose favorite translation is copyrighted (such as NVI or ARA), I want to tap a "Paste from Clipboard" button that extracts text I copied from the YouVersion Bible app, so that I can still memorize my favorite version under personal study fair use.
+8. As a user who prefers specific punctuation, capitalized divine pronouns, or a slightly different wording, I want the auto-filled verse text box to remain fully editable, so that I can refine the text to match my exact memorization preference before saving.
+9. As a Brazilian believer reciting Portuguese scripture out loud, I want the voice recognition engine to be explicitly primed with Portuguese language phonemes (`language: 'pt'`), so that my Portuguese recitation is not misrecognized as English words.
+10. As an English believer reciting King James Version scripture out loud, I want the voice recognition engine to be primed with English language phonemes (`language: 'en'`), so that archaic terms like *"begotten"* and *"whosoever"* are accurately transcribed.
+11. As a new Brazilian user browsing topical packs, I want to see curated Portuguese packs (*Paz*, *Fé*, *Esperança*), so that I can start memorizing immediately with one tap without configuring anything.
+12. As a user reviewing my saved verses on the home screen, I want to see a clear translation badge (e.g., `WEB`, `KJV`, `ALMEIDA`, `ONBV`) on each verse card, so that I immediately know which version I am practicing.
+13. As a user who edits an existing verse to switch translations, I want my review streak and Spaced Repetition interval to remain intact, so that changing translations does not erase my memorization progress.
+14. As an automated test suite or AI developer, I want an in-memory `SimulatedBibleProvider` that returns deterministic passages without touching the filesystem or network, so that test suites run in milliseconds.
 
 ## Implementation Decisions
 
-- **Seam Definition & Location:** Create `src/services/SpeechTranscriber.ts` exporting the canonical contract, error types, adapters, and factory:
-  ```typescript
-  export type TranscriptionErrorCode =
-    | 'network_error'
-    | 'unauthorized'
-    | 'rate_limited'
-    | 'unintelligible'
-    | 'unknown';
+- **Translation Domain Model & Metadata:**
+  - Update `Verse` entity in `VerseEngine.ts` to include `translation: string` (e.g. `'WEB' | 'KJV' | 'ALMEIDA' | 'ONBV' | 'CUSTOM'`).
+  - Update `VerseEngine.addVerse()` and `VerseEngine.updateVerse()` to accept and persist `translation`, defaulting to `'WEB'` for English references and `'ALMEIDA'` for Portuguese references when unspecified.
+  - When switching translation on an existing verse, update the verse text while preserving existing `streak`, `repetitions`, `intervalDays`, and `nextReviewDate`.
 
-  export class TranscriptionError extends Error {
-    constructor(
-      public readonly code: TranscriptionErrorCode,
-      message: string,
-      public readonly cause?: unknown
-    ) {
-      super(message);
-      this.name = 'TranscriptionError';
+- **BibleProvider Seam (Ports & Adapters):**
+  - Create `src/services/BibleProvider.ts` defining the domain interface:
+    ```typescript
+    export interface BiblePassage {
+      reference: string;
+      text: string;
+      translation: string;
+      language: 'en' | 'pt';
     }
-  }
 
-  export interface TranscriptionOptions {
-    prompt?: string;
-  }
+    export interface BibleProvider {
+      fetchPassage(reference: string, translation: string): Promise<BiblePassage | null>;
+    }
+    ```
+  - **`LocalBibleProvider`**: Production adapter accessing local bundled scripture JSON data in `src/data/bibles/` (`web.json`, `kjv.json`, `almeida.json`, `onbv.json`). Performs zero network calls, runs synchronously in `<1ms`, and returns trimmed, normalized scripture text.
+  - **`SimulatedBibleProvider`**: In-memory test adapter pre-loaded with mock passages or custom handler overrides for headless testing.
+  - **`createDefaultBibleProvider()` Factory**: Returns `new LocalBibleProvider()`.
 
-  export interface TranscriptionResult {
-    text: string;
-  }
+- **ReferenceNormalizer Module:**
+  - Create `src/services/ReferenceNormalizer.ts` responsible for parsing, normalizing, and resolving reference strings.
+  - Maintains an alias dictionary for all 66 canonical biblical books supporting:
+    - English names & abbreviations (`Gen`, `Ex`, `Matt`, `Mt`, `Rom`, `Rm`, `1 Cor`, `1 Co`, `Rev`).
+    - Portuguese names & abbreviations (`Gn`, `Êx`, `Mt`, `Mateus`, `Jo`, `João`, `Rm`, `Romanos`, `Sl`, `Salmos`, `1 Co`, `1 Coríntios`, `Ap`, `Apocalipse`).
+  - Extracts book identifier, chapter number, starting verse number, and optional ending verse number.
+  - Concatenates multi-verse ranges into continuous strings separated by single spaces.
 
-  export interface SpeechTranscriber {
-    transcribe(audioUri: string, options?: TranscriptionOptions): Promise<TranscriptionResult>;
-  }
-  ```
+- **SpeechTranscriber Language Priming:**
+  - Update `TranscriptionOptions` in `SpeechTranscriber.ts` to accept optional `language?: string`.
+  - Update `WhisperTranscriber.transcribe()` to append `formData.append('language', options.language ?? 'en')`.
+  - In `RecitationSession.stopAndVerify()`, derive the language from `this.verse.translation`:
+    - If `translation === 'ALMEIDA' || translation === 'ONBV'` (or Portuguese pack), pass `language: 'pt'`.
+    - Otherwise pass `language: 'en'`.
 
-- **Production Adapter (`WhisperTranscriber`):**
-  - Accepts `apiKey?: string` in constructor, falling back to `process.env.EXPO_PUBLIC_OPENAI_API_KEY`.
-  - Sends multipart `FormData` (`file`, `model: 'whisper-1'`, `language: 'en'`, and optional `prompt` from options) to `https://api.openai.com/v1/audio/transcriptions`.
-  - Maps HTTP status codes into `TranscriptionError`:
-    - 401 / 403 → `unauthorized`
-    - 429 → `rate_limited`
-    - 400 / 422 → `unintelligible`
-    - 5xx / Network / Fetch rejection → `network_error`
-    - Others → `unknown`
+- **Add Verse Modal & UI Overhaul:**
+  - In `HomeScreen.tsx` (Add Verse Modal):
+    - Add a styled Picker / Translation Selector segmented by language:
+      - 🇺🇸 English: `WEB (World English Bible)`, `KJV (King James Version)`
+      - 🇧🇷 Português: `Almeida (JFA)`, `ONBV (Nova Bíblia Viva)`
+      - 📋 Outras: `NVI / ARA / Outra (Personalizado)`
+    - Add debounced reference typing listener (500ms): when a valid book and chapter:verse are detected, automatically query `BibleProvider` and populate the text area with the scripture text.
+    - Provide a manual **"Buscar Texto" / "Fetch Text"** button beside the reference input.
+    - Provide a **"📋 Colar da Área de Transferência" / "Paste from Clipboard"** button that automatically parses copied text and reference.
+    - Display translation badge on verse cards in the list.
 
-- **Offline Simulation Adapter (`SimulatedTranscriber`):**
-  - Accepts `config?: { defaultText?: string; handler?: (audioUri: string, options?: TranscriptionOptions) => Promise<string> | string }`.
-  - In `transcribe(audioUri, options)`:
-    - If `handler` is configured, invokes `handler(audioUri, options)`.
-    - Else if `options?.prompt` is present, returns `{ text: options.prompt }` (simulating 100% accurate recitation).
-    - Else returns `{ text: config?.defaultText ?? '' }`.
-
-- **Factory Function (`createDefaultTranscriber`):**
-  - `createDefaultTranscriber(apiKey?: string): SpeechTranscriber`
-  - Evaluates `const key = apiKey ?? process.env.EXPO_PUBLIC_OPENAI_API_KEY`.
-  - If `key` is defined and non-empty, returns `new WhisperTranscriber(key)`.
-  - Otherwise logs a development notice and returns `new SimulatedTranscriber()`.
-
-- **RecitationSession Integration:**
-  - Update `RecitationSession` constructor options: `transcriber?: SpeechTranscriber`.
-  - Defaults to `createDefaultTranscriber()`.
-  - In `stopAndVerify()`:
-    - Calls `await this.transcriber.transcribe(audioUri, { prompt: `${this.verse.reference}: ${this.verse.text}` })`.
-    - Catches `TranscriptionError` and updates state to `status: 'error'`, setting `errorMessage` based on error code (e.g. `"Transcription failed: please check your network connection."`).
-    - Strips all references to `process.env.EXPO_PUBLIC_OPENAI_API_KEY` and inline simulation from `RecitationSession.ts`.
-
-- **VoiceSpikeScreen Integration:**
-  - Refactor `VoiceSpikeScreen.tsx` to use `createDefaultTranscriber()`.
-  - Eliminates inline `setTimeout` simulation and direct `process.env` checks.
-
-- **Legacy WhisperService Deprecation:**
-  - In `src/services/WhisperService.ts`, mark `transcribeAudio` as `@deprecated`.
-  - Delegate `transcribeAudio(audioUri, apiKey)` to `new WhisperTranscriber(apiKey).transcribe(audioUri)`.
+- **Dual-Language Topical Packs:**
+  - Expand `src/data/topicalPacks.ts` to include localized Portuguese topical packs (*Paz*, *Fé*, *Esperança* in Almeida) with full reference and text.
+  - Update `PackBrowserModal.tsx` to display language tags (`[EN]` / `[PT]`) or a language filter toggle.
 
 ## Testing Decisions
 
-- **Test Behavior at the Public Seam:**
-  - Test `WhisperTranscriber` by mocking the global network transport (`fetch`), asserting on `FormData` parameters (`prompt`, `file`, `model`) and verifying accurate mapping to `TranscriptionError`.
-  - Test `SimulatedTranscriber` in pure memory without mocks, verifying default prompt echo and custom handler overrides.
-  - Test `createDefaultTranscriber` returning `WhisperTranscriber` when API key is provided and `SimulatedTranscriber` when absent.
-  - Test `RecitationSession` integration with `SpeechTranscriber`:
-    - Verifies prompt hint is passed to transcriber during `stopAndVerify()`.
-    - Verifies `TranscriptionError` transitions session state to `error` with user-friendly error message, without invoking `recordReview` or resetting streak.
+- **Behavior-Driven at Seams:**
+  - Test `ReferenceNormalizer` against a comprehensive battery of English and Portuguese abbreviations, capitalization variants, and multi-verse spans.
+  - Test `LocalBibleProvider` ensuring valid passage retrieval across all 4 bundled translations (`WEB`, `KJV`, `ALMEIDA`, `ONBV`), verifying accurate handling of unknown references (returning `null` without throwing unhandled exceptions).
+  - Test `SpeechTranscriber` verifying `FormData` receives `language: 'pt'` when `language` option is `'pt'`.
+  - Test `RecitationSession` verifying language conditioning is correctly propagated based on verse translation.
+  - Test `VerseEngine` verifying translation persistence and backward compatibility with existing saved verses that lack a translation field (defaulting safely to `'WEB'` or `'ALMEIDA'`).
 - **Prior Art:**
-  - Follows existing ports-and-adapters pattern in `VerseEngine.ts` (`StorageAdapter` / `MapStorageAdapter` / `AsyncStorageAdapter`) and `AudioRecorderService.ts` (`AudioDriver`).
+  - Follows established Ports & Adapters patterns from `VerseEngine` (`StorageAdapter`) and `SpeechTranscriber` (`SimulatedTranscriber` / `createDefaultTranscriber`).
 
 ## Out of Scope
 
-- On-device local neural Whisper models (e.g. whisper.tflite / whisper.cpp native bindings). OpenAI Whisper API remains the primary STT engine.
-- Multi-language transcription beyond English (`language: 'en'`).
-- Real-time streaming transcription (transcription occurs after recording completes).
-- Audio compression or transcoding (recording uses native m4a format).
+- Real-time audio text-to-speech narration (TTS) of verses (planned for future audio playback candidate).
+- Cloud user account synchronization or multi-device sync (the app remains local-first).
+- In-app payment integration for custom copyrighted Bible licenses (handled via clipboard import for now).
 
 ## Further Notes
 
-- Completes Candidate 03 from the Architecture Review (`architecture-review-20260917-161400.html`).
-- Aligns with ADR 0006 and ubiquitous language documented in `CONTEXT.md`.
+- All bundled Bible translations (`WEB`, `KJV`, `ALMEIDA`, `ONBV`) have been verified for legal commercial freemium distribution with zero royalties.
+- Bundling text for the selected versions in lightweight JSON adds minimal storage footprint (~5-8MB) while delivering an unmatched instant offline user experience.
