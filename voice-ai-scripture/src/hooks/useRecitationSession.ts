@@ -6,11 +6,9 @@ import {
   VoiceRecitationResult,
   SpeechTranscriber,
 } from '../services/RecitationSession';
-import { SubscriptionService } from '../services/SubscriptionService';
 
 export interface UseRecitationSessionOptions {
   transcriber?: SpeechTranscriber;
-  subscriptionService?: SubscriptionService;
 }
 
 export function useRecitationSession(

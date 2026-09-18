@@ -1,5 +1,5 @@
 import { Verse, VerseEngine, verseEngine, SRSResult } from './VerseEngine';
-import { SubscriptionService } from './SubscriptionService';
+import { SubscriptionService, subscriptionService } from './SubscriptionService';
 import { audioRecorder, AudioRecorderService } from './AudioRecorderService';
 import { diffVerses, calculateScore, DiffToken } from '../engines/diffEngine';
 import {
@@ -51,24 +51,6 @@ export interface RecitationState {
   errorMessage: string | null;
 }
 
-class DefaultSubscriptionProxy extends SubscriptionService {
-  override consumeRecitation() {
-    return SubscriptionService.consumeRecitation();
-  }
-  override isSubscribed() {
-    return SubscriptionService.isSubscribed();
-  }
-  override getRemainingFreeRecitations() {
-    return SubscriptionService.getRemainingFreeRecitations();
-  }
-  override subscribePremium() {
-    return SubscriptionService.subscribePremium();
-  }
-  override cancelSubscription() {
-    return SubscriptionService.cancelSubscription();
-  }
-}
-
 export class RecitationSession {
   private verse: Verse;
   private recorder: AudioRecorderService;
@@ -98,7 +80,7 @@ export class RecitationSession {
     this.recorder = options?.recorder ?? audioRecorder;
     this.verseEngine = options?.verseEngine ?? verseEngine;
     this.transcriber = options?.transcriber ?? createDefaultTranscriber();
-    this.subscriptionService = options?.subscriptionService ?? new DefaultSubscriptionProxy();
+    this.subscriptionService = options?.subscriptionService ?? subscriptionService;
   }
 
   getState(): RecitationState {

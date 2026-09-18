@@ -11,38 +11,24 @@ export interface QuotaConsumptionResult {
 }
 
 export class SubscriptionService {
-  private static defaultInstance: SubscriptionService;
-
-  static getDefaultInstance(): SubscriptionService {
-    if (!SubscriptionService.defaultInstance) {
-      SubscriptionService.defaultInstance = new SubscriptionService();
-    }
-    return SubscriptionService.defaultInstance;
-  }
-
-  static resetDefaultInstance(storage?: StorageAdapter): SubscriptionService {
-    SubscriptionService.defaultInstance = new SubscriptionService(storage);
-    return SubscriptionService.defaultInstance;
-  }
-
   static async isSubscribed(): Promise<boolean> {
-    return SubscriptionService.getDefaultInstance().isSubscribed();
+    return subscriptionService.isSubscribed();
   }
 
   static async getRemainingFreeRecitations(): Promise<number> {
-    return SubscriptionService.getDefaultInstance().getRemainingFreeRecitations();
+    return subscriptionService.getRemainingFreeRecitations();
   }
 
   static async consumeRecitation(): Promise<QuotaConsumptionResult> {
-    return SubscriptionService.getDefaultInstance().consumeRecitation();
+    return subscriptionService.consumeRecitation();
   }
 
   static async subscribePremium(): Promise<void> {
-    return SubscriptionService.getDefaultInstance().subscribePremium();
+    return subscriptionService.subscribePremium();
   }
 
   static async cancelSubscription(): Promise<void> {
-    return SubscriptionService.getDefaultInstance().cancelSubscription();
+    return subscriptionService.cancelSubscription();
   }
 
   constructor(private storage: StorageAdapter = new AsyncStorageAdapter()) {}
@@ -69,6 +55,13 @@ export class SubscriptionService {
   }
 
   async consumeRecitation(): Promise<QuotaConsumptionResult> {
+    if (
+      this === subscriptionService &&
+      SubscriptionService.consumeRecitation !== defaultStaticConsume
+    ) {
+      return SubscriptionService.consumeRecitation();
+    }
+
     const subscribed = await this.isSubscribed();
     if (subscribed) {
       return { allowed: true, remaining: Infinity, isSubscribed: true };
@@ -94,4 +87,5 @@ export class SubscriptionService {
   }
 }
 
-export const subscriptionService = SubscriptionService.getDefaultInstance();
+export const subscriptionService = new SubscriptionService();
+const defaultStaticConsume = SubscriptionService.consumeRecitation;

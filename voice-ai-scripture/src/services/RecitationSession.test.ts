@@ -27,11 +27,27 @@ describe('RecitationSession (Ticket 07)', () => {
     },
   };
 
+  const subscribedService = new SubscriptionService(
+    new MapStorageAdapter({ user_is_subscribed: 'true' })
+  );
+
+  function createTestSession(
+    verse: Verse = mockVerse,
+    options?: {
+      recorder?: any;
+      transcriber?: any;
+      verseEngine?: any;
+      subscriptionService?: SubscriptionService;
+    }
+  ): RecitationSession {
+    return new RecitationSession(verse, {
+      subscriptionService: subscribedService,
+      ...options,
+    });
+  }
+
   beforeEach(() => {
     jest.clearAllMocks();
-    SubscriptionService.resetDefaultInstance(
-      new MapStorageAdapter({ user_is_subscribed: 'true' })
-    );
   });
 
   describe('Slice 1: Quota Gating and Start Reciting', () => {
@@ -99,7 +115,7 @@ describe('RecitationSession (Ticket 07)', () => {
         meterCb = cb;
       });
 
-      const session = new RecitationSession(mockVerse);
+      const session = createTestSession(mockVerse);
       const states: RecitationState[] = [];
       session.subscribe((s) => states.push(s));
 
@@ -133,7 +149,7 @@ describe('RecitationSession (Ticket 07)', () => {
         transcribe: jest.fn().mockResolvedValueOnce({ text: mockVerse.text }),
       };
 
-      const session = new RecitationSession(mockVerse, { transcriber: mockTranscriber });
+      const session = createTestSession(mockVerse, { transcriber: mockTranscriber });
       await session.startReciting();
 
       const result = await session.stopAndVerify();
@@ -166,7 +182,7 @@ describe('RecitationSession (Ticket 07)', () => {
         transcribe: jest.fn().mockResolvedValueOnce({ text: 'Totally different words' }),
       };
 
-      const session = new RecitationSession(mockVerse, { transcriber: mockTranscriber });
+      const session = createTestSession(mockVerse, { transcriber: mockTranscriber });
       await session.startReciting();
 
       const result = await session.stopAndVerify();
@@ -201,7 +217,7 @@ describe('RecitationSession (Ticket 07)', () => {
         }),
       };
 
-      sessionInstance = new RecitationSession(mockVerse, { transcriber: mockTranscriber });
+      sessionInstance = createTestSession(mockVerse, { transcriber: mockTranscriber });
       await sessionInstance.startReciting();
       await sessionInstance.stopAndVerify();
 
@@ -220,7 +236,7 @@ describe('RecitationSession (Ticket 07)', () => {
       const mockTranscriber: SpeechTranscriber = {
         transcribe: jest.fn().mockResolvedValueOnce({ text: mockVerse.text }),
       };
-      const session = new RecitationSession(mockVerse, { transcriber: mockTranscriber });
+      const session = createTestSession(mockVerse, { transcriber: mockTranscriber });
 
       await session.startReciting();
       await session.stopAndVerify();
@@ -237,7 +253,7 @@ describe('RecitationSession (Ticket 07)', () => {
       const failingTranscriber: SpeechTranscriber = {
         transcribe: jest.fn().mockRejectedValueOnce(new Error('Network timeout')),
       };
-      const session = new RecitationSession(mockVerse, { transcriber: failingTranscriber });
+      const session = createTestSession(mockVerse, { transcriber: failingTranscriber });
 
       await session.startReciting();
       const result = await session.stopAndVerify();
@@ -255,7 +271,7 @@ describe('RecitationSession (Ticket 07)', () => {
       jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValueOnce('file:///audio/abort.m4a');
       const deleteSpy = jest.spyOn(audioRecorder, 'deleteAudioFile').mockResolvedValueOnce(true);
 
-      const session = new RecitationSession(mockVerse);
+      const session = createTestSession(mockVerse);
       await session.startReciting();
       expect(session.getState().status).toBe('reciting');
 
@@ -287,7 +303,7 @@ describe('RecitationSession (Ticket 07)', () => {
       const mockTranscriber: SpeechTranscriber = {
         transcribe: jest.fn().mockResolvedValueOnce({ text: mockVerse.text }),
       };
-      const session = new RecitationSession(mockVerse, { transcriber: mockTranscriber });
+      const session = createTestSession(mockVerse, { transcriber: mockTranscriber });
 
       await session.startReciting();
       await session.stopAndVerify();
@@ -297,7 +313,7 @@ describe('RecitationSession (Ticket 07)', () => {
     });
 
     it('cleans up and resets session on reset()', async () => {
-      const session = new RecitationSession(mockVerse);
+      const session = createTestSession(mockVerse);
       await session.reset();
 
       expect(session.getState()).toEqual({
@@ -329,7 +345,7 @@ describe('RecitationSession (Ticket 07)', () => {
         transcribe: mockTranscribe,
       };
 
-      const session = new RecitationSession(mockVerse, { transcriber: customTranscriber });
+      const session = createTestSession(mockVerse, { transcriber: customTranscriber });
       await session.startReciting();
       await session.stopAndVerify();
 
@@ -355,7 +371,7 @@ describe('RecitationSession (Ticket 07)', () => {
       });
 
       // No transcriber passed: defaults to createDefaultTranscriber() -> SimulatedTranscriber
-      const session = new RecitationSession(mockVerse);
+      const session = createTestSession(mockVerse);
       await session.startReciting();
       const result = await session.stopAndVerify();
 
@@ -378,7 +394,7 @@ describe('RecitationSession (Ticket 07)', () => {
         },
       });
 
-      const session = new RecitationSession(mockVerse, { transcriber: failingTranscriber });
+      const session = createTestSession(mockVerse, { transcriber: failingTranscriber });
       await session.startReciting();
       const result = await session.stopAndVerify();
 
@@ -403,7 +419,7 @@ describe('RecitationSession (Ticket 07)', () => {
           throw new TranscriptionError('rate_limited', 'Too many requests');
         },
       });
-      const session1 = new RecitationSession(mockVerse, { transcriber: rateLimitedTranscriber });
+      const session1 = createTestSession(mockVerse, { transcriber: rateLimitedTranscriber });
       await session1.startReciting();
       await session1.stopAndVerify();
       expect(session1.getState().status).toBe('error');
@@ -417,7 +433,7 @@ describe('RecitationSession (Ticket 07)', () => {
           throw new TranscriptionError('unauthorized', 'Invalid token');
         },
       });
-      const session2 = new RecitationSession(mockVerse, { transcriber: unauthorizedTranscriber });
+      const session2 = createTestSession(mockVerse, { transcriber: unauthorizedTranscriber });
       await session2.startReciting();
       await session2.stopAndVerify();
       expect(session2.getState().status).toBe('error');
@@ -452,7 +468,7 @@ describe('RecitationSession (Ticket 07)', () => {
         transcribe: jest.fn().mockResolvedValue({ text: ptVerse.text }),
       };
 
-      const session = new RecitationSession(ptVerse, { transcriber: mockTranscriber });
+      const session = createTestSession(ptVerse, { transcriber: mockTranscriber });
       await session.startReciting();
       await session.stopAndVerify();
 
@@ -488,7 +504,7 @@ describe('RecitationSession (Ticket 07)', () => {
         transcribe: jest.fn().mockResolvedValue({ text: enVerse.text }),
       };
 
-      const session = new RecitationSession(enVerse, { transcriber: mockTranscriber });
+      const session = createTestSession(enVerse, { transcriber: mockTranscriber });
       await session.startReciting();
       await session.stopAndVerify();
 
@@ -524,7 +540,7 @@ describe('RecitationSession (Ticket 07)', () => {
         transcribe: jest.fn().mockResolvedValue({ text: nviVerse.text }),
       };
 
-      const session = new RecitationSession(nviVerse, { transcriber: mockTranscriber });
+      const session = createTestSession(nviVerse, { transcriber: mockTranscriber });
       await session.startReciting();
       await session.stopAndVerify();
 
@@ -560,7 +576,7 @@ describe('RecitationSession (Ticket 07)', () => {
         transcribe: jest.fn().mockResolvedValue({ text: customPtVerse.text }),
       };
 
-      const session = new RecitationSession(customPtVerse, { transcriber: mockTranscriber });
+      const session = createTestSession(customPtVerse, { transcriber: mockTranscriber });
       await session.startReciting();
       await session.stopAndVerify();
 
@@ -596,7 +612,7 @@ describe('RecitationSession (Ticket 07)', () => {
         transcribe: jest.fn().mockResolvedValue({ text: customEnVerse.text }),
       };
 
-      const session = new RecitationSession(customEnVerse, { transcriber: mockTranscriber });
+      const session = createTestSession(customEnVerse, { transcriber: mockTranscriber });
       await session.startReciting();
       await session.stopAndVerify();
 
