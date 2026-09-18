@@ -112,4 +112,32 @@ _Avoid_: Name cleaning, string fix, reference parse
 A guided three-stage drill-down modal (Book → Chapter → Verse) allowing users to visually select canonical scripture references and ranges with offline chapter/verse validation.
 _Avoid_: Bible selector, passage dropdown, book explorer
 
+### Scaffolded Learning & Recitation
 
+**Practice Mode**:
+An unpenalized study sandbox encompassing Echo Mode and Cloze Practice. Allows learners to build familiarity without consuming trial quota or affecting Spaced Repetition intervals.
+_Avoid_: Study zone, training screen, drill area
+
+**Echo Mode (Level 1)**:
+An auditory-first recitation mode where the verse is vocalized via Speech Synthesis with text concealed by default, testing auditory recall before visual exposure.
+_Avoid_: Listen mode, audio read, repeat step
+
+**Cloze Practice (Level 2)**:
+A visual retrieval scaffolding mode where words are displayed as first letters followed by blanks (e.g. `F___ G__ s_ l____`). Tapping a blanked word reveals it inline.
+_Avoid_: Fill-in-the-blanks, letter game, masked words
+
+**Blind Recitation (Level 3)**:
+The official active recall mode where the user recites from memory with text blanked. Evaluated by Myers diff verification and recorded into Spaced Repetition scheduling.
+_Avoid_: Master mode, final exam, test recitation
+
+**Word Peek Lifeline**:
+An interactive assistance action in Blind Recitation that temporarily reveals a selected blanked word for 3 seconds, capping the session's Spaced Repetition score at 75% to schedule reinforcement without a punishing streak reset.
+_Avoid_: Word cheat, peek button, hint peek
+
+**Speech Synthesis**:
+The native text-to-speech engine responsible for vocalizing scripture verses according to their inferred canonical language (`en` or `pt`).
+_Avoid_: Robot voice, audio reader, speaker tool
+
+**Native Speech Transcriber**:
+An on-device speech recognition implementation of the Speech Transcriber seam utilizing OS dictation services (Apple Speech / Google SpeechRecognizer) for offline, zero-cost voice verification.
+_Avoid_: Free STT, phone microphone parser, offline voice reader
