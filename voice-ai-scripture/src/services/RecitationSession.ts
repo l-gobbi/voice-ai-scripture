@@ -8,6 +8,7 @@ import {
   TranscriptionError,
   createDefaultTranscriber,
 } from './SpeechTranscriber';
+import { normalizeReference } from './ReferenceNormalizer';
 
 export { SpeechTranscriber };
 
@@ -133,9 +134,16 @@ export class RecitationSession {
       }
 
       const prompt = `${this.verse.reference}: ${this.verse.text}`;
+      const isPortuguese =
+        this.verse.translation === 'ALMEIDA' ||
+        this.verse.translation === 'ONBV' ||
+        normalizeReference(this.verse.reference)?.language === 'pt';
+      const language = isPortuguese ? 'pt' : 'en';
+
       const res = await this.transcriber.transcribe(this.currentAudioUri, {
         prompt,
         simulatedText: this.verse.text,
+        language,
       });
       const transcript = res.text;
 

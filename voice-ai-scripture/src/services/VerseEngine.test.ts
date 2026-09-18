@@ -232,4 +232,102 @@ describe('VerseEngine (Ticket 09)', () => {
       expect(all).toEqual([]);
     });
   });
+
+  describe('Slice 5: Translation Metadata, Defaults, and Update Seam (Ticket 15)', () => {
+    it('persists explicit translation passed to addVerse', async () => {
+      const storage = new MapStorageAdapter();
+      const engine = new VerseEngine(storage);
+
+      const verse = await engine.addVerse({
+        reference: 'John 3:16',
+        text: 'For God so loved the world...',
+        translation: 'KJV',
+      });
+
+      expect(verse.translation).toBe('KJV');
+      const all = await engine.getAllVerses();
+      expect(all[0].translation).toBe('KJV');
+    });
+
+    it('defaults translation to WEB for English references when omitted', async () => {
+      const storage = new MapStorageAdapter();
+      const engine = new VerseEngine(storage);
+
+      const verse = await engine.addVerse({
+        reference: 'Romans 8:28',
+        text: 'And we know that all things work together for good...',
+      });
+
+      expect(verse.translation).toBe('WEB');
+    });
+
+    it('defaults translation to ALMEIDA for Portuguese references when omitted', async () => {
+      const storage = new MapStorageAdapter();
+      const engine = new VerseEngine(storage);
+
+      const verse = await engine.addVerse({
+        reference: 'João 3:16',
+        text: 'Porque Deus amou o mundo de tal maneira...',
+      });
+
+      expect(verse.translation).toBe('ALMEIDA');
+    });
+
+    it('allows updateVerse to switch translation and text while preserving SRS progression', async () => {
+      const storage = new MapStorageAdapter();
+      const engine = new VerseEngine(storage);
+
+      const verse = await engine.addVerse({
+        reference: 'John 3:16',
+        text: 'Initial text',
+        translation: 'WEB',
+      });
+
+      // Advance review streak
+      await engine.recordReview(verse.id, 100);
+      const afterReview = (await engine.getAllVerses())[0];
+      expect(afterReview.srs?.streak).toBe(1);
+
+      // Update translation and text
+      const updated = await engine.updateVerse(verse.id, {
+        text: 'Updated KJV text',
+        translation: 'KJV',
+      });
+
+      expect(updated.text).toBe('Updated KJV text');
+      expect(updated.translation).toBe('KJV');
+      expect(updated.srs?.streak).toBe(1);
+
+      const all = await engine.getAllVerses();
+      expect(all[0].translation).toBe('KJV');
+      expect(all[0].srs?.streak).toBe(1);
+    });
+
+    it('gracefully falls back for legacy stored verses lacking a translation field', async () => {
+      const storage = new MapStorageAdapter();
+      // Raw legacy JSON without translation field
+      const legacyVerses = [
+        {
+          id: 'legacy-1',
+          reference: 'Philippians 4:13',
+          text: 'I can do all things...',
+          srs: { streak: 3, intervalDays: 6, easeFactor: 2.5 },
+        },
+        {
+          id: 'legacy-2',
+          reference: 'Salmos 23:1',
+          text: 'O Senhor é o meu pastor...',
+          srs: { streak: 2, intervalDays: 3, easeFactor: 2.5 },
+        },
+      ];
+      await storage.setItem('verses', JSON.stringify(legacyVerses));
+
+      const engine = new VerseEngine(storage);
+      const all = await engine.getAllVerses();
+
+      expect(all[0].translation).toBe('WEB');
+      expect(all[1].translation).toBe('ALMEIDA');
+      expect(all[0].srs?.streak).toBe(3);
+    });
+  });
 });

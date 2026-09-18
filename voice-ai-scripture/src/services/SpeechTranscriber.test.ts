@@ -129,6 +129,29 @@ describe('SpeechTranscriber Seam (Ticket 11)', () => {
       expect(body).toBeDefined();
     });
 
+    it('forwards custom language parameter into FormData or defaults to en', async () => {
+      const mockFetch = jest.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ text: 'Texto transcrito' }),
+      });
+      global.fetch = mockFetch as any;
+
+      const appendSpy = jest.spyOn(FormData.prototype, 'append');
+
+      const whisper = new WhisperTranscriber('sk-test-key');
+      await whisper.transcribe('file:///recording.m4a', {
+        language: 'pt',
+      });
+
+      expect(appendSpy).toHaveBeenCalledWith('language', 'pt');
+
+      // Now without language specified
+      await whisper.transcribe('file:///recording.m4a');
+      expect(appendSpy).toHaveBeenCalledWith('language', 'en');
+
+      appendSpy.mockRestore();
+    });
+
     it('maps 401 response to TranscriptionError with unauthorized code', async () => {
       global.fetch = jest.fn().mockResolvedValue({
         ok: false,

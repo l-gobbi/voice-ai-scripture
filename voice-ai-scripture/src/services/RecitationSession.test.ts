@@ -372,6 +372,7 @@ describe('RecitationSession (Ticket 07)', () => {
       expect(mockTranscribe).toHaveBeenCalledWith('file:///audio/prompt-test.m4a', {
         prompt: `${mockVerse.reference}: ${mockVerse.text}`,
         simulatedText: mockVerse.text,
+        language: 'en',
       });
     });
 
@@ -473,6 +474,90 @@ describe('RecitationSession (Ticket 07)', () => {
       expect(session2.getState().status).toBe('error');
       expect(session2.getState().errorMessage).toBe(
         'Transcription authentication failed. Please check your API key.'
+      );
+    });
+  });
+
+  describe('Slice 6: Speech Transcriber Language Priming (Ticket 15)', () => {
+    it('passes language: pt when verse translation is ALMEIDA or ONBV', async () => {
+      jest.spyOn(SubscriptionService, 'consumeRecitation').mockResolvedValue({
+        allowed: true,
+        remaining: 3,
+        isSubscribed: true,
+      });
+      jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValue(true);
+      jest.spyOn(audioRecorder, 'startRecording').mockResolvedValue(undefined);
+      jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValue('file:///audio/rec.m4a');
+      jest.spyOn(audioRecorder, 'deleteAudioFile').mockResolvedValue(true);
+      jest.spyOn(verseEngine, 'recordReview').mockResolvedValue({
+        passed: true,
+        streak: 1,
+        intervalDays: 1,
+        easeFactor: 2.5,
+        nextReviewDate: new Date(),
+      });
+
+      const ptVerse: Verse = {
+        id: 'pt-1',
+        reference: 'João 3:16',
+        text: 'Porque Deus amou o mundo de tal maneira...',
+        translation: 'ALMEIDA',
+      };
+
+      const mockTranscriber: SpeechTranscriber = {
+        transcribe: jest.fn().mockResolvedValue({ text: ptVerse.text }),
+      };
+
+      const session = new RecitationSession(ptVerse, { transcriber: mockTranscriber });
+      await session.startReciting();
+      await session.stopAndVerify();
+
+      expect(mockTranscriber.transcribe).toHaveBeenCalledWith(
+        'file:///audio/rec.m4a',
+        expect.objectContaining({
+          language: 'pt',
+        })
+      );
+    });
+
+    it('passes language: en when verse translation is WEB or KJV', async () => {
+      jest.spyOn(SubscriptionService, 'consumeRecitation').mockResolvedValue({
+        allowed: true,
+        remaining: 3,
+        isSubscribed: true,
+      });
+      jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValue(true);
+      jest.spyOn(audioRecorder, 'startRecording').mockResolvedValue(undefined);
+      jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValue('file:///audio/rec.m4a');
+      jest.spyOn(audioRecorder, 'deleteAudioFile').mockResolvedValue(true);
+      jest.spyOn(verseEngine, 'recordReview').mockResolvedValue({
+        passed: true,
+        streak: 1,
+        intervalDays: 1,
+        easeFactor: 2.5,
+        nextReviewDate: new Date(),
+      });
+
+      const enVerse: Verse = {
+        id: 'en-1',
+        reference: 'John 3:16',
+        text: 'For God so loved the world...',
+        translation: 'WEB',
+      };
+
+      const mockTranscriber: SpeechTranscriber = {
+        transcribe: jest.fn().mockResolvedValue({ text: enVerse.text }),
+      };
+
+      const session = new RecitationSession(enVerse, { transcriber: mockTranscriber });
+      await session.startReciting();
+      await session.stopAndVerify();
+
+      expect(mockTranscriber.transcribe).toHaveBeenCalledWith(
+        'file:///audio/rec.m4a',
+        expect.objectContaining({
+          language: 'en',
+        })
       );
     });
   });

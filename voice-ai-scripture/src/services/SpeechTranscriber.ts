@@ -35,6 +35,7 @@ export class TranscriptionError extends Error {
 export interface TranscriptionOptions {
   prompt?: string;
   simulatedText?: string;
+  language?: string;
 }
 
 export interface TranscriptionResult {
@@ -68,7 +69,7 @@ export class WhisperTranscriber implements SpeechTranscriber {
     } as any);
 
     formData.append('model', 'whisper-1');
-    formData.append('language', 'en');
+    formData.append('language', options?.language ?? 'en');
 
     if (options?.prompt) {
       formData.append('prompt', options.prompt);

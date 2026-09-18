@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { DEFAULT_SRS_STATE, SRSResult, SRSState, calculateNextReview, isVerseDue } from '../engines/srsEngine';
+import { normalizeReference } from './ReferenceNormalizer';
 
 export { SRSResult };
 
@@ -7,6 +8,7 @@ export interface Verse {
   id: string;
   reference: string;
   text: string;
+  translation?: string;
   srs?: SRSState & {
     nextReviewDate?: string;
   };
@@ -52,11 +54,20 @@ const createInitialSRS = () => ({
   nextReviewDate: new Date().toISOString(),
 });
 
-const createVerseRecord = (verseData: Omit<Verse, 'id' | 'srs'>): Verse => ({
-  ...verseData,
-  id: `${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-  srs: createInitialSRS(),
-});
+const createVerseRecord = (verseData: Omit<Verse, 'id' | 'srs'>): Verse => {
+  let translation = verseData.translation;
+  if (!translation) {
+    const norm = normalizeReference(verseData.reference);
+    translation = norm?.language === 'pt' ? 'ALMEIDA' : 'WEB';
+  }
+
+  return {
+    ...verseData,
+    translation,
+    id: `${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+    srs: createInitialSRS(),
+  };
+};
 
 export class VerseEngine {
   private storage: StorageAdapter;
@@ -72,7 +83,20 @@ export class VerseEngine {
   async getAllVerses(): Promise<Verse[]> {
     try {
       const data = await this.storage.getItem(STORAGE_KEY);
-      return data ? JSON.parse(data) : [];
+      if (!data) {
+        return [];
+      }
+      const parsed: Verse[] = JSON.parse(data);
+      return parsed.map((verse) => {
+        if (!verse.translation) {
+          const norm = normalizeReference(verse.reference);
+          return {
+            ...verse,
+            translation: norm?.language === 'pt' ? 'ALMEIDA' : 'WEB',
+          };
+        }
+        return verse;
+      });
     } catch (error) {
       console.error('Failed to parse verses from storage', error);
       return [];
@@ -122,6 +146,22 @@ export class VerseEngine {
     }
 
     return newVerses.length;
+  }
+
+  async updateVerse(id: string, updates: Partial<Omit<Verse, 'id' | 'srs'>>): Promise<Verse> {
+    const verses = await this.getAllVerses();
+    const index = verses.findIndex((v) => v.id === id);
+    if (index === -1) {
+      throw new Error(`Verse not found: ${id}`);
+    }
+
+    const updated: Verse = {
+      ...verses[index],
+      ...updates,
+    };
+    verses[index] = updated;
+    await this.persistVerses(verses);
+    return updated;
   }
 
   async deleteVerse(verseId: string): Promise<void> {
