@@ -20,6 +20,11 @@ export class SubscriptionService {
     return SubscriptionService.defaultInstance;
   }
 
+  static resetDefaultInstance(storage?: StorageAdapter): SubscriptionService {
+    SubscriptionService.defaultInstance = new SubscriptionService(storage);
+    return SubscriptionService.defaultInstance;
+  }
+
   static async isSubscribed(): Promise<boolean> {
     return SubscriptionService.getDefaultInstance().isSubscribed();
   }

@@ -8,6 +8,7 @@ import { Verse, verseEngine } from './VerseEngine';
 import { SubscriptionService } from './SubscriptionService';
 import { audioRecorder } from './AudioRecorderService';
 import { SimulatedTranscriber, TranscriptionError } from './SpeechTranscriber';
+import { MapStorageAdapter } from './StorageAdapter';
 
 jest.mock('@react-native-async-storage/async-storage', () =>
   require('@react-native-async-storage/async-storage/jest/async-storage-mock')
@@ -28,6 +29,9 @@ describe('RecitationSession (Ticket 07)', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    SubscriptionService.resetDefaultInstance(
+      new MapStorageAdapter({ user_is_subscribed: 'true' })
+    );
   });
 
   describe('Slice 1: Quota Gating and Start Reciting', () => {
@@ -43,14 +47,14 @@ describe('RecitationSession (Ticket 07)', () => {
 
     it('transitions to quota_exhausted and does NOT start recording when quota is exhausted', async () => {
       jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValueOnce(true);
-      jest.spyOn(SubscriptionService, 'consumeRecitation').mockResolvedValueOnce({
-        allowed: false,
-        remaining: 0,
-        isSubscribed: false,
-      });
       const startSpy = jest.spyOn(audioRecorder, 'startRecording');
 
-      const session = new RecitationSession(mockVerse);
+      const exhaustedStorage = new MapStorageAdapter({ free_recitations_remaining: '0' });
+      const customSubService = new SubscriptionService(exhaustedStorage);
+
+      const session = new RecitationSession(mockVerse, {
+        subscriptionService: customSubService,
+      });
       await session.startReciting();
 
       expect(session.getState().status).toBe('quota_exhausted');
@@ -59,14 +63,14 @@ describe('RecitationSession (Ticket 07)', () => {
 
     it('transitions to reciting and starts audio recording when quota is allowed', async () => {
       jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValueOnce(true);
-      jest.spyOn(SubscriptionService, 'consumeRecitation').mockResolvedValueOnce({
-        allowed: true,
-        remaining: 2,
-        isSubscribed: false,
-      });
       const startSpy = jest.spyOn(audioRecorder, 'startRecording').mockResolvedValueOnce(undefined);
 
-      const session = new RecitationSession(mockVerse);
+      const activeStorage = new MapStorageAdapter({ free_recitations_remaining: '2' });
+      const customSubService = new SubscriptionService(activeStorage);
+
+      const session = new RecitationSession(mockVerse, {
+        subscriptionService: customSubService,
+      });
       await session.startReciting();
 
       expect(session.getState().status).toBe('reciting');
@@ -76,24 +80,19 @@ describe('RecitationSession (Ticket 07)', () => {
 
   describe('Slice 2: Microphone Permissions & Volume Metering', () => {
     it('sets error status and does NOT consume quota when microphone permission is denied', async () => {
-      const quotaSpy = jest.spyOn(SubscriptionService, 'consumeRecitation');
+      const sub = new SubscriptionService(new MapStorageAdapter({ free_recitations_remaining: '3' }));
       jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValueOnce(false);
 
-      const session = new RecitationSession(mockVerse);
+      const session = new RecitationSession(mockVerse, { subscriptionService: sub });
       await session.startReciting();
 
       expect(session.getState().status).toBe('error');
       expect(session.getState().errorMessage).toContain('Microphone permission');
-      expect(quotaSpy).not.toHaveBeenCalled();
+      expect(await sub.getRemainingFreeRecitations()).toBe(3);
     });
 
     it('updates volumeLevel and notifies subscribers during live recitation', async () => {
       jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValueOnce(true);
-      jest.spyOn(SubscriptionService, 'consumeRecitation').mockResolvedValueOnce({
-        allowed: true,
-        remaining: 3,
-        isSubscribed: false,
-      });
 
       let meterCb: ((level: number) => void) | undefined;
       jest.spyOn(audioRecorder, 'startRecording').mockImplementationOnce(async (cb) => {
@@ -116,11 +115,6 @@ describe('RecitationSession (Ticket 07)', () => {
 
   describe('Slice 3: Verification, Myers Diffing, and SRS Updates', () => {
     it('stops recording, runs diff verification, updates SRS, and transitions to verified', async () => {
-      jest.spyOn(SubscriptionService, 'consumeRecitation').mockResolvedValueOnce({
-        allowed: true,
-        remaining: 3,
-        isSubscribed: true,
-      });
       jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValueOnce(true);
       jest.spyOn(audioRecorder, 'startRecording').mockResolvedValueOnce(undefined);
       jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValueOnce('file:///audio/recitation.m4a');
@@ -154,11 +148,6 @@ describe('RecitationSession (Ticket 07)', () => {
     });
 
     it('handles recitation failure: score below threshold resets streak to 0', async () => {
-      jest.spyOn(SubscriptionService, 'consumeRecitation').mockResolvedValueOnce({
-        allowed: true,
-        remaining: 3,
-        isSubscribed: true,
-      });
       jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValueOnce(true);
       jest.spyOn(audioRecorder, 'startRecording').mockResolvedValueOnce(undefined);
       jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValueOnce('file:///audio/recitation.m4a');
@@ -190,11 +179,6 @@ describe('RecitationSession (Ticket 07)', () => {
     });
 
     it('transitions to verifying status during stopAndVerify before resolution', async () => {
-      jest.spyOn(SubscriptionService, 'consumeRecitation').mockResolvedValueOnce({
-        allowed: true,
-        remaining: 3,
-        isSubscribed: true,
-      });
       jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValueOnce(true);
       jest.spyOn(audioRecorder, 'startRecording').mockResolvedValueOnce(undefined);
       jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValueOnce('file:///audio/status-test.m4a');
@@ -228,11 +212,6 @@ describe('RecitationSession (Ticket 07)', () => {
 
   describe('Slice 4: Guaranteed Audio File Disposal (Privacy Invariant)', () => {
     it('deletes audio file upon successful verification', async () => {
-      jest.spyOn(SubscriptionService, 'consumeRecitation').mockResolvedValueOnce({
-        allowed: true,
-        remaining: 3,
-        isSubscribed: true,
-      });
       jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValueOnce(true);
       jest.spyOn(audioRecorder, 'startRecording').mockResolvedValueOnce(undefined);
       jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValueOnce('file:///audio/privacy-test.m4a');
@@ -250,11 +229,6 @@ describe('RecitationSession (Ticket 07)', () => {
     });
 
     it('deletes audio file even when speech transcription rejects with error', async () => {
-      jest.spyOn(SubscriptionService, 'consumeRecitation').mockResolvedValueOnce({
-        allowed: true,
-        remaining: 3,
-        isSubscribed: true,
-      });
       jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValueOnce(true);
       jest.spyOn(audioRecorder, 'startRecording').mockResolvedValueOnce(undefined);
       jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValueOnce('file:///audio/failing-network.m4a');
@@ -277,11 +251,6 @@ describe('RecitationSession (Ticket 07)', () => {
 
     it('stops recorder and deletes audio file when reset() is called mid-recitation', async () => {
       jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValueOnce(true);
-      jest.spyOn(SubscriptionService, 'consumeRecitation').mockResolvedValueOnce({
-        allowed: true,
-        remaining: 3,
-        isSubscribed: true,
-      });
       jest.spyOn(audioRecorder, 'startRecording').mockResolvedValueOnce(undefined);
       jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValueOnce('file:///audio/abort.m4a');
       const deleteSpy = jest.spyOn(audioRecorder, 'deleteAudioFile').mockResolvedValueOnce(true);
@@ -298,11 +267,6 @@ describe('RecitationSession (Ticket 07)', () => {
 
     it('deletes audio file before transitioning to verified state', async () => {
       jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValueOnce(true);
-      jest.spyOn(SubscriptionService, 'consumeRecitation').mockResolvedValueOnce({
-        allowed: true,
-        remaining: 3,
-        isSubscribed: true,
-      });
       jest.spyOn(audioRecorder, 'startRecording').mockResolvedValueOnce(undefined);
       jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValueOnce('file:///audio/order-test.m4a');
 
@@ -347,11 +311,6 @@ describe('RecitationSession (Ticket 07)', () => {
 
   describe('Slice 5: SpeechTranscriber Seam Integration & Error Transitions', () => {
     it('passes canonical reference and verse text as prompt conditioning to SpeechTranscriber', async () => {
-      jest.spyOn(SubscriptionService, 'consumeRecitation').mockResolvedValueOnce({
-        allowed: true,
-        remaining: 3,
-        isSubscribed: true,
-      });
       jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValueOnce(true);
       jest.spyOn(audioRecorder, 'startRecording').mockResolvedValueOnce(undefined);
       jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValueOnce('file:///audio/prompt-test.m4a');
@@ -382,11 +341,6 @@ describe('RecitationSession (Ticket 07)', () => {
     });
 
     it('achieves 100% verified recitation score using default SimulatedTranscriber with canonical prompt conditioning', async () => {
-      jest.spyOn(SubscriptionService, 'consumeRecitation').mockResolvedValueOnce({
-        allowed: true,
-        remaining: 3,
-        isSubscribed: true,
-      });
       jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValueOnce(true);
       jest.spyOn(audioRecorder, 'startRecording').mockResolvedValueOnce(undefined);
       jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValueOnce('file:///audio/sim-test.m4a');
@@ -412,11 +366,6 @@ describe('RecitationSession (Ticket 07)', () => {
     });
 
     it('maps network_error TranscriptionError to friendly message without recording review', async () => {
-      jest.spyOn(SubscriptionService, 'consumeRecitation').mockResolvedValueOnce({
-        allowed: true,
-        remaining: 3,
-        isSubscribed: true,
-      });
       jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValueOnce(true);
       jest.spyOn(audioRecorder, 'startRecording').mockResolvedValueOnce(undefined);
       jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValueOnce('file:///audio/network-err.m4a');
@@ -443,11 +392,6 @@ describe('RecitationSession (Ticket 07)', () => {
     });
 
     it('maps rate_limited and unauthorized TranscriptionErrors to specific domain messages', async () => {
-      jest.spyOn(SubscriptionService, 'consumeRecitation').mockResolvedValue({
-        allowed: true,
-        remaining: 3,
-        isSubscribed: true,
-      });
       jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValue(true);
       jest.spyOn(audioRecorder, 'startRecording').mockResolvedValue(undefined);
       jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValue('file:///audio/err.m4a');
@@ -485,11 +429,6 @@ describe('RecitationSession (Ticket 07)', () => {
 
   describe('Slice 6: Speech Transcriber Language Priming (Ticket 15)', () => {
     it('passes language: pt when verse translation is ALMEIDA or ONBV', async () => {
-      jest.spyOn(SubscriptionService, 'consumeRecitation').mockResolvedValue({
-        allowed: true,
-        remaining: 3,
-        isSubscribed: true,
-      });
       jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValue(true);
       jest.spyOn(audioRecorder, 'startRecording').mockResolvedValue(undefined);
       jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValue('file:///audio/rec.m4a');
@@ -526,11 +465,6 @@ describe('RecitationSession (Ticket 07)', () => {
     });
 
     it('passes language: en when verse translation is WEB or KJV', async () => {
-      jest.spyOn(SubscriptionService, 'consumeRecitation').mockResolvedValue({
-        allowed: true,
-        remaining: 3,
-        isSubscribed: true,
-      });
       jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValue(true);
       jest.spyOn(audioRecorder, 'startRecording').mockResolvedValue(undefined);
       jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValue('file:///audio/rec.m4a');
@@ -567,11 +501,6 @@ describe('RecitationSession (Ticket 07)', () => {
     });
 
     it('passes language: pt when verse translation is NVI or ARA', async () => {
-      jest.spyOn(SubscriptionService, 'consumeRecitation').mockResolvedValue({
-        allowed: true,
-        remaining: 3,
-        isSubscribed: true,
-      });
       jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValue(true);
       jest.spyOn(audioRecorder, 'startRecording').mockResolvedValue(undefined);
       jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValue('file:///audio/rec.m4a');
@@ -608,11 +537,6 @@ describe('RecitationSession (Ticket 07)', () => {
     });
 
     it('passes language: pt when translation is CUSTOM but reference is Portuguese', async () => {
-      jest.spyOn(SubscriptionService, 'consumeRecitation').mockResolvedValue({
-        allowed: true,
-        remaining: 3,
-        isSubscribed: true,
-      });
       jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValue(true);
       jest.spyOn(audioRecorder, 'startRecording').mockResolvedValue(undefined);
       jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValue('file:///audio/rec.m4a');
@@ -649,11 +573,6 @@ describe('RecitationSession (Ticket 07)', () => {
     });
 
     it('passes language: en when translation is CUSTOM and reference is English', async () => {
-      jest.spyOn(SubscriptionService, 'consumeRecitation').mockResolvedValue({
-        allowed: true,
-        remaining: 3,
-        isSubscribed: true,
-      });
       jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValue(true);
       jest.spyOn(audioRecorder, 'startRecording').mockResolvedValue(undefined);
       jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValue('file:///audio/rec.m4a');

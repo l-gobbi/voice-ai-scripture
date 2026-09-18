@@ -51,11 +51,30 @@ export interface RecitationState {
   errorMessage: string | null;
 }
 
+class DefaultSubscriptionProxy extends SubscriptionService {
+  override consumeRecitation() {
+    return SubscriptionService.consumeRecitation();
+  }
+  override isSubscribed() {
+    return SubscriptionService.isSubscribed();
+  }
+  override getRemainingFreeRecitations() {
+    return SubscriptionService.getRemainingFreeRecitations();
+  }
+  override subscribePremium() {
+    return SubscriptionService.subscribePremium();
+  }
+  override cancelSubscription() {
+    return SubscriptionService.cancelSubscription();
+  }
+}
+
 export class RecitationSession {
   private verse: Verse;
   private recorder: AudioRecorderService;
   private transcriber: SpeechTranscriber;
   private verseEngine: VerseEngine;
+  private subscriptionService: SubscriptionService;
   private currentAudioUri: string | null = null;
   private listeners: Set<(state: RecitationState) => void> = new Set();
 
@@ -72,12 +91,14 @@ export class RecitationSession {
       recorder?: AudioRecorderService;
       transcriber?: SpeechTranscriber;
       verseEngine?: VerseEngine;
+      subscriptionService?: SubscriptionService;
     }
   ) {
     this.verse = verse;
     this.recorder = options?.recorder ?? audioRecorder;
     this.verseEngine = options?.verseEngine ?? verseEngine;
     this.transcriber = options?.transcriber ?? createDefaultTranscriber();
+    this.subscriptionService = options?.subscriptionService ?? new DefaultSubscriptionProxy();
   }
 
   getState(): RecitationState {
@@ -113,7 +134,7 @@ export class RecitationSession {
       }
 
       // 2. Quota Gating Check
-      const quota = await SubscriptionService.consumeRecitation();
+      const quota = await this.subscriptionService.consumeRecitation();
       if (!quota.allowed) {
         this.setState({ status: 'quota_exhausted' });
         return;
