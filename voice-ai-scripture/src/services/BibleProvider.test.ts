@@ -5,6 +5,7 @@ import {
   SimulatedBibleProvider,
   createDefaultBibleProvider,
 } from './BibleProvider';
+import { getCanonBooks } from '../data/bibleCanon';
 
 describe('BibleProvider Seam (Ticket 14)', () => {
   describe('Slice 1: LocalBibleProvider Single Verse Lookups', () => {
@@ -71,7 +72,7 @@ describe('BibleProvider Seam (Ticket 14)', () => {
       expect(passage).not.toBeNull();
       expect(passage?.reference).toBe('John 3:16-17');
       expect(passage?.text).toBe(
-        'For God so loved the world, that he gave his one and only Son, that whoever believes in him should not perish, but have eternal life. For God didn\'t send his Son into the world to judge the world, but that the world should be saved through him.'
+        'For God so loved the world, that he gave his one and only Son, that whoever believes in him should not perish, but have eternal life. For God didn’t send his Son into the world to judge the world, but that the world should be saved through him.'
       );
     });
 
@@ -80,7 +81,7 @@ describe('BibleProvider Seam (Ticket 14)', () => {
       expect(passage).not.toBeNull();
       expect(passage?.reference).toBe('Salmos 23:1-3');
       expect(passage?.text).toBe(
-        'O Senhor é o meu pastor, nada me faltará. Deitar-me faz em verdes pastos, guia-me mansamente a águas tranquilas. Refrigera a minha alma; guia-me pelas veredas da justiça, por amor do seu nome.'
+        'O Senhor é o meu pastor; nada me faltará. Deitar-me faz em pastos verdejantes; guia-me mansamente a águas tranqüilas. Refrigera a minha alma; guia-me nas veredas da justiça por amor do seu nome.'
       );
     });
 
@@ -134,8 +135,8 @@ describe('BibleProvider Seam (Ticket 14)', () => {
     });
 
     it('returns null if any verse in a multi-verse span is missing rather than returning partial text', async () => {
-      // Verses 16 and 17 exist, but 18-20 are missing in the test bundle
-      const partialSpan = await provider.fetchPassage('John 3:16-20', 'WEB');
+      // John 3 has 36 verses; verses 37-40 exceed chapter bounds
+      const partialSpan = await provider.fetchPassage('John 3:35-40', 'WEB');
       expect(partialSpan).toBeNull();
     });
 
@@ -202,4 +203,64 @@ describe('BibleProvider Seam (Ticket 14)', () => {
       expect(typeof defaultProvider.fetchPassage).toBe('function');
     });
   });
+
+  describe('Slice 6: Full 66-Book Canon Coverage & Picker Regression', () => {
+    const provider = new LocalBibleProvider();
+    const canonBooks = getCanonBooks();
+
+    it('verifies fetching chapter 1 verse 1 for all 66 canon books in WEB', async () => {
+      const failures: string[] = [];
+      for (const book of canonBooks) {
+        const ref = `${book.enName} 1:1`;
+        const passage = await provider.fetchPassage(ref, 'WEB');
+        if (!passage || !passage.text) {
+          failures.push(`${ref} (ID: ${book.id})`);
+        }
+      }
+      expect(failures).toEqual([]);
+    });
+
+    it('verifies fetching chapter 1 verse 1 for all 66 canon books in ALMEIDA', async () => {
+      const failures: string[] = [];
+      for (const book of canonBooks) {
+        const ref = `${book.ptName} 1:1`;
+        const passage = await provider.fetchPassage(ref, 'ALMEIDA');
+        if (!passage || !passage.text) {
+          failures.push(`${ref} (ID: ${book.id})`);
+        }
+      }
+      expect(failures).toEqual([]);
+    });
+
+    it('verifies fetching chapter 1 verse 1 for all 66 canon books in KJV', async () => {
+      const failures: string[] = [];
+      for (const book of canonBooks) {
+        const ref = `${book.enName} 1:1`;
+        const passage = await provider.fetchPassage(ref, 'KJV');
+        if (!passage || !passage.text) {
+          failures.push(`${ref} (ID: ${book.id})`);
+        }
+      }
+      expect(failures).toEqual([]);
+    });
+
+    it('verifies fetching landmark scriptures commonly chosen via the Reference Picker', async () => {
+      const phil = await provider.fetchPassage('Filipenses 4:6', 'ALMEIDA');
+      expect(phil).not.toBeNull();
+      expect(phil?.text).toContain('Não andeis ansiosos');
+
+      const rom = await provider.fetchPassage('Romanos 8:28', 'ALMEIDA');
+      expect(rom).not.toBeNull();
+      expect(rom?.text).toContain('todas as coisas concorrem para o bem');
+
+      const psa91 = await provider.fetchPassage('Salmos 91:1', 'ALMEIDA');
+      expect(psa91).not.toBeNull();
+      expect(psa91?.text).toContain('Aquele que habita no esconderijo do Altíssimo');
+
+      const rev = await provider.fetchPassage('Apocalipse 22:21', 'ALMEIDA');
+      expect(rev).not.toBeNull();
+      expect(rev?.text).toContain('A graça do Senhor Jesus');
+    });
+  });
 });
+
