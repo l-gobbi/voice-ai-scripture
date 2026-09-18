@@ -1,14 +1,17 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { DEFAULT_SRS_STATE, SRSResult, SRSState, calculateNextReview, isVerseDue } from '../engines/srsEngine';
 import { normalizeReference } from './ReferenceNormalizer';
+import { SupportedTranslation } from './BibleProvider';
 
 export { SRSResult };
+
+export type VerseTranslation = SupportedTranslation | 'CUSTOM' | string;
 
 export interface Verse {
   id: string;
   reference: string;
   text: string;
-  translation?: string;
+  translation?: VerseTranslation;
   srs?: SRSState & {
     nextReviewDate?: string;
   };
@@ -54,12 +57,13 @@ const createInitialSRS = () => ({
   nextReviewDate: new Date().toISOString(),
 });
 
+export const resolveDefaultTranslation = (reference: string): VerseTranslation => {
+  const norm = normalizeReference(reference);
+  return norm?.language === 'pt' ? 'ALMEIDA' : 'WEB';
+};
+
 const createVerseRecord = (verseData: Omit<Verse, 'id' | 'srs'>): Verse => {
-  let translation = verseData.translation;
-  if (!translation) {
-    const norm = normalizeReference(verseData.reference);
-    translation = norm?.language === 'pt' ? 'ALMEIDA' : 'WEB';
-  }
+  const translation = verseData.translation || resolveDefaultTranslation(verseData.reference);
 
   return {
     ...verseData,
@@ -89,10 +93,9 @@ export class VerseEngine {
       const parsed: Verse[] = JSON.parse(data);
       return parsed.map((verse) => {
         if (!verse.translation) {
-          const norm = normalizeReference(verse.reference);
           return {
             ...verse,
-            translation: norm?.language === 'pt' ? 'ALMEIDA' : 'WEB',
+            translation: resolveDefaultTranslation(verse.reference),
           };
         }
         return verse;
@@ -155,9 +158,20 @@ export class VerseEngine {
       throw new Error(`Verse not found: ${id}`);
     }
 
+    const current = verses[index];
+    const updatedRef = updates.reference ?? current.reference;
+    let updatedTranslation = current.translation;
+
+    if (updates.translation !== undefined) {
+      updatedTranslation = updates.translation || resolveDefaultTranslation(updatedRef);
+    } else if (updates.reference && !current.translation) {
+      updatedTranslation = resolveDefaultTranslation(updatedRef);
+    }
+
     const updated: Verse = {
-      ...verses[index],
+      ...current,
       ...updates,
+      translation: updatedTranslation,
     };
     verses[index] = updated;
     await this.persistVerses(verses);

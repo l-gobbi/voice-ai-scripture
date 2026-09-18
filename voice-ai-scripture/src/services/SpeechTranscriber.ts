@@ -32,10 +32,12 @@ export class TranscriptionError extends Error {
   }
 }
 
+export type TranscriptionLanguage = 'en' | 'pt' | string;
+
 export interface TranscriptionOptions {
   prompt?: string;
   simulatedText?: string;
-  language?: string;
+  language?: TranscriptionLanguage;
 }
 
 export interface TranscriptionResult {

@@ -1,4 +1,4 @@
-import { VerseEngine, MapStorageAdapter, Verse } from './VerseEngine';
+import { VerseEngine, MapStorageAdapter, Verse, resolveDefaultTranslation } from './VerseEngine';
 
 describe('VerseEngine (Ticket 09)', () => {
   describe('Slice 1: In-Memory / Pluggable Storage & Basic CRUD', () => {
@@ -328,6 +328,29 @@ describe('VerseEngine (Ticket 09)', () => {
       expect(all[0].translation).toBe('WEB');
       expect(all[1].translation).toBe('ALMEIDA');
       expect(all[0].srs?.streak).toBe(3);
+    });
+
+    it('exports resolveDefaultTranslation mapping references to canonical translations', () => {
+      expect(resolveDefaultTranslation('John 3:16')).toBe('WEB');
+      expect(resolveDefaultTranslation('João 3:16')).toBe('ALMEIDA');
+      expect(resolveDefaultTranslation('1 Jo 1:9')).toBe('ALMEIDA');
+    });
+
+    it('handles updateVerse with empty translation string by falling back to reference default', async () => {
+      const storage = new MapStorageAdapter();
+      const engine = new VerseEngine(storage);
+
+      const verse = await engine.addVerse({
+        reference: 'John 3:16',
+        text: 'For God so loved...',
+        translation: 'KJV',
+      });
+
+      const updated = await engine.updateVerse(verse.id, {
+        translation: '',
+      });
+
+      expect(updated.translation).toBe('WEB');
     });
   });
 });
