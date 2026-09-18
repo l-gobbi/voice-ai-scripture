@@ -7,10 +7,10 @@ Create an accessible, cross-platform React Native modal dialog component (`Delet
 
 **Status:** ready-for-agent
 
-- [ ] Create `src/components/DeleteConfirmationModal.tsx` accepting `visible`, `verse` (or `reference`), `onConfirm`, and `onCancel` props
-- [ ] Render a semi-transparent overlay backdrop with a centered, rounded alert container
-- [ ] Display dialog title "Excluir versículo?" and display the target verse's citation
-- [ ] Display clear warning that memorization streak and Spaced Repetition progress will be lost
-- [ ] Render a neutral "Cancelar" button that calls `onCancel`
-- [ ] Render a high-contrast destructive "Excluir definitivamente" button that calls `onConfirm`
-- [ ] Add component tests in `DeleteConfirmationModal.test.tsx` verifying visibility, text content, cancel, and confirm interactions
+- [x] Create `src/components/DeleteConfirmationModal.tsx` accepting `visible`, `verse` (or `reference`), `onConfirm`, and `onCancel` props
+- [x] Render a semi-transparent overlay backdrop with a centered, rounded alert container
+- [x] Display dialog title "Excluir versículo?" and display the target verse's citation
+- [x] Display clear warning that memorization streak and Spaced Repetition progress will be lost
+- [x] Render a neutral "Cancelar" button that calls `onCancel`
+- [x] Render a high-contrast destructive "Excluir definitivamente" button that calls `onConfirm`
+- [x] Add component tests in `DeleteConfirmationModal.test.tsx` verifying visibility, text content, cancel, and confirm interactions
