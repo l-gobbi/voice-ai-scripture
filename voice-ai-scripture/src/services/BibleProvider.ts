@@ -136,3 +136,5 @@ export class SimulatedBibleProvider implements BibleProvider {
 export function createDefaultBibleProvider(): BibleProvider {
   return new LocalBibleProvider();
 }
+
+export const bibleProvider = createDefaultBibleProvider();
