@@ -65,6 +65,10 @@ export class VerseEngine {
     this.storage = storage ?? new AsyncStorageAdapter();
   }
 
+  private async persistVerses(verses: Verse[]): Promise<void> {
+    await this.storage.setItem(STORAGE_KEY, JSON.stringify(verses));
+  }
+
   async getAllVerses(): Promise<Verse[]> {
     try {
       const data = await this.storage.getItem(STORAGE_KEY);
@@ -78,9 +82,9 @@ export class VerseEngine {
   async getVersesSummary(now = new Date()): Promise<VerseSummary> {
     const allVerses = await this.getAllVerses();
     const dueVerses: Verse[] = [];
-    for (const v of allVerses) {
-      if (isVerseDue(v.srs?.nextReviewDate, now)) {
-        dueVerses.push(v);
+    for (const verse of allVerses) {
+      if (isVerseDue(verse.srs?.nextReviewDate, now)) {
+        dueVerses.push(verse);
       }
     }
     return {
@@ -94,27 +98,27 @@ export class VerseEngine {
     const verses = await this.getAllVerses();
     const newVerse = createVerseRecord(verseData);
     verses.push(newVerse);
-    await this.storage.setItem(STORAGE_KEY, JSON.stringify(verses));
+    await this.persistVerses(verses);
     return newVerse;
   }
 
   async importVerses(versesToImport: Array<Omit<Verse, 'id' | 'srs'>>): Promise<number> {
     const existing = await this.getAllVerses();
-    const existingRefs = new Set(existing.map((v) => v.reference.trim().toLowerCase()));
+    const existingRefs = new Set(existing.map((verse) => verse.reference.trim().toLowerCase()));
 
     const newVerses: Verse[] = [];
 
-    for (const v of versesToImport) {
-      const normalized = v.reference.trim().toLowerCase();
+    for (const verse of versesToImport) {
+      const normalized = verse.reference.trim().toLowerCase();
       if (!existingRefs.has(normalized)) {
-        newVerses.push(createVerseRecord(v));
+        newVerses.push(createVerseRecord(verse));
         existingRefs.add(normalized);
       }
     }
 
     if (newVerses.length > 0) {
       const combined = [...existing, ...newVerses];
-      await this.storage.setItem(STORAGE_KEY, JSON.stringify(combined));
+      await this.persistVerses(combined);
     }
 
     return newVerses.length;
@@ -122,13 +126,13 @@ export class VerseEngine {
 
   async deleteVerse(verseId: string): Promise<void> {
     const verses = await this.getAllVerses();
-    const filtered = verses.filter((v) => v.id !== verseId);
-    await this.storage.setItem(STORAGE_KEY, JSON.stringify(filtered));
+    const filtered = verses.filter((verse) => verse.id !== verseId);
+    await this.persistVerses(filtered);
   }
 
   async recordReview(verseId: string, score: number, now = new Date()): Promise<SRSResult> {
     const verses = await this.getAllVerses();
-    const index = verses.findIndex((v) => v.id === verseId);
+    const index = verses.findIndex((verse) => verse.id === verseId);
     if (index === -1) {
       throw new Error(`Verse not found: ${verseId}`);
     }
@@ -145,7 +149,7 @@ export class VerseEngine {
       nextReviewDate: srsResult.nextReviewDate.toISOString(),
     };
 
-    await this.storage.setItem(STORAGE_KEY, JSON.stringify(verses));
+    await this.persistVerses(verses);
     return srsResult;
   }
 }
