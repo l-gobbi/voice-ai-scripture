@@ -4,10 +4,11 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** closed
 
-- [ ] Create `src/engines/clozeEngine.ts` exporting `ClozeToken` interface, `generateClozeTokens(text: string, mode: 'first-letter' | 'blank'): ClozeToken[]`, `revealWord(tokens: ClozeToken[], index: number): ClozeToken[]`, `hideWord(tokens: ClozeToken[], index: number): ClozeToken[]`, and `evaluateAssistedScore(score: number, assistanceUsed: boolean): number`.
-- [ ] Ensure `generateClozeTokens` preserves punctuation, line breaks, casing, and word lengths, replacing non-initial word characters with underscores or blanks.
-- [ ] Ensure `evaluateAssistedScore` preserves genuine scores below 75% (e.g. 60% remains 60%) while capping scores of 75% or greater at 75% if `assistanceUsed = true`.
-- [ ] Write unit tests in `src/engines/clozeEngine.test.ts` verifying tokenization, punctuation preservation, reveal/hide state transitions, and assisted score capping.
-- [ ] Ensure all existing test suites and TypeScript typechecking remain 100% green.
+- [x] Create `src/engines/clozeEngine.ts` exporting `ClozeToken` interface, `generateClozeTokens(text: string, mode: 'first-letter' | 'blank'): ClozeToken[]`, `revealWord(tokens: ClozeToken[], index: number): ClozeToken[]`, `hideWord(tokens: ClozeToken[], index: number): ClozeToken[]`, and `evaluateAssistedScore(score: number, assistanceUsed: boolean): number`.
+- [x] Ensure `generateClozeTokens` preserves punctuation, line breaks, casing, and word lengths, replacing non-initial word characters with underscores or blanks.
+- [x] Ensure `evaluateAssistedScore` preserves genuine scores below 75% (e.g. 60% remains 60%) while capping scores of 75% or greater at 75% if `assistanceUsed = true`.
+- [x] Write unit tests in `src/engines/clozeEngine.test.ts` verifying tokenization, punctuation preservation, reveal/hide state transitions, and assisted score capping.
+- [x] Ensure all existing test suites and TypeScript typechecking remain 100% green.
+
