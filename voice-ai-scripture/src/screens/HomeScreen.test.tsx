@@ -224,4 +224,108 @@ describe('HomeScreen Integration (Ticket 16)', () => {
       getByText(/Esta tradução não está embutida offline por direitos autorais/i)
     ).toBeTruthy();
   });
+
+  describe('ReferencePickerModal Integration (Ticket 20)', () => {
+    it('renders "📖 Escolher da Bíblia" button and opens picker modal', async () => {
+      const { getByText } = await render(<HomeScreen />);
+
+      await act(async () => {
+        fireEvent.press(getByText('+ Type Custom Verse'));
+      });
+
+      expect(getByText('📖 Escolher da Bíblia')).toBeTruthy();
+
+      await act(async () => {
+        fireEvent.press(getByText('📖 Escolher da Bíblia'));
+      });
+
+      // Picker modal opens with book list
+      expect(getByText('All (66)')).toBeTruthy();
+      expect(getByText('Genesis')).toBeTruthy();
+    });
+
+    it('selects reference from picker and triggers auto-fetch for bundled translation', async () => {
+      (bibleProvider.fetchPassage as jest.Mock).mockResolvedValueOnce({
+        reference: 'Genesis 1:1',
+        text: 'In the beginning, God created the heavens and the earth.',
+        translation: 'WEB',
+      });
+
+      const { getByText, getByPlaceholderText } = await render(<HomeScreen />);
+
+      await act(async () => {
+        fireEvent.press(getByText('+ Type Custom Verse'));
+      });
+
+      await act(async () => {
+        fireEvent.press(getByText('📖 Escolher da Bíblia'));
+      });
+
+      // Select Genesis -> Chapter 1 -> Verse 1
+      await act(async () => {
+        fireEvent.press(getByText('Genesis'));
+      });
+      await act(async () => {
+        fireEvent.press(getByText('1'));
+      });
+      await act(async () => {
+        fireEvent.press(getByText('1'));
+      });
+
+      // Confirm selection
+      await act(async () => {
+        fireEvent.press(getByText('Insert Genesis 1:1'));
+      });
+
+      // Reference input should be filled and auto-fetch triggered
+      await waitFor(() => {
+        const refInput = getByPlaceholderText('Reference (e.g. John 3:16)');
+        const textInput = getByPlaceholderText('Verse text...');
+
+        expect(refInput.props.value).toBe('Genesis 1:1');
+        expect(bibleProvider.fetchPassage).toHaveBeenCalledWith('Genesis 1:1', 'WEB');
+        expect(textInput.props.value).toBe('In the beginning, God created the heavens and the earth.');
+      });
+    });
+
+    it('selects reference from picker for non-bundled translation and displays pasting notice', async () => {
+      const { getByText, getByPlaceholderText } = await render(<HomeScreen />);
+
+      await act(async () => {
+        fireEvent.press(getByText('+ Type Custom Verse'));
+      });
+
+      // Select NVI (copyrighted / non-bundled)
+      await act(async () => {
+        fireEvent.press(getByText(/NVI/i));
+      });
+
+      await act(async () => {
+        fireEvent.press(getByText('📖 Escolher da Bíblia'));
+      });
+
+      // NVI is Portuguese translation -> Picker displays Portuguese books
+      await act(async () => {
+        fireEvent.press(getByText('João'));
+      });
+      await act(async () => {
+        fireEvent.press(getByText('3'));
+      });
+      await act(async () => {
+        fireEvent.press(getByText('16'));
+      });
+
+      await act(async () => {
+        fireEvent.press(getByText('Inserir João 3:16'));
+      });
+
+      await waitFor(() => {
+        const refInput = getByPlaceholderText('Reference (e.g. John 3:16)');
+        expect(refInput.props.value).toBe('João 3:16');
+        expect(
+          getByText('Referência definida! Cole o texto da sua Bíblia ou digite-o abaixo.')
+        ).toBeTruthy();
+      });
+    });
+  });
 });

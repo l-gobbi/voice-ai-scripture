@@ -16,6 +16,7 @@ import { verseEngine, VerseTranslation } from '../services/VerseEngine';
 import { bibleProvider, isBundledTranslation } from '../services/BibleProvider';
 import { parseScriptureClipboard } from '../utils/clipboardParser';
 import { normalizeReference } from '../services/ReferenceNormalizer';
+import ReferencePickerModal from './ReferencePickerModal';
 
 export interface AddVerseModalProps {
   visible: boolean;
@@ -65,6 +66,7 @@ export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVe
   const [selectedTranslation, setSelectedTranslation] = useState<VerseTranslation>('WEB');
   const [isFetching, setIsFetching] = useState(false);
   const [fetchNotice, setFetchNotice] = useState<string | null>(null);
+  const [pickerVisible, setPickerVisible] = useState(false);
 
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -186,7 +188,23 @@ export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVe
     setReference('');
     setText('');
     setFetchNotice(null);
+    setPickerVisible(false);
     onClose();
+  };
+
+  const handleSelectReference = (canonicalRef: string) => {
+    setReference(canonicalRef);
+    setPickerVisible(false);
+
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+
+    if (isBundledTranslation(selectedTranslation)) {
+      fetchVerseText(canonicalRef, selectedTranslation, false);
+    } else {
+      setFetchNotice('Referência definida! Cole o texto da sua Bíblia ou digite-o abaixo.');
+    }
   };
 
   const isCopyrighted = !isBundledTranslation(selectedTranslation);
@@ -236,8 +254,18 @@ export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVe
             </View>
           )}
 
-          {/* Reference Input & Manual Fetch Button */}
-          <Text style={styles.inputLabel}>Referência Bíblica</Text>
+          {/* Reference Input & Guided Picker Trigger */}
+          <View style={styles.referenceHeaderRow}>
+            <Text style={styles.inputLabel}>Referência Bíblica</Text>
+            <TouchableOpacity
+              testID="open-reference-picker-btn"
+              style={styles.pickerTriggerBtn}
+              onPress={() => setPickerVisible(true)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.pickerTriggerBtnText}>📖 Escolher da Bíblia</Text>
+            </TouchableOpacity>
+          </View>
           <View style={styles.referenceRow}>
             <TextInput
               style={[styles.input, styles.referenceInput]}
@@ -287,6 +315,13 @@ export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVe
           </View>
         </ScrollView>
       </SafeAreaView>
+
+      <ReferencePickerModal
+        visible={pickerVisible}
+        translation={selectedTranslation}
+        onClose={() => setPickerVisible(false)}
+        onSelectReference={handleSelectReference}
+      />
     </Modal>
   );
 }
@@ -332,6 +367,25 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
   inputLabel: { fontSize: 14, fontWeight: '600', color: '#374151', marginBottom: 4 },
+  referenceHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  pickerTriggerBtn: {
+    backgroundColor: '#eff6ff',
+    borderWidth: 1,
+    borderColor: '#93c5fd',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  pickerTriggerBtnText: {
+    color: '#1d4ed8',
+    fontSize: 13,
+    fontWeight: '600',
+  },
   referenceRow: {
     flexDirection: 'row',
     gap: 8,

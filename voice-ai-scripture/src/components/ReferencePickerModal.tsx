@@ -431,8 +431,8 @@ export default function ReferencePickerModal({
                 >
                   <Text style={styles.confirmPillBtnText}>
                     {endVerse !== null
-                      ? `Inserir ${bookName} ${selectedChapter}:${startVerse}-${endVerse}`
-                      : `Inserir ${bookName} ${selectedChapter}:${startVerse}`}
+                      ? `${isPt ? 'Inserir' : 'Insert'} ${bookName} ${selectedChapter}:${startVerse}-${endVerse}`
+                      : `${isPt ? 'Inserir' : 'Insert'} ${bookName} ${selectedChapter}:${startVerse}`}
                   </Text>
                 </TouchableOpacity>
               </View>
