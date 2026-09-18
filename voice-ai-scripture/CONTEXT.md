@@ -62,6 +62,10 @@ _Avoid_: Upgrade screen, subscription gate, purchase popup
 The limited allowance of complimentary Voice AI recitations (default: 3) granted to free users before requiring a premium subscription.
 _Avoid_: Free credits, tokens, trial tries
 
+**Subscription Manager**:
+The domain module responsible for tracking user subscription tier and enforcing recitation quota allowances using an injectable storage adapter.
+_Avoid_: Billing service, purchase controller, paywall state
+
 ### Sensory & Practice Experience
 
 **Waveform Visualizer**:

@@ -2,91 +2,91 @@
 labels: ["ready-for-agent"]
 ---
 
-# Specification: Verse Removal & Deletion Confirmation Modal
+# Specification: Injectable StorageAdapter and Subscription Manager Deepening
 
 ## Problem Statement
 
-Users actively add scripture verses to their memory repository through various channels (manual typing, YouVersion clipboard import, topical packs, and the guided Bible reference picker). Inevitably, users add verses by mistake, mistype citations, change their study focus, or decide they no longer wish to maintain certain verses in their daily review queue.
+Currently, subscription entitlement and free recitation quota management are implemented via a global static object that couples directly to React Native's asynchronous storage. Because the session coordinator hardcodes calls to this static object rather than receiving it across its public interface, in-memory local substitution is impossible. 
 
-Currently, there is no way to remove an inserted verse from the application. Once a verse is saved, it remains permanently in `AsyncStorage`, appears in the review queue whenever due, and clutters the user's repository. This causes frustration, artificial review burdens, and prevents users from curating their personal memorization deck.
+As a result, developer workflows and test suites cannot configure isolated quota states without applying brittle runtime monkey-patches (`jest.spyOn`) across dozens of test cases. When testing quota depletion or subscription transitions, tests verify internal spy calls rather than observable domain outcomes. Furthermore, persistence logic is duplicated between verse storage and subscription management instead of relying on a shared, cohesive storage seam.
 
 ## Solution
 
-Provide a clean, safe, and thumb-friendly **Verse Removal** flow:
-1. **Dedicated Trash Button on Verse Cards**:
-   - Each verse card on the Home Screen features a discrete, accessible delete action icon (`🗑️`) isolated in the upper-right corner.
-   - Touching the delete action does not trigger the card's practice session.
-2. **Accessible In-App Confirmation Modal (`DeleteConfirmationModal`)**:
-   - Tapping the delete action opens an explicit confirmation dialog.
-   - The modal identifies the exact verse reference being deleted (e.g. "Filipenses 4:6-7") and warns that all memorization history and Spaced Repetition (SRS) streak data will be permanently removed.
-   - Provides clear, high-contrast `Cancelar` (dismiss) and `Excluir definitivamente` (destructive red) buttons.
-3. **Immediate Hard Deletion & State Recalculation**:
-   - Confirming deletion invokes `VerseEngine.deleteVerse`, which immediately removes the verse from storage.
-   - The Home Screen reloads its list and updates the `All` and `Due` tab counters without requiring a page reload.
-   - If the deleted verse was imported from a Topical Pack, the user is free to re-import it later if desired.
+Deepen the subscription management architecture to achieve true local substitutability and seam isolation:
+
+1. **Dedicated Storage Adapter Seam**:
+   - Centralize storage interfaces and concrete implementations into an authoritative persistence module.
+   - Support both production asynchronous storage and in-memory key-value mapping for fast, isolated execution.
+   - Maintain backward compatibility for existing domain engine consumers.
+
+2. **Deep Subscription Manager Module**:
+   - Refactor subscription and quota management from a static object literal into an instantiable, deep domain module.
+   - Accept the storage adapter via constructor injection, defaulting to production storage when unsupplied.
+   - Provide a shared singleton instance for standard user interface callers alongside an alias preserving backward compatibility.
+
+3. **Constructor Injection Across Session Seam**:
+   - Allow the recitation session coordinator to receive an optional subscription manager dependency.
+   - Default cleanly to the shared singleton in production while enabling test harnesses to supply isolated in-memory instances.
+
+4. **Elimination of Fragile Test Monkey-Patches**:
+   - Replace all runtime spy interventions in recitation test suites with real in-memory state setup.
+   - Verify quota exhaustion and subscription state transitions through actual domain behavior at the public interface.
 
 ## User Stories
 
-1. As a believer curating my memorization deck, I want to delete a verse I added by accident, so that it no longer appears in my daily review queue.
-2. As a user reviewing my verse cards on the Home Screen, I want to see a clear delete action on each card, so that I can initiate removal without digging through sub-menus.
-3. As a mobile user tapping with my thumb, I want the delete button isolated from the main card touch area, so that I don't accidentally start a recitation review session when trying to delete.
-4. As a user tapping the delete button, I want an explicit confirmation modal to pop up, so that accidental taps do not immediately destroy my verse.
-5. As a user viewing the confirmation modal, I want to see the specific biblical citation displayed in the dialog, so that I can double-check which verse I am about to delete.
-6. As a user who has built a streak on a verse, I want the confirmation modal to warn me that progress and streaks will be lost, so that I can make an informed decision before proceeding.
-7. As a user who tapped delete by mistake, I want a prominent "Cancelar" button in the confirmation modal, so that I can safely dismiss the dialog and keep my verse intact.
-8. As a user tapping "Excluir definitivamente", I want the modal to close and the verse to disappear immediately from the list, so that the action feels instantaneous and responsive.
-9. As a user in the "Due" tab who deletes a due verse, I want the due count badge to decrement immediately, so that the counter accurately reflects my pending review workload.
-10. As a user in the "All" tab who deletes a verse, I want the total verse count to decrement immediately, so that my repository totals remain accurate.
-11. As a user who deletes the very last due verse, I want the empty state message ("All caught up for today!") to appear automatically, so that I know my queue is clear.
-12. As a user who deletes the only verse in my repository, I want the general empty state ("No verses added yet") to appear automatically, so that I am guided to add new verses.
-13. As a user running the app on a web browser, I want the deletion confirmation modal to render cleanly as an in-app overlay, so that behavior is consistent across desktop and mobile.
-14. As a user using screen readers or assistive technology, I want the delete button to have an accessible label indicating which verse will be removed, so that I have clear context before activating it.
-15. As a user who previously imported a verse from a Topical Pack and deleted it, I want to be able to re-import that verse from the Topical Pack browser later if I change my mind, so that deletion is never an irreversible lockout.
+1. As an offline-first learner, I want my free recitation quota and subscription status reliably saved to local device storage, so that my entitlement is preserved across application launches.
+2. As a new user practicing scripture, I want my quota to decrement accurately upon each recitation attempt, so that my remaining free trial allowance is correctly calculated.
+3. As an active learner whose quota is exhausted, I want the session coordinator to detect my depleted quota and surface the paywall, so that I am guided to subscribe.
+4. As a subscriber upgrading to premium, I want my subscription status recorded in local storage, so that I enjoy unlimited recitations without interruption.
+5. As a developer running automated tests, I want subscription management to operate completely in-memory without touching native mobile storage, so that test suites execute quickly and deterministically.
+6. As a test author, I want to inject pre-configured subscription and quota states into the recitation session coordinator, so that I can verify paywall triggers without monkey-patching global service methods.
+7. As an engineer extending the codebase, I want a single, standard storage adapter seam across both verse persistence and subscription tracking, so that storage implementations are not fragmented or duplicated.
+8. As a maintainer, I want existing UI screens and hooks to continue consuming subscription methods without changing their import signatures, so that the refactoring is zero-churn for presentation code.
+9. As a mobile developer, I want all recitation session tests to pass purely on observable domain results, so that internal refactorings do not break tests that rely on spy call counts.
+10. As an engineer navigating the repository, I want clear module depth where complex quota logic is hidden behind a small, cohesive interface, so that the code is easily understood by human and AI agents.
 
 ## Implementation Decisions
 
-1. **Hard Deletion Semantics (`VerseEngine.deleteVerse`)**:
-   - `VerseEngine` will expose a `deleteVerse(id: string): Promise<boolean>` method.
-   - It searches the stored verse collection for a verse matching the given `id`.
-   - If found, it filters out the record and persists the updated array to storage, returning `true`.
-   - If not found, it leaves storage intact and returns `false`.
-2. **Cross-Platform In-App Confirmation Modal (`DeleteConfirmationModal`)**:
-   - Implemented as a reusable React Native `Modal` component rather than platform-varying `Alert.alert`.
-   - Accepts `visible: boolean`, `verse: Verse | null`, `onConfirm: () => void`, and `onCancel: () => void`.
-   - Renders a semi-transparent backdrop, centered dialog card, clear title ("Excluir versículo?"), descriptive text with the canonical reference and streak warning, and two accessible action buttons.
-3. **Card Layout & Event Decoupling in `HomeScreen`**:
-   - The verse card `TouchableOpacity` handles navigation to `ReviewScreen`.
-   - Within the card header, a nested or adjacent `TouchableOpacity` with `testID="delete-verse-{id}"` and `hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}` triggers the deletion confirmation.
-   - Prevents bubbling into the practice session.
-4. **State Refresh & Synchronization**:
-   - Upon successful confirmation, `loadVerses()` is called on `HomeScreen`.
-   - Automatically recalculates `VerseSummary` (`allVerses`, `dueVerses`, `dueCount`).
-   - If daily reminder notifications are active, `ReminderService` synchronizes naturally with the updated counts.
-5. **Topical Pack Re-import Compatibility**:
-   - `VerseEngine.importVerses` checks existing references. Because the deleted verse reference no longer exists in storage, re-importing the pack later will cleanly allow re-adding the verse.
+1. **Dedicated Persistence Seam (`StorageAdapter`)**:
+   - Create an independent persistence module defining the `StorageAdapter` interface with `getItem(key: string): Promise<string | null>` and `setItem(key: string, value: string): Promise<void>`.
+   - Provide `MapStorageAdapter` (in-memory map) and `AsyncStorageAdapter` (delegating to React Native storage).
+   - Re-export `StorageAdapter`, `MapStorageAdapter`, and `AsyncStorageAdapter` from `VerseEngine` to preserve backward compatibility.
+
+2. **Instantiable `SubscriptionService` Class**:
+   - Convert `SubscriptionService` into a TypeScript class accepting an optional `storage: StorageAdapter = new AsyncStorageAdapter()`.
+   - Encapsulate storage key constants (`user_is_subscribed`, `free_recitations_remaining`) and default quota limits (initial: 3).
+   - Expose public methods: `isSubscribed()`, `getRemainingFreeRecitations()`, `consumeRecitation()`, `subscribePremium()`, and `cancelSubscription()`.
+   - Export an instantiated singleton `subscriptionService` as the standard export, and export `const SubscriptionService = subscriptionService` for seamless compatibility with UI screens (`ReviewScreen`).
+
+3. **Recitation Session Constructor Seam Extension**:
+   - Update `RecitationSession` constructor options to accept `subscriptionService?: SubscriptionService`.
+   - When not supplied in constructor options, default to the exported `subscriptionService` singleton.
+   - Internal recitation initiation invokes `this.subscriptionService.consumeRecitation()`.
+
+4. **Testing Surface Replacement ("Replace, Don't Layer")**:
+   - Update `SubscriptionService.test.ts` to instantiate `SubscriptionService` with `MapStorageAdapter` for all test cases.
+   - Update `RecitationSession.test.ts` to instantiate `SubscriptionService` with `MapStorageAdapter` for quota scenarios, removing all `jest.spyOn(SubscriptionService, 'consumeRecitation')` calls.
 
 ## Testing Decisions
 
-1. **Unit / Logic Tests (`VerseEngine.test.ts`)**:
-   - Test that `deleteVerse(id)` removes the target verse from `MapStorageAdapter` while preserving other verses.
-   - Test that `deleteVerse(id)` returns `true` when a verse is successfully removed and `false` when the ID does not exist.
-   - Test that `getVersesSummary()` accurately reflects the updated counts and due lists after a deletion.
-2. **Component Tests (`DeleteConfirmationModal.test.tsx`)**:
-   - Test that the modal displays the verse reference and streak warning when `visible=true`.
-   - Test that tapping "Cancelar" calls `onCancel` without triggering deletion.
-   - Test that tapping "Excluir definitivamente" calls `onConfirm`.
-3. **Integration Tests (`HomeScreen.test.tsx`)**:
-   - Test that each verse card renders the delete button.
-   - Test that clicking delete opens the confirmation modal with the correct verse reference.
-   - Test that confirming deletion removes the card from the UI, updates the `All` and `Due` tab headers, and shows the empty state when the last verse is removed.
-   - Test that canceling dismissal leaves the verse card in the list.
+- **Seam 1: Persistence Module**:
+  - Test that `MapStorageAdapter` stores and retrieves string values, returning `null` for missing keys.
+  - Test that `AsyncStorageAdapter` calls underlying storage methods.
+- **Seam 2: Subscription Manager**:
+  - Test that a fresh in-memory instance returns default free quota (3) and unsubscribed status (`false`).
+  - Test that `consumeRecitation()` decrements quota until 0, then returns `allowed: false`.
+  - Test that `subscribePremium()` grants unlimited recitations (`allowed: true, remaining: Infinity`).
+- **Seam 3: Recitation Session Integration**:
+  - Test that a session initialized with an exhausted quota subscription service immediately transitions to `quota_exhausted` status.
+  - Test that a session initialized with an active subscription proceeds to record and verify without quota blockage.
+  - Prior art: Existing `VerseEngine.test.ts` using `MapStorageAdapter`.
 
 ## Out of Scope
 
-- Trash bin / Soft-delete recovery tab (deleted verses are permanently removed; can be re-added or re-imported manually).
-- Multi-verse batch selection / bulk deletion (verses are removed individually).
-- Custom undo snackbar with timer (explicit modal confirmation is used instead).
+- Remote billing SDK integration (RevenueCat / StoreKit) — remains simulated in local storage.
+- Multi-user account sync or server-side quota reconciliation.
+- UI changes to `PaywallModal` or `ReviewScreen` (interfaces remain identical).
 
 ## Further Notes
 
-- Aligns with ADR 0009 (`docs/adr/0009-hard-deletion-with-custom-confirmation-modal.md`) and the ubiquitous domain term **Verse Removal** in `CONTEXT.md`.
+- Aligns with ADR 0010 (`docs/adr/0010-injectable-storage-adapter-and-subscription-service-deepening.md`) and ubiquitous domain language in `CONTEXT.md`.
