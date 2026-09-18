@@ -5,19 +5,19 @@ A formalized Ports & Adapters boundary for speech-to-text audio transcription. D
 
 **Blocked by:** None (can start immediately).
 
-**Status:** ready-for-agent
+**Status:** closed
 
-- [ ] Declare `SpeechTranscriber` interface with `transcribe(audioUri: string, options?: TranscriptionOptions): Promise<TranscriptionResult>`.
-- [ ] Declare `TranscriptionOptions` with optional `prompt?: string` for Biblical text conditioning.
-- [ ] Declare typed `TranscriptionError` with error codes: `'network_error' | 'unauthorized' | 'rate_limited' | 'unintelligible' | 'unknown'`.
-- [ ] Implement `WhisperTranscriber`:
-  - [ ] Appends `prompt` to multipart FormData if present in options.
-  - [ ] Maps OpenAI HTTP error responses (401/403 -> `unauthorized`, 429 -> `rate_limited`, 400/422 -> `unintelligible`, 5xx/network failure -> `network_error`) into `TranscriptionError`.
-- [ ] Implement `SimulatedTranscriber`:
-  - [ ] Returns `{ text: options?.prompt }` by default if `prompt` is provided (simulating 100% accurate recitation).
-  - [ ] Supports custom handler function in constructor options for deterministic error and typo test scenarios.
-- [ ] Implement `createDefaultTranscriber(apiKey?: string)` factory:
-  - [ ] Returns `WhisperTranscriber` if API key is present.
-  - [ ] Returns `SimulatedTranscriber` if API key is absent.
-- [ ] Refactor `src/services/WhisperService.ts` to delegate `transcribeAudio` to `WhisperTranscriber` with `@deprecated` annotation.
-- [ ] Write comprehensive unit tests in `src/services/SpeechTranscriber.test.ts` verifying all adapters, prompt forwarding, and error mappings.
+- [x] Declare `SpeechTranscriber` interface with `transcribe(audioUri: string, options?: TranscriptionOptions): Promise<TranscriptionResult>`.
+- [x] Declare `TranscriptionOptions` with optional `prompt?: string` for Biblical text conditioning.
+- [x] Declare typed `TranscriptionError` with error codes: `'network_error' | 'unauthorized' | 'rate_limited' | 'unintelligible' | 'unknown'`.
+- [x] Implement `WhisperTranscriber`:
+  - [x] Appends `prompt` to multipart FormData if present in options.
+  - [x] Maps OpenAI HTTP error responses (401/403 -> `unauthorized`, 429 -> `rate_limited`, 400/422 -> `unintelligible`, 5xx/network failure -> `network_error`) into `TranscriptionError`.
+- [x] Implement `SimulatedTranscriber`:
+  - [x] Returns `{ text: options?.prompt }` by default if `prompt` is provided (simulating 100% accurate recitation).
+  - [x] Supports custom handler function in constructor options for deterministic error and typo test scenarios.
+- [x] Implement `createDefaultTranscriber(apiKey?: string)` factory:
+  - [x] Returns `WhisperTranscriber` if API key is present.
+  - [x] Returns `SimulatedTranscriber` if API key is absent.
+- [x] Refactor `src/services/WhisperService.ts` to delegate `transcribeAudio` to `WhisperTranscriber` with `@deprecated` annotation.
+- [x] Write comprehensive unit tests in `src/services/SpeechTranscriber.test.ts` verifying all adapters, prompt forwarding, and error mappings.

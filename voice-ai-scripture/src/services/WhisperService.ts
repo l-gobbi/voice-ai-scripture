@@ -1,9 +1,10 @@
-export interface TranscriptionResult {
-  text: string;
-}
+import { WhisperTranscriber, TranscriptionResult } from './SpeechTranscriber';
+
+export { TranscriptionResult };
 
 /**
  * Sends an audio file to OpenAI Whisper API for speech-to-text transcription.
+ * @deprecated Use SpeechTranscriber and WhisperTranscriber instead.
  * @param audioUri URI of the local audio recording
  * @param apiKey OpenAI API key (falls back to process.env.EXPO_PUBLIC_OPENAI_API_KEY)
  */
@@ -15,36 +16,6 @@ export async function transcribeAudio(
     throw new Error('OpenAI API key is required for transcription');
   }
 
-  const formData = new FormData();
-
-  // On Web or React Native, create the file entry
-  const filename = audioUri.split('/').pop() || 'recording.m4a';
-  const fileType = filename.endsWith('.mp3') ? 'audio/mpeg' : 'audio/m4a';
-
-  formData.append('file', {
-    uri: audioUri,
-    name: filename,
-    type: fileType,
-  } as any);
-
-  formData.append('model', 'whisper-1');
-  formData.append('language', 'en');
-
-  const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: formData,
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Whisper transcription failed: ${response.status} - ${errorText}`);
-  }
-
-  const data = await response.json();
-  return {
-    text: data.text || '',
-  };
+  const transcriber = new WhisperTranscriber(apiKey);
+  return transcriber.transcribe(audioUri);
 }
