@@ -37,6 +37,7 @@ jest.mock('../services/VerseEngine', () => ({
       (verse: any, isDue: boolean) => !isDue && (verse.srs?.intervalDays ?? 0) >= 21
     ),
     getNextReviewMessage: jest.fn().mockReturnValue('Next review due tomorrow'),
+    updateVerse: jest.fn().mockResolvedValue({}),
   },
 }));
 
@@ -593,7 +594,7 @@ describe('HomeScreen Integration (Ticket 16)', () => {
       });
 
       // Opt-in dialog should appear
-      expect(await findByText('Add Acts 2:38 to your daily memory deck?')).toBeTruthy();
+      expect(await findByText('Add Acts 2:38 to your memory verses?')).toBeTruthy();
 
       // Tap Add to My Verses
       await act(async () => {
@@ -605,6 +606,17 @@ describe('HomeScreen Integration (Ticket 16)', () => {
         expect.objectContaining({
           reference: 'Acts 2:38',
           translation: 'WEB',
+        })
+      );
+
+      // Verify verseEngine.updateVerse was called to schedule for tomorrow
+      expect(verseEngine.updateVerse).toHaveBeenCalledWith(
+        '1',
+        expect.objectContaining({
+          srs: expect.objectContaining({
+            intervalDays: 1,
+            streak: 1,
+          }),
         })
       );
     });
@@ -649,7 +661,7 @@ describe('HomeScreen Integration (Ticket 16)', () => {
       });
 
       // Opt-in dialog
-      expect(await findByText('Add Acts 2:38 to your daily memory deck?')).toBeTruthy();
+      expect(await findByText('Add Acts 2:38 to your memory verses?')).toBeTruthy();
 
       // Tap Explore App without Saving
       await act(async () => {

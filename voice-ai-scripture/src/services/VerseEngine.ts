@@ -195,7 +195,7 @@ export class VerseEngine {
     return newVerses;
   }
 
-  async updateVerse(id: string, updates: Partial<Omit<Verse, 'id' | 'srs'>>): Promise<Verse> {
+  async updateVerse(id: string, updates: Partial<Omit<Verse, 'id'>>): Promise<Verse> {
     const verses = await this.getAllVerses();
     const index = verses.findIndex((v) => v.id === id);
     if (index === -1) {
@@ -215,6 +215,7 @@ export class VerseEngine {
     const updated: Verse = {
       ...current,
       ...updates,
+      srs: updates.srs !== undefined ? { ...current.srs, ...updates.srs } : current.srs,
       translation: updatedTranslation,
     };
     verses[index] = updated;
@@ -295,6 +296,11 @@ export class VerseEngine {
     }
 
     const currentVerse = verses[index];
+    const previousReviewDate = currentVerse.srs?.nextReviewDate;
+    const wasUnreviewed =
+      (currentVerse.srs?.streak ?? 0) === 0 && (currentVerse.srs?.intervalDays ?? 0) === 0;
+    const wasDue = wasUnreviewed || isVerseDue(previousReviewDate, now);
+
     const currentSRS: SRSState = currentVerse.srs || DEFAULT_SRS_STATE;
     const srsResult = calculateNextReview(currentSRS, score, now);
 
@@ -327,12 +333,14 @@ export class VerseEngine {
     }
     habitData.lastActiveDate = todayStr;
 
-    const todaysCompletions = new Set(habitData.completedDates[todayStr] || []);
-    todaysCompletions.add(verseId);
-    habitData.completedDates = {
-      ...habitData.completedDates,
-      [todayStr]: Array.from(todaysCompletions),
-    };
+    if (wasDue) {
+      const todaysCompletions = new Set(habitData.completedDates[todayStr] || []);
+      todaysCompletions.add(verseId);
+      habitData.completedDates = {
+        ...habitData.completedDates,
+        [todayStr]: Array.from(todaysCompletions),
+      };
+    }
 
     await this.persistHabitData(habitData);
 

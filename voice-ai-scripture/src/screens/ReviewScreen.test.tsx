@@ -282,7 +282,7 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
       expect(recordSpy).not.toHaveBeenCalled();
 
       // Opt-in modal should appear
-      expect(await findByText('Add Acts 2:38 to your daily memory deck?')).toBeTruthy();
+      expect(await findByText('Add Acts 2:38 to your memory verses?')).toBeTruthy();
       expect(getByTestId('sandbox-opt-in-save')).toBeTruthy();
       expect(getByTestId('sandbox-opt-in-dismiss')).toBeTruthy();
 
@@ -324,7 +324,7 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
         fireEvent.press(await findByText('⏹ Stop & Verify'));
       });
 
-      expect(await findByText('Add Acts 2:38 to your daily memory deck?')).toBeTruthy();
+      expect(await findByText('Add Acts 2:38 to your memory verses?')).toBeTruthy();
 
       // Tap Explore App without Saving
       await act(async () => {

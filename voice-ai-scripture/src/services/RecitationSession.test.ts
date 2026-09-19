@@ -1027,5 +1027,41 @@ describe('RecitationSession (Ticket 07)', () => {
       expect(recordSpy).not.toHaveBeenCalled();
     });
   });
+
+  describe('Slice 14: Unmetered Practice Ahead Mode', () => {
+    it('does not consume quota and does not alter persistent SRS intervals when isUnmetered is true', async () => {
+      jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValue(true);
+      jest.spyOn(audioRecorder, 'startRecording').mockResolvedValue(undefined);
+      jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValue('file:///ahead.m4a');
+      jest.spyOn(audioRecorder, 'deleteAudioFile').mockResolvedValue(true);
+
+      const exhaustedSubService = new SubscriptionService(
+        new MapStorageAdapter({ free_recitations_remaining: '0', user_is_subscribed: 'false' })
+      );
+      const consumeSpy = jest.spyOn(exhaustedSubService, 'consumeRecitation');
+      const recordSpy = jest.spyOn(verseEngine, 'recordReview');
+
+      const mockTranscriber = new SimulatedTranscriber({ defaultText: mockVerse.text });
+
+      const session = new RecitationSession(mockVerse, {
+        isUnmetered: true,
+        subscriptionService: exhaustedSubService,
+        transcriber: mockTranscriber,
+      });
+
+      // Starts at Level 3 by default
+      expect(session.getState().level).toBe(3);
+
+      // Start reciting at Level 3 - should not consume quota because isUnmetered is true
+      await session.startReciting();
+      expect(session.getState().status).toBe('reciting');
+      expect(consumeSpy).not.toHaveBeenCalled();
+
+      // Stop and verify at Level 3 - should not alter persistent SRS
+      const result = await session.stopAndVerify();
+      expect(result?.score).toBe(100);
+      expect(recordSpy).not.toHaveBeenCalled();
+    });
+  });
 });
 

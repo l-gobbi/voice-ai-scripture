@@ -26,6 +26,7 @@ interface ReviewScreenProps {
   transcriber?: SpeechTranscriber;
   isSandbox?: boolean;
   onSandboxComplete?: (verse: Verse, saveRequested: boolean) => void;
+  isUnmetered?: boolean;
 }
 
 export default function ReviewScreen({
@@ -34,6 +35,7 @@ export default function ReviewScreen({
   transcriber,
   isSandbox = false,
   onSandboxComplete,
+  isUnmetered = false,
 }: ReviewScreenProps) {
   const [showPaywall, setShowPaywall] = useState(false);
   const [showSandboxOptIn, setShowSandboxOptIn] = useState(false);
@@ -58,6 +60,7 @@ export default function ReviewScreen({
   } = useRecitationSession(verse, {
     transcriber,
     isSandbox,
+    isUnmetered,
     initialLevel: isSandbox ? 1 : 3,
   });
 
@@ -306,9 +309,9 @@ export default function ReviewScreen({
       >
         <View style={styles.modalBackdrop}>
           <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>Add {verse.reference} to your daily memory deck?</Text>
+            <Text style={styles.modalTitle}>Add {verse.reference} to your memory verses?</Text>
             <Text style={styles.modalDescription}>
-              You've successfully tested all 3 tiers of recitation! Would you like to add this passage to your memory verses for daily spaced repetition?
+              You've successfully tested all 3 tiers of recitation! Would you like to add this verse to your memory verses for daily spaced repetition?
             </Text>
             <View style={styles.modalActions}>
               <TouchableOpacity

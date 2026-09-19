@@ -528,6 +528,41 @@ describe('VerseEngine (Ticket 09)', () => {
       expect(postStats.dueCount).toBe(1);
       expect(postStats.totalDueToday).toBe(2);
     });
+
+    it('does not increment completedTodayCount or inflate totalDueToday when reviewing a non-due verse', async () => {
+      const storage = new MapStorageAdapter();
+      const engine = new VerseEngine(storage);
+
+      const now = new Date('2026-09-18T10:00:00Z');
+      const tomorrow = new Date('2026-09-19T10:00:00Z');
+
+      // Add a verse and manually schedule it for tomorrow
+      const verse = await engine.addVerse({ reference: 'John 3:16', text: 'Text' });
+      await engine.updateVerse(verse.id, {
+        srs: {
+          streak: 1,
+          intervalDays: 1,
+          easeFactor: 2.5,
+          nextReviewDate: tomorrow.toISOString(),
+          lastScore: 100,
+        },
+      });
+
+      const initialStats = await engine.getHabitStats(now);
+      expect(initialStats.dueCount).toBe(0);
+      expect(initialStats.completedTodayCount).toBe(0);
+      expect(initialStats.totalDueToday).toBe(0);
+
+      // Review the non-due verse (practice ahead)
+      await engine.recordReview(verse.id, 100, now);
+
+      const postStats = await engine.getHabitStats(now);
+      expect(postStats.completedTodayCount).toBe(0);
+      expect(postStats.totalDueToday).toBe(0);
+      expect(postStats.dueCount).toBe(0);
+      // Active streak is still maintained
+      expect(postStats.currentStreak).toBe(1);
+    });
   });
 
   describe('Slice 9: Deck Import (Ticket 33)', () => {

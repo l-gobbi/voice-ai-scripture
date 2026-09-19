@@ -149,10 +149,21 @@ export default function HomeScreen({ transcriber }: HomeScreenProps = {}) {
         }}
         onSandboxComplete={async (verse, saveRequested) => {
           if (saveRequested) {
-            await verseEngine.addVerse({
+            const added = await verseEngine.addVerse({
               reference: verse.reference,
               text: verse.text,
               translation: verse.translation,
+            });
+            // Schedule first spaced repetition review for tomorrow
+            const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+            await verseEngine.updateVerse(added.id, {
+              srs: {
+                streak: 1,
+                intervalDays: 1,
+                easeFactor: 2.5,
+                nextReviewDate: tomorrow.toISOString(),
+                lastScore: 100,
+              },
             });
           }
           setSandboxVerse(null);
@@ -162,11 +173,15 @@ export default function HomeScreen({ transcriber }: HomeScreenProps = {}) {
     );
   }
 
+  const dueVerseIds = new Set(summary.dueVerses.map((v) => v.id));
+
   if (activeReviewVerse) {
+    const isDue = dueVerseIds.has(activeReviewVerse.id);
     return (
       <ReviewScreen
         verse={activeReviewVerse}
         transcriber={transcriber}
+        isUnmetered={!isDue}
         onComplete={() => {
           setActiveReviewVerse(null);
           loadVerses();
@@ -269,7 +284,7 @@ export default function HomeScreen({ transcriber }: HomeScreenProps = {}) {
         data={displayedVerses}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => {
-          const isDue = summary.dueVerses.some((v) => v.id === item.id);
+          const isDue = dueVerseIds.has(item.id);
           const interval = item.srs?.intervalDays ?? 0;
           const streak = item.srs?.streak ?? item.srs?.repetitions ?? 0;
           const isMastered = verseEngine.isVerseMastered(item, isDue);

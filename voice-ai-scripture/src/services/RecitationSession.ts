@@ -79,6 +79,7 @@ export interface RecitationSessionOptions {
   initialLevel?: RecitationLevel;
   autoVocalizeOnLevel1?: boolean;
   isSandbox?: boolean;
+  isUnmetered?: boolean;
 }
 
 export class RecitationSession {
@@ -90,6 +91,7 @@ export class RecitationSession {
   private synthesizer: SpeechSynthesizer;
   private autoVocalizeOnLevel1: boolean;
   private isSandbox: boolean;
+  private isUnmetered: boolean;
   private currentAudioUri: string | null = null;
   private listeners: Set<(state: RecitationState) => void> = new Set();
   private peekTimers: Map<number, NodeJS.Timeout> = new Map();
@@ -105,6 +107,7 @@ export class RecitationSession {
     this.synthesizer = options?.synthesizer ?? getDefaultSpeechSynthesizer();
     this.autoVocalizeOnLevel1 = options?.autoVocalizeOnLevel1 ?? true;
     this.isSandbox = options?.isSandbox ?? false;
+    this.isUnmetered = options?.isUnmetered ?? false;
 
     const initialLevel = options?.initialLevel ?? (this.isSandbox ? 1 : 3);
     const clozeTokens = this.getClozeTokensForLevel(initialLevel);
@@ -260,7 +263,7 @@ export class RecitationSession {
       }
 
       // 2. Quota Gating Check (Levels 1 & 2 are unmetered practice; Level 3 is metered)
-      const isUnmetered = this.isSandbox || (options?.unmetered ?? (this.state.level !== 3));
+      const isUnmetered = this.isSandbox || this.isUnmetered || (options?.unmetered ?? (this.state.level !== 3));
       if (!isUnmetered) {
         const quota = await this.subscriptionService.consumeRecitation();
         if (!quota.allowed) {
@@ -319,7 +322,7 @@ export class RecitationSession {
       const tokens = diffVerses(this.verse.text, transcript);
       const rawScore = calculateScore(tokens);
 
-      const isUnmetered = this.isSandbox || (options?.unmetered ?? (this.state.level !== 3));
+      const isUnmetered = this.isSandbox || this.isUnmetered || (options?.unmetered ?? (this.state.level !== 3));
       const assistanceUsed = options?.assistanceUsed ?? this.state.assistanceUsed;
 
       const score = assistanceUsed
