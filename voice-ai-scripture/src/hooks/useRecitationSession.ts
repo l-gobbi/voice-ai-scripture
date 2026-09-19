@@ -2,14 +2,24 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { Verse } from '../services/VerseEngine';
 import {
   RecitationSession,
+  RecitationSessionOptions,
   RecitationState,
+  RecitationLevel,
   VoiceRecitationResult,
   SpeechTranscriber,
+  SpeechSynthesizer,
+  ClozeToken,
 } from '../services/RecitationSession';
 
-export interface UseRecitationSessionOptions {
-  transcriber?: SpeechTranscriber;
-}
+export type {
+  RecitationSessionOptions,
+  RecitationState,
+  RecitationLevel,
+  VoiceRecitationResult,
+  ClozeToken,
+};
+
+export interface UseRecitationSessionOptions extends RecitationSessionOptions {}
 
 export function useRecitationSession(
   verse: Verse,
@@ -24,7 +34,7 @@ export function useRecitationSession(
     verseRef.current.text !== verse.text
   ) {
     if (sessionRef.current) {
-      sessionRef.current.reset();
+      sessionRef.current.dispose();
     }
     sessionRef.current = new RecitationSession(verse, options);
     verseRef.current = verse;
@@ -43,7 +53,7 @@ export function useRecitationSession(
 
     return () => {
       unsubscribe();
-      session.reset();
+      session.dispose();
     };
   }, [verse.id, verse.text]);
 
@@ -65,10 +75,40 @@ export function useRecitationSession(
     await sessionRef.current?.reset();
   }, []);
 
+  const setLevel = useCallback((level: RecitationLevel) => {
+    sessionRef.current?.setLevel(level);
+  }, []);
+
+  const nextLevel = useCallback(() => {
+    sessionRef.current?.nextLevel();
+  }, []);
+
+  const practiceAgain = useCallback(() => {
+    sessionRef.current?.practiceAgain();
+  }, []);
+
+  const toggleTextReveal = useCallback(() => {
+    sessionRef.current?.toggleTextReveal();
+  }, []);
+
+  const tapWord = useCallback((index: number) => {
+    sessionRef.current?.tapWord(index);
+  }, []);
+
+  const vocalize = useCallback(async () => {
+    await sessionRef.current?.vocalize();
+  }, []);
+
   return {
     ...state,
     startReciting,
     stopAndVerify,
     reset,
+    setLevel,
+    nextLevel,
+    practiceAgain,
+    toggleTextReveal,
+    tapWord,
+    vocalize,
   };
 }

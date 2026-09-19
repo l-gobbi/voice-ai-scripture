@@ -220,4 +220,119 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
     const paywallHeader = await findByText('Unlock Unlimited Voice AI');
     expect(paywallHeader).toBeTruthy();
   });
+
+  describe('Sandbox Mode (Ticket 31)', () => {
+    const sandboxVerse: Verse = {
+      id: 'sandbox-acts-2-38',
+      reference: 'Acts 2:38',
+      text: 'Peter said to them, Repent, and be baptized, every one of you',
+      translation: 'WEB',
+    };
+
+    it('launches in Level 1 (Echo Mode) and allows completing all 3 tiers with opt-in dialog', async () => {
+      const onComplete = jest.fn();
+      const onSandboxComplete = jest.fn();
+      const recordSpy = jest.spyOn(verseEngine, 'recordReview');
+      const consumeSpy = jest.spyOn(SubscriptionService, 'consumeRecitation');
+
+      const mockTranscriber = new SimulatedTranscriber({
+        defaultText: sandboxVerse.text,
+      });
+
+      const { getByText, findByText, getByTestId, queryByTestId } = await render(
+        <ReviewScreen
+          verse={sandboxVerse}
+          onComplete={onComplete}
+          onSandboxComplete={onSandboxComplete}
+          transcriber={mockTranscriber}
+          isSandbox={true}
+        />
+      );
+
+      // Verify Level 1 Echo Mode is initial
+      expect(getByText('Level 1: Echo Mode (Ear Training)')).toBeTruthy();
+
+      // Advance to Level 2
+      await act(async () => {
+        fireEvent.press(getByText('2. Cloze'));
+      });
+      expect(getByText('Level 2: Cloze Practice')).toBeTruthy();
+
+      // Advance to Level 3
+      await act(async () => {
+        fireEvent.press(getByText('3. Recite'));
+      });
+      expect(getByText('Level 3: Blind Recitation (Active Recall)')).toBeTruthy();
+
+      // Recite at Level 3
+      const startButton = await findByText('🎤 Start Reciting');
+      await act(async () => {
+        fireEvent.press(startButton);
+      });
+
+      // Does not consume quota
+      expect(consumeSpy).not.toHaveBeenCalled();
+
+      const stopButton = await findByText('⏹ Stop & Verify');
+      await act(async () => {
+        fireEvent.press(stopButton);
+      });
+
+      // Does not record to VerseEngine SRS
+      expect(recordSpy).not.toHaveBeenCalled();
+
+      // Opt-in modal should appear
+      expect(await findByText('Add Acts 2:38 to your daily memory deck?')).toBeTruthy();
+      expect(getByTestId('sandbox-opt-in-save')).toBeTruthy();
+      expect(getByTestId('sandbox-opt-in-dismiss')).toBeTruthy();
+
+      // Tap Add to My Verses
+      await act(async () => {
+        fireEvent.press(getByTestId('sandbox-opt-in-save'));
+      });
+
+      expect(onSandboxComplete).toHaveBeenCalledWith(sandboxVerse, true);
+    });
+
+    it('allows choosing Explore App without Saving in opt-in modal', async () => {
+      const onComplete = jest.fn();
+      const onSandboxComplete = jest.fn();
+      const mockTranscriber = new SimulatedTranscriber({
+        defaultText: sandboxVerse.text,
+      });
+
+      const { findByText, getByTestId } = await render(
+        <ReviewScreen
+          verse={sandboxVerse}
+          onComplete={onComplete}
+          onSandboxComplete={onSandboxComplete}
+          transcriber={mockTranscriber}
+          isSandbox={true}
+        />
+      );
+
+      // Switch to Level 3 directly
+      await act(async () => {
+        fireEvent.press(await findByText('3. Recite'));
+      });
+
+      await act(async () => {
+        fireEvent.press(await findByText('🎤 Start Reciting'));
+      });
+
+      await act(async () => {
+        fireEvent.press(await findByText('⏹ Stop & Verify'));
+      });
+
+      expect(await findByText('Add Acts 2:38 to your daily memory deck?')).toBeTruthy();
+
+      // Tap Explore App without Saving
+      await act(async () => {
+        fireEvent.press(getByTestId('sandbox-opt-in-dismiss'));
+      });
+
+      expect(onSandboxComplete).toHaveBeenCalledWith(sandboxVerse, false);
+    });
+  });
 });
+

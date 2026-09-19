@@ -1,9 +1,13 @@
 import React from 'react';
+import { Share } from 'react-native';
 import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
 import HomeScreen from './HomeScreen';
 import { verseEngine } from '../services/VerseEngine';
 import { bibleProvider } from '../services/BibleProvider';
+import { audioRecorder } from '../services/AudioRecorderService';
+import { SimulatedTranscriber } from '../services/SpeechTranscriber';
 import * as Clipboard from 'expo-clipboard';
+import { encodeDeckPayload } from '../utils/deckSharing';
 
 // Mock verseEngine
 jest.mock('../services/VerseEngine', () => ({
@@ -13,6 +17,14 @@ jest.mock('../services/VerseEngine', () => ({
       dueVerses: [],
       dueCount: 0,
     }),
+    getHabitStats: jest.fn().mockResolvedValue({
+      currentStreak: 0,
+      longestStreak: 0,
+      lastActiveDate: null,
+      completedTodayCount: 0,
+      totalDueToday: 0,
+      dueCount: 0,
+    }),
     addVerse: jest.fn().mockResolvedValue({
       id: '1',
       reference: 'John 3:16',
@@ -20,6 +32,11 @@ jest.mock('../services/VerseEngine', () => ({
       translation: 'WEB',
     }),
     deleteVerse: jest.fn().mockResolvedValue(true),
+    importDeck: jest.fn().mockResolvedValue([]),
+    isVerseMastered: jest.fn(
+      (verse: any, isDue: boolean) => !isDue && (verse.srs?.intervalDays ?? 0) >= 21
+    ),
+    getNextReviewMessage: jest.fn().mockReturnValue('Next review due tomorrow'),
   },
 }));
 
@@ -43,6 +60,31 @@ jest.mock('expo-clipboard', () => ({
 describe('HomeScreen Integration (Ticket 16)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    (verseEngine.getVersesSummary as jest.Mock).mockReset();
+    (verseEngine.getVersesSummary as jest.Mock).mockResolvedValue({
+      allVerses: [],
+      dueVerses: [],
+      dueCount: 0,
+    });
+    (verseEngine.getHabitStats as jest.Mock).mockReset();
+    (verseEngine.getHabitStats as jest.Mock).mockResolvedValue({
+      currentStreak: 0,
+      longestStreak: 0,
+      lastActiveDate: null,
+      completedTodayCount: 0,
+      totalDueToday: 0,
+      dueCount: 0,
+    });
+    (verseEngine.importDeck as jest.Mock).mockReset();
+    (verseEngine.importDeck as jest.Mock).mockResolvedValue([]);
+    (bibleProvider.fetchPassage as jest.Mock).mockReset();
+    (Clipboard.getStringAsync as jest.Mock).mockReset();
+    (Clipboard.getStringAsync as jest.Mock).mockResolvedValue('');
+    jest.spyOn(Share, 'share').mockResolvedValue({ action: 'sharedAction' } as any);
+    jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValue(true);
+    jest.spyOn(audioRecorder, 'startRecording').mockResolvedValue(undefined);
+    jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValue('file:///recording.m4a');
+    jest.spyOn(audioRecorder, 'deleteAudioFile').mockResolvedValue(true);
   });
 
   jest.setTimeout(15000);
@@ -175,7 +217,7 @@ describe('HomeScreen Integration (Ticket 16)', () => {
 
     // Select Almeida
     await act(async () => {
-      fireEvent.press(getByText(/Almeida/i));
+      fireEvent.press(getByText('Almeida (JFA)'));
     });
 
     const refInput = getByPlaceholderText('Reference (e.g. John 3:16)');
@@ -196,7 +238,7 @@ describe('HomeScreen Integration (Ticket 16)', () => {
   });
 
   it('pastes from clipboard, extracting YouVersion reference, text, and translation tag', async () => {
-    (Clipboard.getStringAsync as jest.Mock).mockResolvedValueOnce(
+    (Clipboard.getStringAsync as jest.Mock).mockResolvedValue(
       `"Porque Deus tanto amou o mundo que deu o seu Filho Unigênito..."\n- João 3:16 NVI\nhttps://bible.com/bible/129/jhn.3.16.NVI`
     );
 
@@ -440,11 +482,485 @@ describe('HomeScreen Integration (Ticket 16)', () => {
       expect(verseEngine.deleteVerse).toHaveBeenCalledWith('v1');
       await waitFor(() => {
         expect(queryByText('Excluir versículo?')).toBeNull();
-        expect(getByText('🎉 All caught up for today! No verses due.')).toBeTruthy();
+        expect(getByTestId('sandbox-welcome-card')).toBeTruthy();
         expect(getByText(/Due Today \(0\)/)).toBeTruthy();
         expect(getByText(/All \(0\)/)).toBeTruthy();
       });
     });
   });
+
+  describe('HomeScreen Habit Banner (Ticket 30)', () => {
+    it('renders habit banner with streak and daily progress', async () => {
+      (verseEngine.getHabitStats as jest.Mock).mockResolvedValueOnce({
+        currentStreak: 4,
+        longestStreak: 7,
+        lastActiveDate: '2026-09-18',
+        completedTodayCount: 2,
+        totalDueToday: 3,
+        dueCount: 1,
+      });
+
+      const { getByText, getByTestId } = await render(<HomeScreen />);
+
+      await waitFor(() => {
+        expect(getByTestId('habit-banner')).toBeTruthy();
+        expect(getByText('4 Day Streak')).toBeTruthy();
+        expect(getByText('2 of 3 Due Today')).toBeTruthy();
+      });
+    });
+  });
+
+  describe('HomeScreen Interactive Sandbox (Ticket 31)', () => {
+    it('renders SandboxWelcomeCard when library is empty (allVerses === 0)', async () => {
+      (verseEngine.getVersesSummary as jest.Mock).mockResolvedValueOnce({
+        allVerses: [],
+        dueVerses: [],
+        dueCount: 0,
+      });
+
+      const { getByTestId, getByText } = await render(<HomeScreen />);
+
+      await waitFor(() => {
+        expect(getByTestId('sandbox-welcome-card')).toBeTruthy();
+        expect(getByText('Acts 2:38')).toBeTruthy();
+        expect(getByText('🎤 Try Interactive Recitation (Acts 2:38)')).toBeTruthy();
+      });
+    });
+
+    it('launches sandbox ReviewScreen when tapping sandbox button and saves verse on opt-in', async () => {
+      (verseEngine.getVersesSummary as jest.Mock)
+        .mockResolvedValueOnce({
+          allVerses: [],
+          dueVerses: [],
+          dueCount: 0,
+        })
+        .mockResolvedValueOnce({
+          allVerses: [
+            {
+              id: 'saved-acts',
+              reference: 'Acts 2:38',
+              text: 'Peter said to them...',
+              translation: 'WEB',
+            },
+          ],
+          dueVerses: [
+            {
+              id: 'saved-acts',
+              reference: 'Acts 2:38',
+              text: 'Peter said to them...',
+              translation: 'WEB',
+            },
+          ],
+          dueCount: 1,
+        });
+
+      const mockTranscriber = new SimulatedTranscriber({
+        defaultText:
+          'Peter said to them, “Repent, and be baptized, every one of you, in the name of Jesus Christ for the forgiveness of sins, and you will receive the gift of the Holy Spirit.”',
+      });
+
+      const { getByTestId, getByText, findByText } = await render(
+        <HomeScreen transcriber={mockTranscriber} />
+      );
+
+      await waitFor(() => {
+        expect(getByTestId('start-sandbox-button')).toBeTruthy();
+      });
+
+      // Launch sandbox
+      await act(async () => {
+        fireEvent.press(getByTestId('start-sandbox-button'));
+      });
+
+      // ReviewScreen should be active in Echo mode
+      await waitFor(() => {
+        expect(getByText('Level 1: Echo Mode (Ear Training)')).toBeTruthy();
+      });
+
+      // Navigate to Level 3
+      await act(async () => {
+        fireEvent.press(getByText('3. Recite'));
+      });
+
+      // Recite and stop
+      await act(async () => {
+        fireEvent.press(getByText('🎤 Start Reciting'));
+      });
+
+      const stopBtn = await findByText('⏹ Stop & Verify');
+      await act(async () => {
+        fireEvent.press(stopBtn);
+      });
+
+      // Opt-in dialog should appear
+      expect(await findByText('Add Acts 2:38 to your daily memory deck?')).toBeTruthy();
+
+      // Tap Add to My Verses
+      await act(async () => {
+        fireEvent.press(getByTestId('sandbox-opt-in-save'));
+      });
+
+      // Verify verseEngine.addVerse was called
+      expect(verseEngine.addVerse).toHaveBeenCalledWith(
+        expect.objectContaining({
+          reference: 'Acts 2:38',
+          translation: 'WEB',
+        })
+      );
+    });
+
+    it('returns to empty HomeScreen when choosing Explore App without Saving', async () => {
+      (verseEngine.getVersesSummary as jest.Mock).mockResolvedValue({
+        allVerses: [],
+        dueVerses: [],
+        dueCount: 0,
+      });
+
+      const mockTranscriber = new SimulatedTranscriber({
+        defaultText:
+          'Peter said to them, “Repent, and be baptized, every one of you, in the name of Jesus Christ for the forgiveness of sins, and you will receive the gift of the Holy Spirit.”',
+      });
+
+      const { getByTestId, getByText, findByText } = await render(
+        <HomeScreen transcriber={mockTranscriber} />
+      );
+
+      await waitFor(() => {
+        expect(getByTestId('start-sandbox-button')).toBeTruthy();
+      });
+
+      // Launch sandbox
+      await act(async () => {
+        fireEvent.press(getByTestId('start-sandbox-button'));
+      });
+
+      // Navigate to Level 3
+      await act(async () => {
+        fireEvent.press(getByText('3. Recite'));
+      });
+
+      await act(async () => {
+        fireEvent.press(getByText('🎤 Start Reciting'));
+      });
+
+      const stopBtn = await findByText('⏹ Stop & Verify');
+      await act(async () => {
+        fireEvent.press(stopBtn);
+      });
+
+      // Opt-in dialog
+      expect(await findByText('Add Acts 2:38 to your daily memory deck?')).toBeTruthy();
+
+      // Tap Explore App without Saving
+      await act(async () => {
+        fireEvent.press(getByTestId('sandbox-opt-in-dismiss'));
+      });
+
+      // Verify addVerse was NOT called
+      expect(verseEngine.addVerse).not.toHaveBeenCalled();
+
+      // Back to HomeScreen with SandboxWelcomeCard
+      await waitFor(() => {
+        expect(getByTestId('sandbox-welcome-card')).toBeTruthy();
+      });
+    });
+  });
+
+  describe('HomeScreen Daily Done Victory Card & Polished Verse Cards (Ticket 32)', () => {
+    it('renders DailyDoneCard when dueCount === 0 and allVerses.length > 0 in Due Today tab, and switches to All tab on practice ahead', async () => {
+      const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+      (verseEngine.getVersesSummary as jest.Mock).mockResolvedValue({
+        allVerses: [
+          {
+            id: 'v1',
+            reference: 'John 3:16',
+            text: 'For God so loved...',
+            translation: 'WEB',
+            srs: { intervalDays: 1, streak: 1, easeFactor: 2.5, nextReviewDate: tomorrow },
+          },
+        ],
+        dueVerses: [],
+        dueCount: 0,
+      });
+
+      const { getByTestId, getByText } = await render(<HomeScreen />);
+
+      await waitFor(() => {
+        expect(getByTestId('daily-done-card')).toBeTruthy();
+        expect(
+          getByText('🎉 Daily Goal Achieved! Streak Protected for Today.')
+        ).toBeTruthy();
+        expect(getByText('Next review due tomorrow')).toBeTruthy();
+      });
+
+      // Tap Practice Ahead
+      await act(async () => {
+        fireEvent.press(getByTestId('practice-ahead-button'));
+      });
+
+      // Should now display the All tab containing John 3:16
+      await waitFor(() => {
+        expect(getByText('John 3:16')).toBeTruthy();
+      });
+    });
+
+    it('displays status pills (Due Today, Mastered, Learning) and last accuracy score on verse cards', async () => {
+      const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+      (verseEngine.getVersesSummary as jest.Mock).mockResolvedValue({
+        allVerses: [
+          {
+            id: 'v1',
+            reference: 'Romans 8:28',
+            text: 'And we know...',
+            translation: 'WEB',
+            lastScore: 95,
+            srs: { intervalDays: 0, streak: 0, easeFactor: 2.5 },
+          },
+          {
+            id: 'v2',
+            reference: 'Philippians 4:13',
+            text: 'I can do all things...',
+            translation: 'WEB',
+            lastScore: 88,
+            srs: { intervalDays: 30, streak: 5, easeFactor: 2.5, nextReviewDate: tomorrow },
+          },
+          {
+            id: 'v3',
+            reference: 'Psalm 23:1',
+            text: 'The Lord is my shepherd...',
+            translation: 'WEB',
+            srs: { intervalDays: 6, streak: 2, easeFactor: 2.5, nextReviewDate: tomorrow },
+          },
+        ],
+        dueVerses: [
+          {
+            id: 'v1',
+            reference: 'Romans 8:28',
+            text: 'And we know...',
+            translation: 'WEB',
+            lastScore: 95,
+            srs: { intervalDays: 0, streak: 0, easeFactor: 2.5 },
+          },
+        ],
+        dueCount: 1,
+      });
+
+      const { getByText } = await render(<HomeScreen />);
+
+      // Switch to All tab so all 3 cards are rendered
+      await act(async () => {
+        fireEvent.press(getByText(/All \(3\)/));
+      });
+
+      await waitFor(() => {
+        // v1 is due today
+        expect(getByText('Due Today')).toBeTruthy();
+        expect(getByText('95% Accuracy')).toBeTruthy();
+
+        // v2 is mastered (intervalDays >= 21, not due)
+        expect(getByText('Mastered (Interval: 30d)')).toBeTruthy();
+        expect(getByText('88% Accuracy')).toBeTruthy();
+
+        // v3 is learning (intervalDays < 21, not due)
+        expect(getByText('Learning (Streak: 2)')).toBeTruthy();
+      });
+    });
+
+    it('launches ReviewScreen when tapping the dedicated 🎤 Recite button', async () => {
+      (verseEngine.getVersesSummary as jest.Mock).mockResolvedValue({
+        allVerses: [
+          {
+            id: 'v1',
+            reference: 'Romans 8:28',
+            text: 'And we know...',
+            translation: 'WEB',
+          },
+        ],
+        dueVerses: [
+          {
+            id: 'v1',
+            reference: 'Romans 8:28',
+            text: 'And we know...',
+            translation: 'WEB',
+          },
+        ],
+        dueCount: 1,
+      });
+
+      const { getByTestId, getByText } = await render(<HomeScreen />);
+
+      await waitFor(() => {
+        expect(getByTestId('recite-button-v1')).toBeTruthy();
+      });
+
+      await act(async () => {
+        fireEvent.press(getByTestId('recite-button-v1'));
+      });
+
+      // ReviewScreen should open
+      await waitFor(() => {
+        expect(getByText('Romans 8:28')).toBeTruthy();
+        expect(getByText('1. Echo')).toBeTruthy();
+      });
+    });
+  });
+
+  describe('HomeScreen Deck Tags and Viral Deck Sharing (Ticket 33)', () => {
+    it('displays deck filter chips, filters verses by deck, and displays deck tag badge', async () => {
+      (verseEngine.getVersesSummary as jest.Mock).mockResolvedValue({
+        allVerses: [
+          {
+            id: 'v1',
+            reference: 'John 14:27',
+            text: 'Peace I leave with you...',
+            translation: 'WEB',
+            deck: 'Peace',
+          },
+          {
+            id: 'v2',
+            reference: 'Romans 15:13',
+            text: 'May the God of hope...',
+            translation: 'WEB',
+            deck: 'Hope',
+          },
+          {
+            id: 'v3',
+            reference: 'Psalm 23:1',
+            text: 'The Lord is my shepherd...',
+            translation: 'WEB',
+          },
+        ],
+        dueVerses: [],
+        dueCount: 0,
+      });
+
+      const { getByTestId, queryByTestId, getByText, queryByText } = await render(
+        <HomeScreen />
+      );
+
+      // Deck chips should be present
+      await waitFor(() => {
+        expect(getByTestId('deck-filter-Peace')).toBeTruthy();
+        expect(getByTestId('deck-filter-Hope')).toBeTruthy();
+        expect(getByText('#Peace')).toBeTruthy();
+        expect(getByText('#Hope')).toBeTruthy();
+      });
+
+      // Switch to All tab to see all verses
+      await act(async () => {
+        fireEvent.press(getByText(/📚 All/i));
+      });
+
+      expect(getByTestId('verse-card-v1')).toBeTruthy();
+      expect(getByTestId('verse-card-v2')).toBeTruthy();
+      expect(getByTestId('verse-card-v3')).toBeTruthy();
+
+      // Tap Peace deck filter chip
+      await act(async () => {
+        fireEvent.press(getByTestId('deck-filter-Peace'));
+      });
+
+      // Only Peace deck verses should remain visible
+      expect(getByTestId('verse-card-v1')).toBeTruthy();
+      expect(queryByTestId('verse-card-v2')).toBeNull();
+      expect(queryByTestId('verse-card-v3')).toBeNull();
+
+      // Deck banner with share button appears
+      expect(getByText('Deck: #Peace')).toBeTruthy();
+      expect(getByTestId('share-deck-button')).toBeTruthy();
+
+      // Tap Peace deck filter chip again to deselect
+      await act(async () => {
+        fireEvent.press(getByTestId('deck-filter-Peace'));
+      });
+
+      // All verses visible again
+      expect(getByTestId('verse-card-v1')).toBeTruthy();
+      expect(getByTestId('verse-card-v2')).toBeTruthy();
+      expect(getByTestId('verse-card-v3')).toBeTruthy();
+      expect(queryByText('Deck: #Peace')).toBeNull();
+    });
+
+    it('invokes Share.share with formatted message when tapping "Share Deck"', async () => {
+      (verseEngine.getVersesSummary as jest.Mock).mockResolvedValue({
+        allVerses: [
+          {
+            id: 'v1',
+            reference: 'John 14:27',
+            text: 'Peace I leave with you; my peace I give you.',
+            translation: 'WEB',
+            deck: 'Peace',
+          },
+        ],
+        dueVerses: [],
+        dueCount: 0,
+      });
+
+      const { getByTestId } = await render(<HomeScreen />);
+
+      await waitFor(() => {
+        expect(getByTestId('deck-filter-Peace')).toBeTruthy();
+      });
+
+      // Select Peace deck filter
+      await act(async () => {
+        fireEvent.press(getByTestId('deck-filter-Peace'));
+      });
+
+      // Tap Share Deck
+      await act(async () => {
+        fireEvent.press(getByTestId('share-deck-button'));
+      });
+
+      expect(Share.share).toHaveBeenCalledWith({
+        message: expect.stringContaining('Deck: Peace'),
+      });
+      const shareArg = (Share.share as jest.Mock).mock.calls[0][0].message;
+      expect(shareArg).toContain('John 14:27');
+      expect(shareArg).toContain('https://voice-scripture.app/i#');
+    });
+
+    it('detects shared deck from clipboard on mount, displays SharedDeckModal, and imports verses', async () => {
+      const payload = {
+        name: 'Faith',
+        verses: [
+          {
+            ref: 'Hebrews 11:1',
+            text: 'Now faith is the assurance of things hoped for.',
+            trans: 'WEB',
+          },
+        ],
+        note: 'Encouraging verses',
+      };
+      const encoded = encodeDeckPayload(payload);
+      (Clipboard.getStringAsync as jest.Mock).mockResolvedValue(
+        `https://voice-scripture.app/i#${encoded}`
+      );
+
+      const { getByTestId, getByText } = await render(<HomeScreen />);
+
+      // SharedDeckModal should appear
+      await waitFor(() => {
+        expect(getByTestId('shared-deck-modal')).toBeTruthy();
+        expect(getByText('Faith')).toBeTruthy();
+        expect(getByText('"Encouraging verses"')).toBeTruthy();
+        expect(getByText('Hebrews 11:1')).toBeTruthy();
+      });
+
+      // Tap Import Selected (1)
+      await act(async () => {
+        fireEvent.press(getByTestId('import-shared-deck-button'));
+      });
+
+      expect(verseEngine.importDeck).toHaveBeenCalledWith('Faith', [
+        {
+          reference: 'Hebrews 11:1',
+          text: 'Now faith is the assurance of things hoped for.',
+          translation: 'WEB',
+        },
+      ]);
+    });
+  });
 });
+
 

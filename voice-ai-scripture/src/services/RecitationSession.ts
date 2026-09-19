@@ -2,7 +2,13 @@ import { Verse, VerseEngine, verseEngine, SRSResult } from './VerseEngine';
 import { SubscriptionService, subscriptionService } from './SubscriptionService';
 import { audioRecorder, AudioRecorderService } from './AudioRecorderService';
 import { diffVerses, calculateScore, DiffToken } from '../engines/diffEngine';
-import { evaluateAssistedScore } from '../engines/clozeEngine';
+import {
+  evaluateAssistedScore,
+  generateClozeTokens,
+  revealWord,
+  hideWord,
+  ClozeToken,
+} from '../engines/clozeEngine';
 import { calculateNextReview } from '../engines/srsEngine';
 import {
   SpeechTranscriber,
@@ -10,11 +16,14 @@ import {
   TranscriptionError,
   createDefaultTranscriber,
 } from './SpeechTranscriber';
+import {
+  SpeechSynthesizer,
+  getDefaultSpeechSynthesizer,
+} from './SpeechSynthesizer';
 import { normalizeReference } from './ReferenceNormalizer';
-
 import { PT_TRANSLATIONS } from './BibleProvider';
 
-export { SpeechTranscriber };
+export { SpeechTranscriber, SpeechSynthesizer, ClozeToken };
 
 const EN_TRANSLATIONS = new Set(['WEB', 'KJV', 'ESV', 'NIV', 'NKJV', 'NASB', 'NLT', 'MSG']);
 
@@ -39,6 +48,8 @@ export type RecitationStatus =
   | 'quota_exhausted'
   | 'error';
 
+export type RecitationLevel = 1 | 2 | 3;
+
 export interface VoiceRecitationResult {
   tokens: DiffToken[];
   score: number;
@@ -47,10 +58,27 @@ export interface VoiceRecitationResult {
 }
 
 export interface RecitationState {
+  level: RecitationLevel;
   status: RecitationStatus;
   volumeLevel: number;
+  clozeTokens: ClozeToken[];
+  isTextRevealed: boolean;
+  assistanceUsed: boolean;
+  currentResult: VoiceRecitationResult | null;
+  officialResult: VoiceRecitationResult | null;
   result: VoiceRecitationResult | null;
   errorMessage: string | null;
+}
+
+export interface RecitationSessionOptions {
+  recorder?: AudioRecorderService;
+  transcriber?: SpeechTranscriber;
+  verseEngine?: VerseEngine;
+  subscriptionService?: SubscriptionService;
+  synthesizer?: SpeechSynthesizer;
+  initialLevel?: RecitationLevel;
+  autoVocalizeOnLevel1?: boolean;
+  isSandbox?: boolean;
 }
 
 export class RecitationSession {
@@ -59,30 +87,44 @@ export class RecitationSession {
   private transcriber: SpeechTranscriber;
   private verseEngine: VerseEngine;
   private subscriptionService: SubscriptionService;
+  private synthesizer: SpeechSynthesizer;
+  private autoVocalizeOnLevel1: boolean;
+  private isSandbox: boolean;
   private currentAudioUri: string | null = null;
   private listeners: Set<(state: RecitationState) => void> = new Set();
+  private peekTimers: Map<number, NodeJS.Timeout> = new Map();
 
-  private state: RecitationState = {
-    status: 'idle',
-    volumeLevel: 0,
-    result: null,
-    errorMessage: null,
-  };
+  private state: RecitationState;
 
-  constructor(
-    verse: Verse,
-    options?: {
-      recorder?: AudioRecorderService;
-      transcriber?: SpeechTranscriber;
-      verseEngine?: VerseEngine;
-      subscriptionService?: SubscriptionService;
-    }
-  ) {
+  constructor(verse: Verse, options?: RecitationSessionOptions) {
     this.verse = verse;
     this.recorder = options?.recorder ?? audioRecorder;
     this.verseEngine = options?.verseEngine ?? verseEngine;
     this.transcriber = options?.transcriber ?? createDefaultTranscriber();
     this.subscriptionService = options?.subscriptionService ?? subscriptionService;
+    this.synthesizer = options?.synthesizer ?? getDefaultSpeechSynthesizer();
+    this.autoVocalizeOnLevel1 = options?.autoVocalizeOnLevel1 ?? true;
+    this.isSandbox = options?.isSandbox ?? false;
+
+    const initialLevel = options?.initialLevel ?? (this.isSandbox ? 1 : 3);
+    const clozeTokens = this.getClozeTokensForLevel(initialLevel);
+
+    this.state = {
+      level: initialLevel,
+      status: 'idle',
+      volumeLevel: 0,
+      clozeTokens,
+      isTextRevealed: false,
+      assistanceUsed: false,
+      currentResult: null,
+      officialResult: null,
+      result: null,
+      errorMessage: null,
+    };
+
+    if (initialLevel === 1 && this.autoVocalizeOnLevel1) {
+      this.vocalize().catch(() => {});
+    }
   }
 
   getState(): RecitationState {
@@ -99,12 +141,112 @@ export class RecitationSession {
 
   private setState(partial: Partial<RecitationState>) {
     this.state = { ...this.state, ...partial };
+    if ('currentResult' in partial && !('result' in partial)) {
+      this.state.result = partial.currentResult ?? null;
+    } else if ('result' in partial && !('currentResult' in partial)) {
+      this.state.currentResult = partial.result ?? null;
+    }
     const current = this.getState();
     this.listeners.forEach((listener) => listener(current));
   }
 
+  private clearPeekTimers(): void {
+    this.peekTimers.forEach((timer) => clearTimeout(timer));
+    this.peekTimers.clear();
+  }
+
+  private getClozeTokensForLevel(level: RecitationLevel): ClozeToken[] {
+    if (level === 1) return [];
+    if (level === 2) return generateClozeTokens(this.verse.text, 'first-letter');
+    return generateClozeTokens(this.verse.text, 'blank');
+  }
+
+  setLevel(level: RecitationLevel): void {
+    if (this.state.level === level) return;
+
+    this.clearPeekTimers();
+    this.synthesizer.stop().catch(() => {});
+
+    const clozeTokens = this.getClozeTokensForLevel(level);
+
+    this.setState({
+      level,
+      status: 'idle',
+      volumeLevel: 0,
+      clozeTokens,
+      isTextRevealed: false,
+      assistanceUsed: false,
+      currentResult: null,
+      result: null,
+      errorMessage: null,
+    });
+
+    if (level === 1 && this.autoVocalizeOnLevel1) {
+      this.vocalize().catch(() => {});
+    }
+  }
+
+  nextLevel(): void {
+    if (this.state.level < 3) {
+      this.setLevel((this.state.level + 1) as RecitationLevel);
+    }
+  }
+
+  practiceAgain(): void {
+    this.clearPeekTimers();
+    const clozeTokens = this.getClozeTokensForLevel(this.state.level);
+
+    this.setState({
+      status: 'idle',
+      volumeLevel: 0,
+      clozeTokens,
+      isTextRevealed: false,
+      currentResult: null,
+      result: null,
+      errorMessage: null,
+    });
+  }
+
+  toggleTextReveal(): void {
+    if (this.state.level === 1) {
+      this.setState({ isTextRevealed: !this.state.isTextRevealed });
+    }
+  }
+
+  tapWord(index: number): void {
+    if (index < 0 || index >= this.state.clozeTokens.length) return;
+
+    if (this.state.level === 2) {
+      const clozeTokens = revealWord(this.state.clozeTokens, index);
+      this.setState({ clozeTokens });
+    } else if (this.state.level === 3) {
+      const clozeTokens = revealWord(this.state.clozeTokens, index);
+      this.setState({ clozeTokens, assistanceUsed: true });
+
+      const existingTimer = this.peekTimers.get(index);
+      if (existingTimer) {
+        clearTimeout(existingTimer);
+      }
+
+      const timer = setTimeout(() => {
+        const nextTokens = hideWord(this.state.clozeTokens, index);
+        this.peekTimers.delete(index);
+        this.setState({ clozeTokens: nextTokens });
+      }, 3000);
+
+      this.peekTimers.set(index, timer);
+    }
+  }
+
+  async vocalize(): Promise<void> {
+    const lang = inferVerseLanguage(this.verse);
+    await this.synthesizer.speak(this.verse.text, { language: lang });
+  }
+
   async startReciting(options?: { unmetered?: boolean }): Promise<void> {
-    this.setState({ errorMessage: null, result: null, volumeLevel: 0 });
+    await this.synthesizer.stop().catch(() => {});
+
+    this.setState({ errorMessage: null, currentResult: null, result: null, volumeLevel: 0 });
 
     try {
       // 1. Microphone Permissions
@@ -117,8 +259,9 @@ export class RecitationSession {
         return;
       }
 
-      // 2. Quota Gating Check (skipped for unmetered practice modes)
-      if (!options?.unmetered) {
+      // 2. Quota Gating Check (Levels 1 & 2 are unmetered practice; Level 3 is metered)
+      const isUnmetered = this.isSandbox || (options?.unmetered ?? (this.state.level !== 3));
+      if (!isUnmetered) {
         const quota = await this.subscriptionService.consumeRecitation();
         if (!quota.allowed) {
           this.setState({ status: 'quota_exhausted' });
@@ -175,13 +318,17 @@ export class RecitationSession {
 
       const tokens = diffVerses(this.verse.text, transcript);
       const rawScore = calculateScore(tokens);
-      const score = options?.assistanceUsed
+
+      const isUnmetered = this.isSandbox || (options?.unmetered ?? (this.state.level !== 3));
+      const assistanceUsed = options?.assistanceUsed ?? this.state.assistanceUsed;
+
+      const score = assistanceUsed
         ? evaluateAssistedScore(rawScore, true)
         : rawScore;
 
       // Coordinate review recording and SM-2 progression via VerseEngine
       let srsResult: SRSResult;
-      if (options?.unmetered) {
+      if (isUnmetered) {
         const simulated = calculateNextReview(this.verse.srs, score);
         srsResult = {
           ...simulated,
@@ -209,7 +356,16 @@ export class RecitationSession {
         this.currentAudioUri = null;
       }
 
-      this.setState({ status: 'verified', result });
+      const officialResult = (!isUnmetered && this.state.level === 3)
+        ? result
+        : this.state.officialResult;
+
+      this.setState({
+        status: 'verified',
+        currentResult: result,
+        result,
+        officialResult,
+      });
       return result;
     } catch (err: any) {
       const userMessage = err instanceof TranscriptionError
@@ -231,6 +387,9 @@ export class RecitationSession {
   }
 
   async reset(): Promise<void> {
+    this.clearPeekTimers();
+    await this.synthesizer.stop().catch(() => {});
+
     if (this.state.status === 'reciting') {
       const uri = await this.recorder.stopRecording();
       if (uri) {
@@ -243,9 +402,27 @@ export class RecitationSession {
     this.setState({
       status: 'idle',
       volumeLevel: 0,
+      currentResult: null,
       result: null,
       errorMessage: null,
     });
+  }
+
+  async dispose(): Promise<void> {
+    this.clearPeekTimers();
+    await this.synthesizer.stop().catch(() => {});
+
+    if (this.state.status === 'reciting') {
+      const uri = await this.recorder.stopRecording().catch(() => null);
+      if (uri) {
+        await this.recorder.deleteAudioFile(uri).catch(() => {});
+      }
+    } else if (this.currentAudioUri) {
+      await this.recorder.deleteAudioFile(this.currentAudioUri).catch(() => {});
+      this.currentAudioUri = null;
+    }
+
+    this.listeners.clear();
   }
 }
 

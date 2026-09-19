@@ -6,19 +6,50 @@ import {
   FlatList,
   StyleSheet,
   TouchableOpacity,
+  ScrollView,
+  Share,
+  AppState,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { verseEngine, Verse, VerseSummary } from '../services/VerseEngine';
+import * as Clipboard from 'expo-clipboard';
+import { verseEngine, Verse, VerseSummary, HabitStats } from '../services/VerseEngine';
 import ReviewScreen from './ReviewScreen';
 import PackBrowserModal from '../components/PackBrowserModal';
 import ReminderSettingsModal from '../components/ReminderSettingsModal';
 import AddVerseModal from '../components/AddVerseModal';
 import DeleteConfirmationModal from '../components/DeleteConfirmationModal';
+import HabitBanner from '../components/HabitBanner';
+import SandboxWelcomeCard from '../components/SandboxWelcomeCard';
+import DailyDoneCard from '../components/DailyDoneCard';
+import SharedDeckModal from '../components/SharedDeckModal';
+import {
+  extractDeckFromClipboard,
+  generateShareMessage,
+  SharedDeckPayload,
+  SharedDeckVerse,
+} from '../utils/deckSharing';
+import { SpeechTranscriber } from '../services/SpeechTranscriber';
 
-export default function HomeScreen() {
+export function getNextReviewText(allVerses: Verse[], now: Date = new Date()): string {
+  return verseEngine.getNextReviewMessage(allVerses, now);
+}
+
+interface HomeScreenProps {
+  transcriber?: SpeechTranscriber;
+}
+
+export default function HomeScreen({ transcriber }: HomeScreenProps = {}) {
   const [summary, setSummary] = useState<VerseSummary>({
     allVerses: [],
     dueVerses: [],
+    dueCount: 0,
+  });
+  const [habitStats, setHabitStats] = useState<HabitStats>({
+    currentStreak: 0,
+    longestStreak: 0,
+    lastActiveDate: null,
+    completedTodayCount: 0,
+    totalDueToday: 0,
     dueCount: 0,
   });
   const [modalVisible, setModalVisible] = useState(false);
@@ -27,11 +58,16 @@ export default function HomeScreen() {
   const [verseToDelete, setVerseToDelete] = useState<Verse | null>(null);
 
   const [activeReviewVerse, setActiveReviewVerse] = useState<Verse | null>(null);
+  const [sandboxVerse, setSandboxVerse] = useState<Verse | null>(null);
   const [filterMode, setFilterMode] = useState<'all' | 'due'>('due');
+  const [selectedDeckFilter, setSelectedDeckFilter] = useState<string | null>(null);
+  const [detectedSharedDeck, setDetectedSharedDeck] = useState<SharedDeckPayload | null>(null);
 
   const loadVerses = async () => {
     const data = await verseEngine.getVersesSummary();
+    const stats = await verseEngine.getHabitStats();
     setSummary(data);
+    setHabitStats(stats);
   };
 
   const handleConfirmDelete = async () => {
@@ -46,10 +82,91 @@ export default function HomeScreen() {
     loadVerses();
   }, []);
 
+  useEffect(() => {
+    const checkClipboardForDeck = async () => {
+      try {
+        const text = await Clipboard.getStringAsync();
+        const extracted = extractDeckFromClipboard(text);
+        if (extracted) {
+          setDetectedSharedDeck(extracted);
+        }
+      } catch {
+        // Ignore clipboard read errors
+      }
+    };
+    checkClipboardForDeck();
+
+    const subscription = AppState.addEventListener('change', (nextAppState) => {
+      if (nextAppState === 'active') {
+        checkClipboardForDeck();
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, []);
+
+  const handleShareCurrentDeck = async () => {
+    if (!selectedDeckFilter) return;
+    const deckVerses = summary.allVerses.filter((v) => v.deck === selectedDeckFilter);
+    const payload: SharedDeckPayload = {
+      name: selectedDeckFilter,
+      verses: deckVerses.map((v) => ({
+        ref: v.reference,
+        text: v.text,
+        trans: v.translation,
+      })),
+    };
+    const message = generateShareMessage(payload);
+    await Share.share({ message });
+  };
+
+  const handleImportSharedDeck = async (
+    deckName: string,
+    selectedVerses: SharedDeckVerse[]
+  ) => {
+    await verseEngine.importDeck(
+      deckName,
+      selectedVerses.map((v) => ({
+        reference: v.ref,
+        text: v.text,
+        translation: v.trans,
+      }))
+    );
+    await loadVerses();
+  };
+
+  if (sandboxVerse) {
+    return (
+      <ReviewScreen
+        verse={sandboxVerse}
+        isSandbox={true}
+        transcriber={transcriber}
+        onComplete={() => {
+          setSandboxVerse(null);
+          loadVerses();
+        }}
+        onSandboxComplete={async (verse, saveRequested) => {
+          if (saveRequested) {
+            await verseEngine.addVerse({
+              reference: verse.reference,
+              text: verse.text,
+              translation: verse.translation,
+            });
+          }
+          setSandboxVerse(null);
+          await loadVerses();
+        }}
+      />
+    );
+  }
+
   if (activeReviewVerse) {
     return (
       <ReviewScreen
         verse={activeReviewVerse}
+        transcriber={transcriber}
         onComplete={() => {
           setActiveReviewVerse(null);
           loadVerses();
@@ -58,7 +175,15 @@ export default function HomeScreen() {
     );
   }
 
-  const displayedVerses = filterMode === 'due' ? summary.dueVerses : summary.allVerses;
+  const uniqueDecks = Array.from(
+    new Set(summary.allVerses.map((v) => v.deck).filter((d): d is string => !!d))
+  );
+
+  const displayedVerses = selectedDeckFilter
+    ? summary.allVerses.filter((v) => v.deck === selectedDeckFilter)
+    : filterMode === 'due'
+    ? summary.dueVerses
+    : summary.allVerses;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -72,6 +197,12 @@ export default function HomeScreen() {
           <Text style={styles.reminderButtonText}>⏰ Reminders</Text>
         </TouchableOpacity>
       </View>
+
+      <HabitBanner
+        currentStreak={habitStats.currentStreak}
+        completedTodayCount={habitStats.completedTodayCount}
+        totalDueToday={habitStats.totalDueToday}
+      />
 
       <View style={styles.tabBar}>
         <TouchableOpacity
@@ -92,13 +223,60 @@ export default function HomeScreen() {
         </TouchableOpacity>
       </View>
 
+      {uniqueDecks.length > 0 ? (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.deckFilterScrollView}
+          contentContainerStyle={styles.deckFilterContainer}
+        >
+          {uniqueDecks.map((deck) => {
+            const isSelected = selectedDeckFilter === deck;
+            return (
+              <TouchableOpacity
+                key={deck}
+                style={[styles.deckChip, isSelected && styles.activeDeckChip]}
+                onPress={() => setSelectedDeckFilter(isSelected ? null : deck)}
+                testID={`deck-filter-${deck}`}
+                accessibilityRole="button"
+                accessibilityState={{ selected: isSelected }}
+              >
+                <Text style={[styles.deckChipText, isSelected && styles.activeDeckChipText]}>
+                  #{deck}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+      ) : null}
+
+      {selectedDeckFilter ? (
+        <View style={styles.deckBannerRow}>
+          <Text style={styles.deckBannerText}>Deck: #{selectedDeckFilter}</Text>
+          <TouchableOpacity
+            style={styles.shareDeckButton}
+            testID="share-deck-button"
+            onPress={handleShareCurrentDeck}
+            accessibilityRole="button"
+            accessibilityLabel={`Share deck ${selectedDeckFilter}`}
+          >
+            <Text style={styles.shareDeckButtonText}>📤 Share Deck</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
+
       <FlatList
         data={displayedVerses}
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => {
-          const streak = item.srs?.streak ?? item.srs?.repetitions;
+          const isDue = summary.dueVerses.some((v) => v.id === item.id);
+          const interval = item.srs?.intervalDays ?? 0;
+          const streak = item.srs?.streak ?? item.srs?.repetitions ?? 0;
+          const isMastered = verseEngine.isVerseMastered(item, isDue);
+          const lastScore = item.lastScore ?? item.srs?.lastScore;
+
           return (
-            <View style={styles.verseItem}>
+            <View style={styles.verseItem} testID={`verse-card-${item.id}`}>
               <TouchableOpacity
                 style={styles.verseContentTouchable}
                 testID={`verse-recite-${item.id}`}
@@ -111,36 +289,72 @@ export default function HomeScreen() {
                     {item.translation ? (
                       <Text style={styles.translationBadge}>[{item.translation}]</Text>
                     ) : null}
+                    {item.deck ? (
+                      <Text style={styles.deckTagBadge}>#{item.deck}</Text>
+                    ) : null}
                   </View>
-                  {streak !== undefined && streak > 0 && (
-                    <Text style={styles.streakBadge}>Streak: {streak}</Text>
-                  )}
+                  <View style={styles.statusPillsRow}>
+                    {isDue ? (
+                      <Text style={styles.dueStatusPill}>Due Today</Text>
+                    ) : isMastered ? (
+                      <Text style={styles.masteredStatusPill}>
+                        Mastered (Interval: {interval}d)
+                      </Text>
+                    ) : (
+                      <Text style={styles.learningStatusPill}>
+                        Learning (Streak: {streak})
+                      </Text>
+                    )}
+                  </View>
                 </View>
+
+                {lastScore !== undefined ? (
+                  <Text style={styles.accuracyText}>{lastScore}% Accuracy</Text>
+                ) : null}
+
                 <Text style={styles.tapPrompt}>Tap to practice →</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity
-                style={styles.deleteButton}
-                onPress={(e) => {
-                  e?.stopPropagation?.();
-                  setVerseToDelete(item);
-                }}
-                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                testID={`delete-verse-${item.id}`}
-                accessibilityRole="button"
-                accessibilityLabel={`Excluir versículo ${item.reference}`}
-              >
-                <Text style={styles.deleteButtonText}>🗑️</Text>
-              </TouchableOpacity>
+              <View style={styles.cardActionsRow}>
+                <TouchableOpacity
+                  style={styles.reciteActionButton}
+                  testID={`recite-button-${item.id}`}
+                  onPress={() => setActiveReviewVerse(item)}
+                  activeOpacity={0.7}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Recitar versículo ${item.reference}`}
+                >
+                  <Text style={styles.reciteActionButtonText}>🎤 Recite</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.deleteButton}
+                  onPress={(e) => {
+                    e?.stopPropagation?.();
+                    setVerseToDelete(item);
+                  }}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  testID={`delete-verse-${item.id}`}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Excluir versículo ${item.reference}`}
+                >
+                  <Text style={styles.deleteButtonText}>🗑️</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           );
         }}
         ListEmptyComponent={
-          <Text style={styles.emptyText}>
-            {filterMode === 'due'
-              ? '🎉 All caught up for today! No verses due.'
-              : 'No verses added yet. Add one below!'}
-          </Text>
+          summary.allVerses.length === 0 ? (
+            <SandboxWelcomeCard onStartSandbox={(verse) => setSandboxVerse(verse)} />
+          ) : !selectedDeckFilter && filterMode === 'due' && summary.dueCount === 0 ? (
+            <DailyDoneCard
+              nextReviewText={getNextReviewText(summary.allVerses)}
+              onPracticeAhead={() => setFilterMode('all')}
+            />
+          ) : (
+            <Text style={styles.emptyText}>No verses found.</Text>
+          )
         }
       />
 
@@ -179,6 +393,13 @@ export default function HomeScreen() {
         verse={verseToDelete}
         onConfirm={handleConfirmDelete}
         onCancel={() => setVerseToDelete(null)}
+      />
+
+      <SharedDeckModal
+        visible={detectedSharedDeck !== null}
+        deck={detectedSharedDeck}
+        onClose={() => setDetectedSharedDeck(null)}
+        onImport={handleImportSharedDeck}
       />
     </SafeAreaView>
   );
@@ -290,4 +511,134 @@ const styles = StyleSheet.create({
   buttonSpacing: {
     marginBottom: 12,
   },
+  statusPillsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  dueStatusPill: {
+    fontSize: 12,
+    backgroundColor: '#fef2f2',
+    color: '#b91c1c',
+    borderColor: '#fecaca',
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 12,
+    fontWeight: '700',
+  },
+  masteredStatusPill: {
+    fontSize: 12,
+    backgroundColor: '#f0fdf4',
+    color: '#15803d',
+    borderColor: '#bbf7d0',
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 12,
+    fontWeight: '700',
+  },
+  learningStatusPill: {
+    fontSize: 12,
+    backgroundColor: '#eef2ff',
+    color: '#4338ca',
+    borderColor: '#c7d2fe',
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 12,
+    fontWeight: '600',
+  },
+  accuracyText: {
+    fontSize: 13,
+    color: '#059669',
+    fontWeight: '600',
+    marginTop: 4,
+  },
+  cardActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  reciteActionButton: {
+    backgroundColor: '#4f46e5',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  reciteActionButtonText: {
+    color: 'white',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  deckFilterScrollView: {
+    maxHeight: 44,
+    marginBottom: 12,
+  },
+  deckFilterContainer: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
+    paddingHorizontal: 2,
+  },
+  deckChip: {
+    backgroundColor: '#f1f5f9',
+    borderColor: '#cbd5e1',
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  activeDeckChip: {
+    backgroundColor: '#4f46e5',
+    borderColor: '#4338ca',
+  },
+  deckChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  activeDeckChipText: {
+    color: 'white',
+  },
+  deckBannerRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#eef2ff',
+    borderColor: '#c7d2fe',
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+  deckBannerText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#3730a3',
+  },
+  shareDeckButton: {
+    backgroundColor: '#4f46e5',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
+  },
+  shareDeckButtonText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  deckTagBadge: {
+    fontSize: 12,
+    backgroundColor: '#e0e7ff',
+    color: '#4338ca',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    fontWeight: '600',
+  },
 });
+

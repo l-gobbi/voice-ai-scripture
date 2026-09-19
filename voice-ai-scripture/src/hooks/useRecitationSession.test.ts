@@ -126,4 +126,33 @@ describe('useRecitationSession hook (Ticket 08 & 12)', () => {
     const { unmount } = await renderHook(() => useRecitationSession(mockVerse));
     expect(() => unmount()).not.toThrow();
   });
+
+  it('exposes scaffolding level navigation and interaction actions', async () => {
+    const { result } = await renderHook(() =>
+      useRecitationSession(mockVerse, { autoVocalizeOnLevel1: false })
+    );
+
+    expect(result.current.level).toBe(3);
+    expect(result.current.clozeTokens.length).toBeGreaterThan(0);
+
+    await act(async () => {
+      result.current.setLevel(1);
+    });
+    expect(result.current.level).toBe(1);
+
+    await act(async () => {
+      result.current.toggleTextReveal();
+    });
+    expect(result.current.isTextRevealed).toBe(true);
+
+    await act(async () => {
+      result.current.nextLevel();
+    });
+    expect(result.current.level).toBe(2);
+
+    await act(async () => {
+      result.current.tapWord(0);
+    });
+    expect(result.current.clozeTokens[0].isRevealed).toBe(true);
+  });
 });

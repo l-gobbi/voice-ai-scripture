@@ -417,5 +417,206 @@ describe('VerseEngine (Ticket 09)', () => {
       expect(summary.dueCount).toBe(0);
     });
   });
+
+  describe('Slice 8: Global Daily Streak Engine & Habit Stats (Ticket 30)', () => {
+    it('initializes with 0 streak and 0 completed reviews', async () => {
+      const storage = new MapStorageAdapter();
+      const engine = new VerseEngine(storage);
+
+      const stats = await engine.getHabitStats();
+      expect(stats.currentStreak).toBe(0);
+      expect(stats.longestStreak).toBe(0);
+      expect(stats.lastActiveDate).toBeNull();
+      expect(stats.completedTodayCount).toBe(0);
+      expect(stats.dueCount).toBe(0);
+      expect(stats.totalDueToday).toBe(0);
+    });
+
+    it('increments streak to 1 on first recorded review and tracks completed today count', async () => {
+      const storage = new MapStorageAdapter();
+      const engine = new VerseEngine(storage);
+      const v1 = await engine.addVerse({ reference: 'John 3:16', text: 'For God so loved...' });
+
+      const day1 = new Date('2026-09-18T10:00:00Z');
+      await engine.recordReview(v1.id, 100, day1);
+
+      const stats = await engine.getHabitStats(day1);
+      expect(stats.currentStreak).toBe(1);
+      expect(stats.longestStreak).toBe(1);
+      expect(stats.lastActiveDate).toBe('2026-09-18');
+      expect(stats.completedTodayCount).toBe(1);
+    });
+
+    it('maintains streak on multiple reviews on the same calendar day', async () => {
+      const storage = new MapStorageAdapter();
+      const engine = new VerseEngine(storage);
+      const v1 = await engine.addVerse({ reference: 'John 3:16', text: 'For God so loved...' });
+      const v2 = await engine.addVerse({ reference: 'Romans 8:28', text: 'And we know...' });
+
+      const day1Morning = new Date('2026-09-18T09:00:00Z');
+      await engine.recordReview(v1.id, 100, day1Morning);
+
+      const day1Evening = new Date('2026-09-18T19:00:00Z');
+      await engine.recordReview(v2.id, 95, day1Evening);
+
+      const stats = await engine.getHabitStats(day1Evening);
+      expect(stats.currentStreak).toBe(1);
+      expect(stats.longestStreak).toBe(1);
+      expect(stats.completedTodayCount).toBe(2);
+    });
+
+    it('increments streak on consecutive calendar days', async () => {
+      const storage = new MapStorageAdapter();
+      const engine = new VerseEngine(storage);
+      const v1 = await engine.addVerse({ reference: 'John 3:16', text: 'For God so loved...' });
+
+      const day1 = new Date('2026-09-18T10:00:00Z');
+      await engine.recordReview(v1.id, 100, day1);
+
+      const day2 = new Date('2026-09-19T10:00:00Z');
+      await engine.recordReview(v1.id, 100, day2);
+
+      const stats = await engine.getHabitStats(day2);
+      expect(stats.currentStreak).toBe(2);
+      expect(stats.longestStreak).toBe(2);
+      expect(stats.lastActiveDate).toBe('2026-09-19');
+      expect(stats.completedTodayCount).toBe(1);
+    });
+
+    it('reports streak as 0 when a calendar day is missed, resetting to 1 upon next review', async () => {
+      const storage = new MapStorageAdapter();
+      const engine = new VerseEngine(storage);
+      const v1 = await engine.addVerse({ reference: 'John 3:16', text: 'For God so loved...' });
+
+      const day1 = new Date('2026-09-18T10:00:00Z');
+      await engine.recordReview(v1.id, 100, day1);
+
+      const day2 = new Date('2026-09-19T10:00:00Z');
+      await engine.recordReview(v1.id, 100, day2);
+
+      // Missed 2026-09-20. Checking on 2026-09-21:
+      const day4 = new Date('2026-09-21T10:00:00Z');
+      const brokenStats = await engine.getHabitStats(day4);
+      expect(brokenStats.currentStreak).toBe(0);
+      expect(brokenStats.longestStreak).toBe(2);
+
+      // User performs a review on day 4:
+      await engine.recordReview(v1.id, 100, day4);
+      const renewedStats = await engine.getHabitStats(day4);
+      expect(renewedStats.currentStreak).toBe(1);
+      expect(renewedStats.longestStreak).toBe(2);
+      expect(renewedStats.lastActiveDate).toBe('2026-09-21');
+    });
+
+    it('calculates totalDueToday based on completed today plus current due count', async () => {
+      const storage = new MapStorageAdapter();
+      const engine = new VerseEngine(storage);
+
+      const v1 = await engine.addVerse({ reference: 'John 3:16', text: 'For God so loved...' });
+      const v2 = await engine.addVerse({ reference: 'Romans 8:28', text: 'And we know...' });
+
+      // Both are due immediately upon creation:
+      const initialStats = await engine.getHabitStats();
+      expect(initialStats.dueCount).toBe(2);
+      expect(initialStats.completedTodayCount).toBe(0);
+      expect(initialStats.totalDueToday).toBe(2);
+
+      // Review v1:
+      await engine.recordReview(v1.id, 100);
+      const postStats = await engine.getHabitStats();
+      expect(postStats.completedTodayCount).toBe(1);
+      expect(postStats.dueCount).toBe(1);
+      expect(postStats.totalDueToday).toBe(2);
+    });
+  });
+
+  describe('Slice 9: Deck Import (Ticket 33)', () => {
+    it('imports verses with deck tags and skips duplicates', async () => {
+      const storage = new MapStorageAdapter();
+      const engine = new VerseEngine(storage);
+
+      const existing = await engine.addVerse({
+        reference: 'John 3:16',
+        text: 'For God so loved...',
+        translation: 'WEB',
+      });
+
+      const imported = await engine.importDeck('Gospel Basics', [
+        { reference: 'John 3:16', text: 'For God so loved...', translation: 'WEB' },
+        { reference: 'Romans 10:9', text: 'If you declare with your mouth...', translation: 'WEB' },
+      ]);
+
+      expect(imported).toHaveLength(1);
+      expect(imported[0].reference).toBe('Romans 10:9');
+      expect(imported[0].deck).toBe('Gospel Basics');
+
+      const all = await engine.getAllVerses();
+      expect(all).toHaveLength(2);
+      expect(all.find((v) => v.reference === 'Romans 10:9')?.deck).toBe('Gospel Basics');
+    });
+  });
+
+  describe('Slice 10: Review Message and Mastery Status Helpers', () => {
+    it('computes next review message correctly', () => {
+      const storage = new MapStorageAdapter();
+      const engine = new VerseEngine(storage);
+
+      expect(engine.getNextReviewMessage([])).toBe('Next review due tomorrow');
+
+      const now = new Date('2026-09-18T10:00:00Z');
+      const tomorrowVerse = {
+        id: '1',
+        reference: 'John 3:16',
+        text: 'Text',
+        srs: {
+          streak: 1,
+          intervalDays: 1,
+          easeFactor: 2.5,
+          nextReviewDate: '2026-09-19T10:00:00Z',
+        },
+      };
+      expect(engine.getNextReviewMessage([tomorrowVerse as any], now)).toBe(
+        'Next review due tomorrow'
+      );
+
+      const in3DaysVerse = {
+        id: '2',
+        reference: 'Romans 8:28',
+        text: 'Text',
+        srs: {
+          streak: 3,
+          intervalDays: 3,
+          easeFactor: 2.5,
+          nextReviewDate: '2026-09-21T10:00:00Z',
+        },
+      };
+      expect(engine.getNextReviewMessage([in3DaysVerse as any], now)).toBe(
+        'Next review due in 3 days'
+      );
+    });
+
+    it('determines verse mastery based on interval threshold and due status', () => {
+      const storage = new MapStorageAdapter();
+      const engine = new VerseEngine(storage);
+
+      const masteredVerse = {
+        id: '1',
+        reference: 'John 3:16',
+        text: 'Text',
+        srs: { streak: 5, intervalDays: 25, easeFactor: 2.5, nextReviewDate: '' },
+      };
+      expect(engine.isVerseMastered(masteredVerse as any, false)).toBe(true);
+      expect(engine.isVerseMastered(masteredVerse as any, true)).toBe(false);
+
+      const learningVerse = {
+        id: '2',
+        reference: 'John 3:16',
+        text: 'Text',
+        srs: { streak: 2, intervalDays: 6, easeFactor: 2.5, nextReviewDate: '' },
+      };
+      expect(engine.isVerseMastered(learningVerse as any, false)).toBe(false);
+    });
+  });
 });
+
 

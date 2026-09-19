@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,84 +7,62 @@ import {
   ActivityIndicator,
   ScrollView,
   TouchableOpacity,
+  Modal,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { verseEngine, Verse } from '../services/VerseEngine';
-import { useRecitationSession } from '../hooks/useRecitationSession';
+import { Verse } from '../services/VerseEngine';
+import { useRecitationSession, RecitationLevel } from '../hooks/useRecitationSession';
 import DiffView from '../components/DiffView';
 import PaywallModal from '../components/PaywallModal';
 import WaveformVisualizer from '../components/WaveformVisualizer';
 import { SubscriptionService } from '../services/SubscriptionService';
-import {
-  generateClozeTokens,
-  revealWord,
-  hideWord,
-  evaluateAssistedScore,
-  ClozeToken,
-} from '../engines/clozeEngine';
-import { getDefaultSpeechSynthesizer } from '../services/SpeechSynthesizer';
-import { inferVerseLanguage, SpeechTranscriber } from '../services/RecitationSession';
+import { SpeechTranscriber } from '../services/RecitationSession';
 
-export type RecitationLevel = 1 | 2 | 3;
+export type { RecitationLevel };
 
 interface ReviewScreenProps {
   verse: Verse;
   onComplete: () => void;
   transcriber?: SpeechTranscriber;
+  isSandbox?: boolean;
+  onSandboxComplete?: (verse: Verse, saveRequested: boolean) => void;
 }
 
-export default function ReviewScreen({ verse, onComplete, transcriber }: ReviewScreenProps) {
-  const [level, setLevel] = useState<RecitationLevel>(3);
-  const [level1Revealed, setLevel1Revealed] = useState(false);
-  const [clozeTokens, setClozeTokens] = useState<ClozeToken[]>([]);
-  const [assistanceUsed, setAssistanceUsed] = useState(false);
+export default function ReviewScreen({
+  verse,
+  onComplete,
+  transcriber,
+  isSandbox = false,
+  onSandboxComplete,
+}: ReviewScreenProps) {
   const [showPaywall, setShowPaywall] = useState(false);
-  const [practiceVoiceResult, setPracticeVoiceResult] = useState<{
-    score: number;
-    tokens: any[];
-    passed: boolean;
-  } | null>(null);
-
-  const peekTimersRef = useRef<Map<number, NodeJS.Timeout>>(new Map());
+  const [showSandboxOptIn, setShowSandboxOptIn] = useState(false);
 
   const {
+    level,
     status,
     volumeLevel,
-    result: officialResult,
+    clozeTokens,
+    isTextRevealed,
+    assistanceUsed,
+    currentResult,
     errorMessage,
     startReciting,
     stopAndVerify,
-    reset: resetRecitation,
-  } = useRecitationSession(verse, { transcriber });
+    setLevel,
+    nextLevel,
+    practiceAgain,
+    toggleTextReveal,
+    tapWord,
+    vocalize,
+  } = useRecitationSession(verse, {
+    transcriber,
+    isSandbox,
+    initialLevel: isSandbox ? 1 : 3,
+  });
 
   const isReciting = status === 'reciting';
   const isVerifying = status === 'verifying';
-
-  useEffect(() => {
-    resetRecitation();
-    setPracticeVoiceResult(null);
-    setAssistanceUsed(false);
-    setLevel1Revealed(false);
-
-    peekTimersRef.current.forEach((t) => clearTimeout(t));
-    peekTimersRef.current.clear();
-
-    if (level === 1) {
-      const synth = getDefaultSpeechSynthesizer();
-      const lang = inferVerseLanguage(verse);
-      synth.speak(verse.text, { language: lang }).catch(() => {});
-    } else if (level === 2) {
-      setClozeTokens(generateClozeTokens(verse.text, 'first-letter'));
-    } else if (level === 3) {
-      setClozeTokens(generateClozeTokens(verse.text, 'blank'));
-    }
-
-    return () => {
-      peekTimersRef.current.forEach((t) => clearTimeout(t));
-      peekTimersRef.current.clear();
-      getDefaultSpeechSynthesizer().stop().catch(() => {});
-    };
-  }, [level, verse.id, verse.text]);
 
   useEffect(() => {
     if (status === 'quota_exhausted') {
@@ -92,71 +70,19 @@ export default function ReviewScreen({ verse, onComplete, transcriber }: ReviewS
     }
   }, [status]);
 
-  const handleVocalize = () => {
-    const synth = getDefaultSpeechSynthesizer();
-    const lang = inferVerseLanguage(verse);
-    synth.speak(verse.text, { language: lang }).catch(() => {});
-  };
-
-  const handleLevel2WordTap = (index: number) => {
-    setClozeTokens((prev) => revealWord(prev, index));
-  };
-
-  const handleLevel3WordTap = (index: number) => {
-    setAssistanceUsed(true);
-    setClozeTokens((prev) => revealWord(prev, index));
-
-    const existingTimer = peekTimersRef.current.get(index);
-    if (existingTimer) {
-      clearTimeout(existingTimer);
+  useEffect(() => {
+    if (isSandbox && level === 3 && currentResult) {
+      setShowSandboxOptIn(true);
     }
-
-    const timer = setTimeout(() => {
-      setClozeTokens((prev) => hideWord(prev, index));
-      peekTimersRef.current.delete(index);
-    }, 3000);
-
-    peekTimersRef.current.set(index, timer);
-  };
+  }, [isSandbox, level, currentResult]);
 
   const handleToggleRecitation = async () => {
     if (isReciting) {
-      if (level === 1 || level === 2) {
-        const res = await stopAndVerify({ unmetered: true });
-        if (res) {
-          setPracticeVoiceResult({
-            score: res.score,
-            tokens: res.tokens,
-            passed: res.passed,
-          });
-        }
-      } else {
-        await stopAndVerify({
-          unmetered: false,
-          assistanceUsed,
-        });
-      }
+      await stopAndVerify();
     } else {
-      setPracticeVoiceResult(null);
-      if (level === 1 || level === 2) {
-        await startReciting({ unmetered: true });
-      } else {
-        await startReciting({ unmetered: false });
-      }
+      await startReciting();
     }
   };
-
-  const currentResult =
-    level === 3
-      ? officialResult
-      : practiceVoiceResult ||
-        (officialResult
-          ? {
-              score: officialResult.score,
-              tokens: officialResult.tokens,
-              passed: officialResult.passed,
-            }
-          : null);
 
   const displayScore = currentResult ? currentResult.score : 0;
 
@@ -194,7 +120,7 @@ export default function ReviewScreen({ verse, onComplete, transcriber }: ReviewS
           {level === 1 && (
             <View style={styles.levelCard}>
               <Text style={styles.levelBadge}>Level 1: Echo Mode (Ear Training)</Text>
-              {level1Revealed ? (
+              {isTextRevealed ? (
                 <Text style={styles.verseText}>{verse.text}</Text>
               ) : (
                 <View style={styles.concealedBox}>
@@ -205,11 +131,11 @@ export default function ReviewScreen({ verse, onComplete, transcriber }: ReviewS
               )}
               <View style={styles.level1Controls}>
                 <Button
-                  title={level1Revealed ? 'Conceal Text' : 'Reveal Text'}
-                  onPress={() => setLevel1Revealed(!level1Revealed)}
+                  title={isTextRevealed ? 'Conceal Text' : 'Reveal Text'}
+                  onPress={toggleTextReveal}
                 />
                 <View style={{ width: 10 }} />
-                <Button title="🔊 Listen Again" onPress={handleVocalize} />
+                <Button title="🔊 Listen Again" onPress={vocalize} />
               </View>
             </View>
           )}
@@ -218,7 +144,7 @@ export default function ReviewScreen({ verse, onComplete, transcriber }: ReviewS
             <View style={styles.levelCard}>
               <View style={styles.levelHeaderRow}>
                 <Text style={styles.levelBadge}>Level 2: Cloze Practice</Text>
-                <Button title="🔊 Listen" onPress={handleVocalize} />
+                <Button title="🔊 Listen" onPress={vocalize} />
               </View>
               <Text style={styles.instructionText}>
                 Tap any blanked word to reveal it inline if you need a prompt.
@@ -227,7 +153,7 @@ export default function ReviewScreen({ verse, onComplete, transcriber }: ReviewS
                 {clozeTokens.map((token, idx) => (
                   <TouchableOpacity
                     key={idx}
-                    onPress={() => handleLevel2WordTap(idx)}
+                    onPress={() => tapWord(idx)}
                     activeOpacity={0.7}
                   >
                     <Text style={[styles.clozeToken, token.isRevealed && styles.clozeRevealed]}>
@@ -252,7 +178,7 @@ export default function ReviewScreen({ verse, onComplete, transcriber }: ReviewS
                 {clozeTokens.map((token, idx) => (
                   <TouchableOpacity
                     key={idx}
-                    onPress={() => handleLevel3WordTap(idx)}
+                    onPress={() => tapWord(idx)}
                     activeOpacity={0.7}
                   >
                     <Text style={[styles.clozeToken, token.isRevealed && styles.peekToken]}>
@@ -298,7 +224,9 @@ export default function ReviewScreen({ verse, onComplete, transcriber }: ReviewS
                   </Text>
                   <Text style={styles.streakText}>
                     {level === 3
-                      ? currentResult.passed
+                      ? isSandbox
+                        ? '🎉 Sandbox Recitation Complete!'
+                        : currentResult.passed
                         ? '🎉 Official Review Recorded!'
                         : '🔄 Reinforcement Scheduled for Tomorrow'
                       : '✅ Practice Attempt (Unmetered)'}
@@ -326,20 +254,27 @@ export default function ReviewScreen({ verse, onComplete, transcriber }: ReviewS
               <Button
                 title="Practice Again"
                 color="#6b7280"
-                onPress={() => {
-                  setPracticeVoiceResult(null);
-                  resetRecitation();
-                }}
+                onPress={practiceAgain}
               />
               <View style={{ width: 16 }} />
               {level < 3 ? (
                 <Button
                   title={`Next: Level ${level + 1} →`}
                   color="#4f46e5"
-                  onPress={() => setLevel((prev) => (prev + 1) as RecitationLevel)}
+                  onPress={nextLevel}
                 />
               ) : (
-                <Button title="Done (Next Verse) →" color="#16a34a" onPress={onComplete} />
+                <Button
+                  title={isSandbox ? 'Finish Sandbox →' : 'Done (Next Verse) →'}
+                  color="#16a34a"
+                  onPress={() => {
+                    if (isSandbox) {
+                      setShowSandboxOptIn(true);
+                    } else {
+                      onComplete();
+                    }
+                  }}
+                />
               )}
             </View>
           )}
@@ -354,6 +289,60 @@ export default function ReviewScreen({ verse, onComplete, transcriber }: ReviewS
           setShowPaywall(false);
         }}
       />
+
+      <Modal
+        visible={showSandboxOptIn}
+        transparent={true}
+        animationType="fade"
+        testID="sandbox-opt-in-modal"
+        onRequestClose={() => {
+          setShowSandboxOptIn(false);
+          if (onSandboxComplete) {
+            onSandboxComplete(verse, false);
+          } else {
+            onComplete();
+          }
+        }}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <Text style={styles.modalTitle}>Add {verse.reference} to your daily memory deck?</Text>
+            <Text style={styles.modalDescription}>
+              You've successfully tested all 3 tiers of recitation! Would you like to add this passage to your memory verses for daily spaced repetition?
+            </Text>
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalPrimaryButton]}
+                testID="sandbox-opt-in-save"
+                onPress={() => {
+                  setShowSandboxOptIn(false);
+                  if (onSandboxComplete) {
+                    onSandboxComplete(verse, true);
+                  } else {
+                    onComplete();
+                  }
+                }}
+              >
+                <Text style={styles.modalPrimaryButtonText}>Add to My Verses</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.modalButton, styles.modalSecondaryButton]}
+                testID="sandbox-opt-in-dismiss"
+                onPress={() => {
+                  setShowSandboxOptIn(false);
+                  if (onSandboxComplete) {
+                    onSandboxComplete(verse, false);
+                  } else {
+                    onComplete();
+                  }
+                }}
+              >
+                <Text style={styles.modalSecondaryButtonText}>Explore App without Saving</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -461,4 +450,65 @@ const styles = StyleSheet.create({
   voiceActions: { width: '100%', alignSelf: 'center', maxWidth: 320, marginTop: 10 },
   doneActions: { flexDirection: 'row', justifyContent: 'center' },
   error: { color: '#ef4444', textAlign: 'center', marginBottom: 12 },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  modalCard: {
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 24,
+    width: '100%',
+    maxWidth: 400,
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#111827',
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  modalDescription: {
+    fontSize: 15,
+    color: '#4b5563',
+    lineHeight: 22,
+    marginBottom: 24,
+    textAlign: 'center',
+  },
+  modalActions: {
+    gap: 12,
+  },
+  modalButton: {
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalPrimaryButton: {
+    backgroundColor: '#4f46e5',
+  },
+  modalPrimaryButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  modalSecondaryButton: {
+    backgroundColor: '#f3f4f6',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  modalSecondaryButtonText: {
+    color: '#4b5563',
+    fontSize: 15,
+    fontWeight: '600',
+  },
 });
+

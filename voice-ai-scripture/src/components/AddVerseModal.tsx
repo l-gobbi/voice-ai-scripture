@@ -63,6 +63,7 @@ const KNOWN_MODAL_CODES = new Set(
 export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVerseModalProps) {
   const [reference, setReference] = useState('');
   const [text, setText] = useState('');
+  const [deck, setDeck] = useState('');
   const [selectedTranslation, setSelectedTranslation] = useState<VerseTranslation>('WEB');
   const [isFetching, setIsFetching] = useState(false);
   const [fetchNotice, setFetchNotice] = useState<string | null>(null);
@@ -182,9 +183,11 @@ export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVe
       reference,
       text,
       translation: selectedTranslation,
+      deck: deck.trim() ? deck.trim().replace(/^#/, '') : undefined,
     });
     setReference('');
     setText('');
+    setDeck('');
     setSelectedTranslation('WEB');
     setFetchNotice(null);
     onSaveSuccess();
@@ -194,6 +197,7 @@ export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVe
   const handleCancelModal = () => {
     setReference('');
     setText('');
+    setDeck('');
     setFetchNotice(null);
     setPickerVisible(false);
     onClose();
@@ -319,6 +323,16 @@ export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVe
             value={text}
             onChangeText={setText}
             multiline
+          />
+
+          {/* Deck Tag */}
+          <Text style={styles.inputLabel}># Tag / Deck (opcional)</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="#Deck (ex: Peace, Romans Road)"
+            value={deck}
+            onChangeText={setDeck}
+            testID="add-verse-deck-input"
           />
 
           <View style={styles.modalButtons}>

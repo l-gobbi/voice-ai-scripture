@@ -8,6 +8,7 @@ import { Verse, verseEngine } from './VerseEngine';
 import { SubscriptionService } from './SubscriptionService';
 import { audioRecorder } from './AudioRecorderService';
 import { SimulatedTranscriber, TranscriptionError } from './SpeechTranscriber';
+import { MockSpeechSynthesizer } from './SpeechSynthesizer';
 import { MapStorageAdapter } from './StorageAdapter';
 
 jest.mock('@react-native-async-storage/async-storage', () =>
@@ -38,6 +39,9 @@ describe('RecitationSession (Ticket 07)', () => {
       transcriber?: any;
       verseEngine?: any;
       subscriptionService?: SubscriptionService;
+      synthesizer?: any;
+      initialLevel?: any;
+      autoVocalizeOnLevel1?: boolean;
     }
   ): RecitationSession {
     return new RecitationSession(verse, {
@@ -53,7 +57,7 @@ describe('RecitationSession (Ticket 07)', () => {
   describe('Slice 1: Quota Gating and Start Reciting', () => {
     it('initializes in idle state', () => {
       const session = new RecitationSession(mockVerse);
-      expect(session.getState()).toEqual({
+      expect(session.getState()).toMatchObject({
         status: 'idle',
         volumeLevel: 0,
         result: null,
@@ -316,7 +320,7 @@ describe('RecitationSession (Ticket 07)', () => {
       const session = createTestSession(mockVerse);
       await session.reset();
 
-      expect(session.getState()).toEqual({
+      expect(session.getState()).toMatchObject({
         status: 'idle',
         volumeLevel: 0,
         result: null,
@@ -741,4 +745,287 @@ describe('RecitationSession (Ticket 07)', () => {
       expect(inferVerseLanguage({ reference: 'Unknown 99:99' })).toBe('en');
     });
   });
+
+  describe('Slice 8: 3-Tier Scaffolding Lifecycle & Cloze Token Generation (ADR 0012)', () => {
+    it('initializes by default in Level 3 (Blind Recitation) with blank cloze tokens', () => {
+      const session = new RecitationSession(mockVerse);
+      const state = session.getState();
+      expect(state.level).toBe(3);
+      expect(state.clozeTokens.length).toBeGreaterThan(0);
+      expect(state.clozeTokens[0].isRevealed).toBe(false);
+      expect(state.clozeTokens[0].masked).toMatch(/_+/);
+      expect(state.isTextRevealed).toBe(false);
+      expect(state.assistanceUsed).toBe(false);
+    });
+
+    it('switches to Level 1 (Echo Mode), clears cloze tokens, and allows toggleTextReveal', () => {
+      const session = new RecitationSession(mockVerse, { autoVocalizeOnLevel1: false });
+      session.setLevel(1);
+      expect(session.getState().level).toBe(1);
+      expect(session.getState().clozeTokens).toEqual([]);
+      expect(session.getState().isTextRevealed).toBe(false);
+
+      session.toggleTextReveal();
+      expect(session.getState().isTextRevealed).toBe(true);
+      session.toggleTextReveal();
+      expect(session.getState().isTextRevealed).toBe(false);
+    });
+
+    it('switches to Level 2 (Cloze Practice) with first-letter anchored tokens', () => {
+      const session = new RecitationSession(mockVerse);
+      session.setLevel(2);
+      expect(session.getState().level).toBe(2);
+      const firstToken = session.getState().clozeTokens[0];
+      expect(firstToken.masked.startsWith(firstToken.firstLetter)).toBe(true);
+      expect(firstToken.isRevealed).toBe(false);
+    });
+
+    it('advances through tiers with nextLevel()', () => {
+      const session = new RecitationSession(mockVerse, {
+        initialLevel: 1,
+        autoVocalizeOnLevel1: false,
+      });
+      expect(session.getState().level).toBe(1);
+
+      session.nextLevel();
+      expect(session.getState().level).toBe(2);
+
+      session.nextLevel();
+      expect(session.getState().level).toBe(3);
+
+      session.nextLevel();
+      expect(session.getState().level).toBe(3);
+    });
+
+    it('resets attempt state on practiceAgain() while keeping active tier and regenerating cloze', () => {
+      const session = new RecitationSession(mockVerse);
+      session.setLevel(2);
+      session.tapWord(0);
+      expect(session.getState().clozeTokens[0].isRevealed).toBe(true);
+
+      session.practiceAgain();
+      expect(session.getState().level).toBe(2);
+      expect(session.getState().status).toBe('idle');
+      expect(session.getState().clozeTokens[0].isRevealed).toBe(false);
+    });
+  });
+
+  describe('Slice 9: Interactive Word Reveals & Word Peek Lifelines (ADR 0012)', () => {
+    it('in Level 2, tapWord permanently reveals the cloze token without setting assistanceUsed', () => {
+      const session = new RecitationSession(mockVerse);
+      session.setLevel(2);
+      session.tapWord(0);
+
+      expect(session.getState().clozeTokens[0].isRevealed).toBe(true);
+      expect(session.getState().assistanceUsed).toBe(false);
+    });
+
+    it('in Level 3, tapWord peeks token, sets assistanceUsed: true, and auto-conceals after 3 seconds', () => {
+      jest.useFakeTimers();
+      const session = new RecitationSession(mockVerse);
+      expect(session.getState().level).toBe(3);
+
+      session.tapWord(0);
+      expect(session.getState().clozeTokens[0].isRevealed).toBe(true);
+      expect(session.getState().assistanceUsed).toBe(true);
+
+      jest.advanceTimersByTime(3000);
+      expect(session.getState().clozeTokens[0].isRevealed).toBe(false);
+      expect(session.getState().assistanceUsed).toBe(true);
+
+      jest.useRealTimers();
+    });
+
+    it('in Level 3, multiple taps reset the 3s auto-hide timer without leaking', () => {
+      jest.useFakeTimers();
+      const session = new RecitationSession(mockVerse);
+
+      session.tapWord(0);
+      jest.advanceTimersByTime(2000);
+      expect(session.getState().clozeTokens[0].isRevealed).toBe(true);
+
+      session.tapWord(0);
+      jest.advanceTimersByTime(2000);
+      expect(session.getState().clozeTokens[0].isRevealed).toBe(true);
+
+      jest.advanceTimersByTime(1000);
+      expect(session.getState().clozeTokens[0].isRevealed).toBe(false);
+
+      jest.useRealTimers();
+    });
+  });
+
+  describe('Slice 10: Speech Synthesis Integration & Conflict Resolution (ADR 0012)', () => {
+    it('vocalize() calls speech synthesizer with verse text and inferred language', async () => {
+      const mockSynth = new MockSpeechSynthesizer();
+      const session = new RecitationSession(mockVerse, {
+        synthesizer: mockSynth,
+        autoVocalizeOnLevel1: false,
+      });
+
+      await session.vocalize();
+      expect(mockSynth.getSpokenUtterances().length).toBe(1);
+      expect(mockSynth.getSpokenUtterances()[0].text).toBe(mockVerse.text);
+      expect(mockSynth.getSpokenUtterances()[0].options?.language).toBe('en-US');
+    });
+
+    it('auto-vocalizes when entering Level 1 if autoVocalizeOnLevel1 is true', async () => {
+      const mockSynth = new MockSpeechSynthesizer();
+      const session = new RecitationSession(mockVerse, {
+        synthesizer: mockSynth,
+        initialLevel: 3,
+        autoVocalizeOnLevel1: true,
+      });
+
+      session.setLevel(1);
+      expect(mockSynth.getSpokenUtterances().length).toBe(1);
+    });
+
+    it('halts active vocalization before microphone recording starts', async () => {
+      const mockSynth = new MockSpeechSynthesizer();
+      const stopSpy = jest.spyOn(mockSynth, 'stop');
+      jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValue(true);
+      jest.spyOn(audioRecorder, 'startRecording').mockResolvedValue(undefined);
+
+      const session = new RecitationSession(mockVerse, {
+        synthesizer: mockSynth,
+        initialLevel: 1,
+        autoVocalizeOnLevel1: false,
+      });
+
+      await session.startReciting();
+      expect(stopSpy).toHaveBeenCalled();
+    });
+  });
+
+  describe('Slice 11: Encapsulated Scoring and Quota Gating by Tier (ADR 0012)', () => {
+    it('in Level 1 and 2, startReciting is unmetered and stopAndVerify does not mutate verseEngine', async () => {
+      jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValue(true);
+      jest.spyOn(audioRecorder, 'startRecording').mockResolvedValue(undefined);
+      jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValue('file:///practice.m4a');
+      jest.spyOn(audioRecorder, 'deleteAudioFile').mockResolvedValue(true);
+
+      const quotaSpy = jest.spyOn(SubscriptionService, 'consumeRecitation');
+      const recordSpy = jest.spyOn(verseEngine, 'recordReview');
+
+      const mockTranscriber = new SimulatedTranscriber({ defaultText: mockVerse.text });
+      const session = new RecitationSession(mockVerse, {
+        transcriber: mockTranscriber,
+        initialLevel: 2,
+        autoVocalizeOnLevel1: false,
+      });
+
+      await session.startReciting();
+      expect(quotaSpy).not.toHaveBeenCalled();
+
+      const result = await session.stopAndVerify();
+      expect(recordSpy).not.toHaveBeenCalled();
+      expect(result?.passed).toBe(true);
+      expect(session.getState().currentResult).toBeTruthy();
+      expect(session.getState().officialResult).toBeNull();
+    });
+
+    it('in Level 3 with word peek, stopAndVerify records review capped at 75% and sets officialResult', async () => {
+      jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValue(true);
+      jest.spyOn(audioRecorder, 'startRecording').mockResolvedValue(undefined);
+      jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValue('file:///official.m4a');
+      jest.spyOn(audioRecorder, 'deleteAudioFile').mockResolvedValue(true);
+
+      jest.spyOn(SubscriptionService, 'consumeRecitation').mockResolvedValue({
+        allowed: true,
+        remaining: 5,
+        isSubscribed: false,
+      });
+
+      const recordSpy = jest.spyOn(verseEngine, 'recordReview').mockResolvedValue({
+        streak: 1,
+        repetitions: 1,
+        intervalDays: 1,
+        easeFactor: 2.5,
+        nextReviewDate: new Date(),
+        passed: false,
+      });
+
+      const mockTranscriber = new SimulatedTranscriber({ defaultText: mockVerse.text });
+      const session = new RecitationSession(mockVerse, {
+        transcriber: mockTranscriber,
+        initialLevel: 3,
+      });
+
+      session.tapWord(0);
+      expect(session.getState().assistanceUsed).toBe(true);
+
+      await session.startReciting();
+      const result = await session.stopAndVerify();
+
+      expect(recordSpy).toHaveBeenCalledWith(mockVerse.id, 75);
+      expect(result?.score).toBe(75);
+      expect(session.getState().officialResult?.score).toBe(75);
+    });
+  });
+
+  describe('Slice 12: Lifecycle Teardown via dispose() (ADR 0012)', () => {
+    it('clears timers, stops synthesizer, deletes audio, and removes listeners on dispose()', async () => {
+      jest.useFakeTimers();
+      const mockSynth = new MockSpeechSynthesizer();
+      const synthStopSpy = jest.spyOn(mockSynth, 'stop');
+
+      const session = new RecitationSession(mockVerse, { synthesizer: mockSynth });
+      session.tapWord(0);
+
+      const listener = jest.fn();
+      session.subscribe(listener);
+      listener.mockClear();
+
+      await session.dispose();
+
+      expect(synthStopSpy).toHaveBeenCalled();
+      jest.advanceTimersByTime(5000);
+      expect(listener).not.toHaveBeenCalled();
+
+      jest.useRealTimers();
+    });
+  });
+
+  describe('Slice 13: Sandbox Mode (Ticket 31)', () => {
+    it('defaults initialLevel to 1 and does not consume quota or record SRS in Level 3', async () => {
+      jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValue(true);
+      jest.spyOn(audioRecorder, 'startRecording').mockResolvedValue(undefined);
+      jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValue('file:///sandbox.m4a');
+      jest.spyOn(audioRecorder, 'deleteAudioFile').mockResolvedValue(true);
+
+      const exhaustedSubService = new SubscriptionService(
+        new MapStorageAdapter({ free_recitations_remaining: '0', user_is_subscribed: 'false' })
+      );
+      const consumeSpy = jest.spyOn(exhaustedSubService, 'consumeRecitation');
+      const recordSpy = jest.spyOn(verseEngine, 'recordReview');
+
+      const mockTranscriber = new SimulatedTranscriber({ defaultText: mockVerse.text });
+
+      const session = new RecitationSession(mockVerse, {
+        isSandbox: true,
+        subscriptionService: exhaustedSubService,
+        transcriber: mockTranscriber,
+        autoVocalizeOnLevel1: false,
+      });
+
+      // Defaults to Level 1 in sandbox mode
+      expect(session.getState().level).toBe(1);
+
+      // Advance to Level 3
+      session.setLevel(3);
+      expect(session.getState().level).toBe(3);
+
+      // Start reciting at Level 3 - should not consume quota
+      await session.startReciting();
+      expect(session.getState().status).toBe('reciting');
+      expect(consumeSpy).not.toHaveBeenCalled();
+
+      // Stop and verify at Level 3 - should not call recordReview
+      const result = await session.stopAndVerify();
+      expect(result?.score).toBe(100);
+      expect(recordSpy).not.toHaveBeenCalled();
+    });
+  });
 });
+
