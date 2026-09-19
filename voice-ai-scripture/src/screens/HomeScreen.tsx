@@ -277,13 +277,13 @@ export default function HomeScreen({ transcriber }: HomeScreenProps = {}) {
 
           return (
             <View style={styles.verseItem} testID={`verse-card-${item.id}`}>
-              <TouchableOpacity
-                style={styles.verseContentTouchable}
-                testID={`verse-recite-${item.id}`}
-                onPress={() => setActiveReviewVerse(item)}
-                activeOpacity={0.7}
-              >
-                <View style={styles.verseHeader}>
+              <View style={styles.cardTopRow}>
+                <TouchableOpacity
+                  style={styles.verseContentTouchable}
+                  testID={`verse-recite-${item.id}`}
+                  onPress={() => setActiveReviewVerse(item)}
+                  activeOpacity={0.7}
+                >
                   <View style={styles.verseTitleContainer}>
                     <Text style={styles.verseReference}>{item.reference}</Text>
                     {item.translation ? (
@@ -305,26 +305,10 @@ export default function HomeScreen({ transcriber }: HomeScreenProps = {}) {
                         Learning (Streak: {streak})
                       </Text>
                     )}
+                    {lastScore !== undefined ? (
+                      <Text style={styles.accuracyText}>{lastScore}% Accuracy</Text>
+                    ) : null}
                   </View>
-                </View>
-
-                {lastScore !== undefined ? (
-                  <Text style={styles.accuracyText}>{lastScore}% Accuracy</Text>
-                ) : null}
-
-                <Text style={styles.tapPrompt}>Tap to practice →</Text>
-              </TouchableOpacity>
-
-              <View style={styles.cardActionsRow}>
-                <TouchableOpacity
-                  style={styles.reciteActionButton}
-                  testID={`recite-button-${item.id}`}
-                  onPress={() => setActiveReviewVerse(item)}
-                  activeOpacity={0.7}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Recitar versículo ${item.reference}`}
-                >
-                  <Text style={styles.reciteActionButtonText}>🎤 Recite</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -339,6 +323,26 @@ export default function HomeScreen({ transcriber }: HomeScreenProps = {}) {
                   accessibilityLabel={`Excluir versículo ${item.reference}`}
                 >
                   <Text style={styles.deleteButtonText}>🗑️</Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.cardBottomRow}>
+                <TouchableOpacity
+                  onPress={() => setActiveReviewVerse(item)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.tapPrompt}>Tap to practice →</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.reciteActionButton}
+                  testID={`recite-button-${item.id}`}
+                  onPress={() => setActiveReviewVerse(item)}
+                  activeOpacity={0.7}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Recitar versículo ${item.reference}`}
+                >
+                  <Text style={styles.reciteActionButtonText}>🎤 Recite</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -430,31 +434,39 @@ const styles = StyleSheet.create({
   verseItem: {
     padding: 16,
     backgroundColor: 'white',
-    borderRadius: 8,
-    marginBottom: 10,
+    borderRadius: 12,
+    marginBottom: 12,
     elevation: 2,
     borderWidth: 1,
     borderColor: '#e5e7eb',
+    flexDirection: 'column',
+  },
+  cardTopRow: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
+    alignItems: 'flex-start',
   },
   verseContentTouchable: {
     flex: 1,
+    marginRight: 8,
   },
-  verseHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   deleteButton: {
-    padding: 8,
-    marginLeft: 8,
+    padding: 6,
     borderRadius: 6,
     alignItems: 'center',
     justifyContent: 'center',
   },
   deleteButtonText: {
-    fontSize: 14,
+    fontSize: 15,
   },
-  verseTitleContainer: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  verseReference: { fontSize: 18, fontWeight: '600', color: '#1f2937' },
+  verseTitleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 6,
+  },
+  verseReference: { fontSize: 18, fontWeight: '700', color: '#1f2937' },
   translationBadge: {
     fontSize: 12,
     backgroundColor: '#f1f5f9',
@@ -473,7 +485,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     fontWeight: '600',
   },
-  tapPrompt: { fontSize: 13, color: '#6b7280', marginTop: 6 },
+  tapPrompt: { fontSize: 13, color: '#6b7280' },
   emptyText: { textAlign: 'center', marginTop: 40, color: '#6b7280' },
   tabBar: {
     flexDirection: 'row',
@@ -514,7 +526,9 @@ const styles = StyleSheet.create({
   statusPillsRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
     gap: 6,
+    marginTop: 2,
   },
   dueStatusPill: {
     fontSize: 12,
@@ -550,20 +564,29 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   accuracyText: {
-    fontSize: 13,
+    fontSize: 12,
+    backgroundColor: '#ecfdf5',
     color: '#059669',
+    borderColor: '#a7f3d0',
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 12,
     fontWeight: '600',
-    marginTop: 4,
   },
-  cardActionsRow: {
+  cardBottomRow: {
     flexDirection: 'row',
+    justifyContent: 'space-between',
     alignItems: 'center',
-    gap: 6,
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#f1f5f9',
   },
   reciteActionButton: {
     backgroundColor: '#4f46e5',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
