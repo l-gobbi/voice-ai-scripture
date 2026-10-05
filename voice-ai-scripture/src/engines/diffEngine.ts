@@ -5,8 +5,29 @@ export interface DiffToken {
   status: DiffStatus;
 }
 
-export const toComparisonKey = (word: string): string =>
-  word
+const ABBREVIATION_MAP: Record<string, string> = {
+  // Portuguese honorifics & biblical abbreviations commonly emitted by STT
+  sr: 'senhor',
+  sra: 'senhor',
+  snr: 'senhor',
+  snra: 'senhor',
+  sto: 'santo',
+  sta: 'santa',
+  cap: 'capitulo',
+  vs: 'versiculo',
+
+  // English honorifics & biblical abbreviations
+  st: 'saint',
+  mr: 'mister',
+  mrs: 'missus',
+  ms: 'miss',
+  dr: 'doctor',
+  mt: 'mount',
+  ch: 'chapter',
+};
+
+export const toComparisonKey = (word: string): string => {
+  const stripped = word
     .toLowerCase()
     // Normalize curly apostrophes to straight single quote
     .replace(/[\u2018\u2019]/g, "'")
@@ -15,6 +36,9 @@ export const toComparisonKey = (word: string): string =>
     .replace(/\p{Diacritic}/gu, '')
     // Strip non-alphanumeric and non-apostrophe characters
     .replace(/[^\p{L}\p{N}']/gu, '');
+
+  return ABBREVIATION_MAP[stripped] ?? stripped;
+};
 
 export interface AlignedToken {
   display: string;

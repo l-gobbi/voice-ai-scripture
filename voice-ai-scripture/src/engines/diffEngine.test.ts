@@ -145,6 +145,22 @@ describe('diffEngine', () => {
         'faltará.',
       ]);
     });
+
+    it('matches honorific abbreviations like Sr. and Sra. to Senhor and projects canonical word', () => {
+      const speechTranscript = 'O Sra. O Sra. é o meu pastor nada me faltará';
+      const result = diffVerses(psalmVerse, speechTranscript);
+
+      const correct = result.filter((t) => t.status === 'correct');
+      const missed = result.filter((t) => t.status === 'missed');
+
+      // "Senhor" MUST be recognized as correct (not missed!)
+      expect(correct.map((t) => t.word)).toContain('Senhor');
+      expect(missed.length).toBe(0);
+
+      // Score should pass (>= 90%) despite the initial stutter repetition
+      const score = calculateScore(result);
+      expect(score).toBeGreaterThanOrEqual(90);
+    });
   });
 });
 

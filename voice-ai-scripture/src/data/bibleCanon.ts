@@ -797,8 +797,7 @@ const RAW_CANON_BOOKS: CanonBook[] = [
       "jb"
     ],
     "ptAliases": [
-      "jo",
-      "jó"
+      "jb"
     ],
     "verseCounts": [
       22,
@@ -1523,8 +1522,7 @@ const RAW_CANON_BOOKS: CanonBook[] = [
     ],
     "ptAliases": [
       "jonas",
-      "jon",
-      "jn"
+      "jon"
     ],
     "verseCounts": [
       17,
@@ -1835,8 +1833,7 @@ const RAW_CANON_BOOKS: CanonBook[] = [
     ],
     "ptAliases": [
       "joao",
-      "jo",
-      "jn"
+      "jo"
     ],
     "verseCounts": [
       51,
@@ -1922,7 +1919,6 @@ const RAW_CANON_BOOKS: CanonBook[] = [
     ],
     "ptAliases": [
       "romanos",
-      "rom",
       "rm"
     ],
     "verseCounts": [

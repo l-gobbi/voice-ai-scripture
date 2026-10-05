@@ -744,6 +744,23 @@ describe('RecitationSession (Ticket 07)', () => {
       expect(inferVerseLanguage({ reference: 'John 3:16' })).toBe('en');
       expect(inferVerseLanguage({ reference: 'Unknown 99:99' })).toBe('en');
     });
+
+    it('infers pt from verse text containing Portuguese diacritics and marker words even with English reference', () => {
+      expect(
+        inferVerseLanguage({
+          reference: 'Psalms 23:1',
+          text: 'O Senhor é o meu pastor; nada me faltará.',
+        })
+      ).toBe('pt');
+
+      expect(
+        inferVerseLanguage({
+          reference: 'Psalm 23:1',
+          text: 'O Senhor é meu pastor e nada me faltará.',
+          translation: 'WEB', // Even if translation was erroneously left as default WEB!
+        })
+      ).toBe('pt');
+    });
   });
 
   describe('Slice 8: 3-Tier Scaffolding Lifecycle & Cloze Token Generation (ADR 0012)', () => {

@@ -1,10 +1,12 @@
-import { normalizeReference, NormalizedReference } from './ReferenceNormalizer';
-import webData from '../data/bibles/web.json';
-import kjvData from '../data/bibles/kjv.json';
-import almeidaData from '../data/bibles/almeida.json';
-import onbvData from '../data/bibles/onbv.json';
+import {
+  scriptureCatalog,
+  SupportedTranslation,
+  BUNDLED_TRANSLATIONS,
+  PT_TRANSLATIONS,
+} from './ScriptureCatalog';
 
-export type SupportedTranslation = 'WEB' | 'KJV' | 'ALMEIDA' | 'ONBV';
+export type { SupportedTranslation };
+export { BUNDLED_TRANSLATIONS, PT_TRANSLATIONS };
 
 export interface BiblePassage {
   reference: string;
@@ -17,106 +19,33 @@ export interface BibleProvider {
   fetchPassage(reference: string, translation: SupportedTranslation | string): Promise<BiblePassage | null>;
 }
 
-interface BibleDataset {
-  translation: SupportedTranslation;
-  name: string;
-  language: 'en' | 'pt';
-  books: Record<string, Record<string, Record<string, string>>>;
-}
-
-const DATASETS: Record<SupportedTranslation, BibleDataset> = {
-  WEB: webData as BibleDataset,
-  KJV: kjvData as BibleDataset,
-  ALMEIDA: almeidaData as BibleDataset,
-  ONBV: onbvData as BibleDataset,
-};
-
-export const BUNDLED_TRANSLATIONS: readonly SupportedTranslation[] = ['WEB', 'KJV', 'ALMEIDA', 'ONBV'] as const;
-
-export const PT_TRANSLATIONS: ReadonlySet<string> = new Set([
-  'ALMEIDA',
-  'ONBV',
-  'NVI',
-  'ARA',
-  'NAA',
-  'NTLH',
-  'ARC',
-  'NVT',
-]);
-
 export function isPortugueseTranslation(translation?: string | null): boolean {
-  if (!translation) return false;
-  return PT_TRANSLATIONS.has(translation.toUpperCase().trim());
+  return scriptureCatalog.isPortugueseTranslation(translation);
 }
 
 export function isBundledTranslation(raw: string): raw is SupportedTranslation {
-  return canonicalizeTranslation(raw) !== null;
-}
-
-function canonicalizeTranslation(raw: string): SupportedTranslation | null {
-  if (!raw || typeof raw !== 'string') {
-    return null;
-  }
-  const clean = raw.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-  if (clean === 'web' || clean === 'worldenglishbible') {
-    return 'WEB';
-  }
-  if (clean === 'kjv' || clean === 'kingjames' || clean === 'kingjamesversion') {
-    return 'KJV';
-  }
-  if (clean === 'almeida' || clean === 'jfa' || clean === 'almeidarevista' || clean === 'joaoferreiradealmeida') {
-    return 'ALMEIDA';
-  }
-  if (clean === 'onbv' || clean === 'nbv' || clean === 'novabibliaviva') {
-    return 'ONBV';
-  }
-  return null;
+  return scriptureCatalog.isBundledTranslation(raw);
 }
 
 export class LocalBibleProvider implements BibleProvider {
   async fetchPassage(reference: string, translation: SupportedTranslation | string): Promise<BiblePassage | null> {
-    const normalized: NormalizedReference | null = normalizeReference(reference);
-    if (!normalized) {
-      return null;
-    }
-
-    const canonTrans = canonicalizeTranslation(translation);
+    const canonTrans = scriptureCatalog.canonicalizeTranslation(translation);
     if (!canonTrans) {
       return null;
     }
 
-    const dataset = DATASETS[canonTrans];
-    if (!dataset || !dataset.books) {
+    const resolved = scriptureCatalog.resolvePassage(reference, canonTrans);
+    if (!resolved || !resolved.text) {
       return null;
     }
 
-    const book = dataset.books[normalized.bookId];
-    if (!book) {
-      return null;
-    }
-
-    const chapter = book[String(normalized.chapter)];
-    if (!chapter) {
-      return null;
-    }
-
-    const startVerse = normalized.startVerse;
-    const endVerse = normalized.endVerse ?? startVerse;
-
-    const verseTexts: string[] = [];
-    for (let v = startVerse; v <= endVerse; v++) {
-      const text = chapter[String(v)];
-      if (!text) {
-        return null;
-      }
-      verseTexts.push(text.trim());
-    }
+    const language: 'en' | 'pt' = scriptureCatalog.isPortugueseTranslation(canonTrans) ? 'pt' : 'en';
 
     return {
-      reference: normalized.canonicalRef,
-      text: verseTexts.join(' '),
+      reference: resolved.canonicalRef,
+      text: resolved.text,
       translation: canonTrans,
-      language: dataset.language,
+      language,
     };
   }
 }
@@ -159,4 +88,4 @@ export function createDefaultBibleProvider(): BibleProvider {
   return new LocalBibleProvider();
 }
 
-export const bibleProvider = createDefaultBibleProvider();
+export const bibleProvider: BibleProvider = createDefaultBibleProvider();

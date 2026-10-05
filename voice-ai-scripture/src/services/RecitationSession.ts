@@ -1,18 +1,18 @@
 import { Verse, VerseEngine, verseEngine, SRSResult } from './VerseEngine';
 import { SubscriptionService, subscriptionService } from './SubscriptionService';
 import { audioRecorder, AudioRecorderService } from './AudioRecorderService';
-import { diffVerses, calculateScore, DiffToken } from '../engines/diffEngine';
 import {
-  evaluateAssistedScore,
   generateClozeTokens,
   revealWord,
   hideWord,
   ClozeToken,
 } from '../engines/clozeEngine';
-import { calculateNextReview } from '../engines/srsEngine';
+import {
+  evaluateRecitation,
+  DiffToken,
+} from '../engines/recitationEvaluator';
 import {
   SpeechTranscriber,
-  TranscriptionOptions,
   TranscriptionError,
   createDefaultTranscriber,
 } from './SpeechTranscriber';
@@ -20,24 +20,17 @@ import {
   SpeechSynthesizer,
   getDefaultSpeechSynthesizer,
 } from './SpeechSynthesizer';
-import { normalizeReference } from './ReferenceNormalizer';
-import { PT_TRANSLATIONS } from './BibleProvider';
+import { scriptureCatalog } from './ScriptureCatalog';
+import {
+  VoiceInput,
+  createDefaultVoiceInput,
+  CloudAudioVoiceAdapter,
+} from './VoiceInput';
 
-export { SpeechTranscriber, SpeechSynthesizer, ClozeToken };
+export { SpeechTranscriber, SpeechSynthesizer, ClozeToken, DiffToken, VoiceInput };
 
-const EN_TRANSLATIONS = new Set(['WEB', 'KJV', 'ESV', 'NIV', 'NKJV', 'NASB', 'NLT', 'MSG']);
-
-export function inferVerseLanguage(verse: { translation?: string; reference: string }): 'en' | 'pt' {
-  if (verse.translation) {
-    const upperTrans = verse.translation.toUpperCase().trim();
-    if (PT_TRANSLATIONS.has(upperTrans)) return 'pt';
-    if (EN_TRANSLATIONS.has(upperTrans)) return 'en';
-  }
-
-  const normalized = normalizeReference(verse.reference);
-  if (normalized?.language === 'pt') return 'pt';
-
-  return 'en';
+export function inferVerseLanguage(verse: { translation?: string; reference: string; text?: string }): 'en' | 'pt' {
+  return scriptureCatalog.detectLanguage(verse);
 }
 
 export type RecitationStatus =
@@ -74,6 +67,7 @@ export interface RecitationState {
 }
 
 export interface RecitationSessionOptions {
+  voiceInput?: VoiceInput;
   recorder?: AudioRecorderService;
   transcriber?: SpeechTranscriber;
   verseEngine?: VerseEngine;
@@ -87,15 +81,13 @@ export interface RecitationSessionOptions {
 
 export class RecitationSession {
   private verse: Verse;
-  private recorder: AudioRecorderService;
-  private transcriber: SpeechTranscriber;
+  private voiceInput: VoiceInput;
   private verseEngine: VerseEngine;
   private subscriptionService: SubscriptionService;
   private synthesizer: SpeechSynthesizer;
   private autoVocalizeOnLevel1: boolean;
   private isSandbox: boolean;
   private isUnmetered: boolean;
-  private currentAudioUri: string | null = null;
   private listeners: Set<(state: RecitationState) => void> = new Set();
   private peekTimers: Map<number, NodeJS.Timeout> = new Map();
 
@@ -103,14 +95,23 @@ export class RecitationSession {
 
   constructor(verse: Verse, options?: RecitationSessionOptions) {
     this.verse = verse;
-    this.recorder = options?.recorder ?? audioRecorder;
     this.verseEngine = options?.verseEngine ?? verseEngine;
-    this.transcriber = options?.transcriber ?? createDefaultTranscriber();
     this.subscriptionService = options?.subscriptionService ?? subscriptionService;
     this.synthesizer = options?.synthesizer ?? getDefaultSpeechSynthesizer();
     this.autoVocalizeOnLevel1 = options?.autoVocalizeOnLevel1 ?? true;
     this.isSandbox = options?.isSandbox ?? false;
     this.isUnmetered = options?.isUnmetered ?? false;
+
+    if (options?.voiceInput) {
+      this.voiceInput = options.voiceInput;
+    } else if (options?.recorder || options?.transcriber || process.env.NODE_ENV === 'test') {
+      this.voiceInput = new CloudAudioVoiceAdapter({
+        recorder: options?.recorder ?? audioRecorder,
+        transcriber: options?.transcriber ?? createDefaultTranscriber(),
+      });
+    } else {
+      this.voiceInput = createDefaultVoiceInput();
+    }
 
     const initialLevel = options?.initialLevel ?? (this.isSandbox ? 1 : 3);
     const clozeTokens = this.getClozeTokensForLevel(initialLevel);
@@ -259,7 +260,7 @@ export class RecitationSession {
 
     try {
       // 1. Microphone Permissions
-      const hasPermission = await this.recorder.requestPermissions();
+      const hasPermission = await this.voiceInput.requestPermissions();
       if (!hasPermission) {
         this.setState({
           status: 'error',
@@ -278,14 +279,17 @@ export class RecitationSession {
         }
       }
 
-      // 3. Start Recording & Metering
+      // 3. Start VoiceInput Streaming / Audio Capture
       const language = inferVerseLanguage(this.verse);
-      await this.recorder.startRecording(
-        (level) => {
+      const prompt = `${this.verse.reference}: ${this.verse.text}`;
+
+      await this.voiceInput.start({
+        language,
+        prompt,
+        onMeter: (level) => {
           this.setState({ volumeLevel: level });
         },
-        { language }
-      );
+      });
 
       this.setState({ status: 'reciting' });
     } catch (err: any) {
@@ -307,64 +311,36 @@ export class RecitationSession {
     this.setState({ status: 'verifying', volumeLevel: 0 });
 
     try {
-      this.currentAudioUri = await this.recorder.stopRecording();
-      if (!this.currentAudioUri) {
-        this.setState({
-          status: 'error',
-          errorMessage: 'No audio recorded.',
-        });
-        return null;
-      }
-
-      const prompt = `${this.verse.reference}: ${this.verse.text}`;
-      const language = inferVerseLanguage(this.verse);
-
-      const res = await this.transcriber.transcribe(this.currentAudioUri, {
-        prompt,
-        language,
-      });
-      const transcript = res.text;
-
-      const tokens = diffVerses(this.verse.text, transcript);
-      const rawScore = calculateScore(tokens);
+      const voiceResult = await this.voiceInput.stop();
+      const transcript = voiceResult.transcript;
 
       const isUnmetered = this.isSandbox || this.isUnmetered || (options?.unmetered ?? (this.state.level !== 3));
       const assistanceUsed = options?.assistanceUsed ?? this.state.assistanceUsed;
 
-      const score = assistanceUsed
-        ? evaluateAssistedScore(rawScore, true)
-        : rawScore;
+      // Pure Recitation Evaluator Pipeline
+      const evalResult = evaluateRecitation({
+        expectedText: this.verse.text,
+        transcribedText: transcript,
+        assistanceUsed,
+        currentSRS: this.verse.srs,
+        isUnmetered,
+      });
 
-      // Coordinate review recording and SM-2 progression via VerseEngine
       let srsResult: SRSResult;
       if (isUnmetered) {
-        const simulated = calculateNextReview(this.verse.srs, score);
-        srsResult = {
-          ...simulated,
-          nextReviewDate: this.verse.srs?.nextReviewDate
-            ? new Date(this.verse.srs.nextReviewDate)
-            : simulated.nextReviewDate,
-          intervalDays: this.verse.srs?.intervalDays ?? 0,
-          streak: this.verse.srs?.streak ?? 0,
-        };
+        srsResult = evalResult.srsResult;
       } else {
-        srsResult = await this.verseEngine.recordReview(this.verse.id, score);
+        srsResult = await this.verseEngine.recordReview(this.verse.id, evalResult.finalScore);
       }
       const passed = srsResult.passed;
 
       const result: VoiceRecitationResult = {
-        tokens,
-        score,
+        tokens: evalResult.tokens,
+        score: evalResult.finalScore,
         passed,
         srsResult,
         rawTranscript: transcript,
       };
-
-      // Atomic Privacy Invariant: discard audio file before publishing verified state
-      if (this.currentAudioUri) {
-        await this.recorder.deleteAudioFile(this.currentAudioUri);
-        this.currentAudioUri = null;
-      }
 
       const officialResult = (!isUnmetered && this.state.level === 3)
         ? result
@@ -391,28 +367,14 @@ export class RecitationSession {
         rawTranscript: null,
       });
       return null;
-    } finally {
-      // Atomic Privacy Invariant: audio recordings are always discarded
-      if (this.currentAudioUri) {
-        await this.recorder.deleteAudioFile(this.currentAudioUri);
-        this.currentAudioUri = null;
-      }
     }
   }
 
   async reset(): Promise<void> {
     this.clearPeekTimers();
     await this.synthesizer.stop().catch(() => {});
+    await this.voiceInput.cancel().catch(() => {});
 
-    if (this.state.status === 'reciting') {
-      const uri = await this.recorder.stopRecording();
-      if (uri) {
-        await this.recorder.deleteAudioFile(uri);
-      }
-    } else if (this.currentAudioUri) {
-      await this.recorder.deleteAudioFile(this.currentAudioUri);
-      this.currentAudioUri = null;
-    }
     this.setState({
       status: 'idle',
       volumeLevel: 0,
@@ -426,18 +388,7 @@ export class RecitationSession {
   async dispose(): Promise<void> {
     this.clearPeekTimers();
     await this.synthesizer.stop().catch(() => {});
-
-    if (this.state.status === 'reciting') {
-      const uri = await this.recorder.stopRecording().catch(() => null);
-      if (uri) {
-        await this.recorder.deleteAudioFile(uri).catch(() => {});
-      }
-    } else if (this.currentAudioUri) {
-      await this.recorder.deleteAudioFile(this.currentAudioUri).catch(() => {});
-      this.currentAudioUri = null;
-    }
-
+    await this.voiceInput.cancel().catch(() => {});
     this.listeners.clear();
   }
 }
-

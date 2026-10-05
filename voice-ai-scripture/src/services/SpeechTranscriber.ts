@@ -53,8 +53,21 @@ export async function buildAudioFormData(
     } else if (typeof audioResponse?.arrayBuffer === 'function') {
       const buffer = await audioResponse.arrayBuffer();
       blob = new Blob([buffer], { type: fileType });
+    } else if (audioResponse?.status === 404) {
+      const errText = typeof audioResponse.text === 'function' ? await audioResponse.text().catch(() => '') : '';
+      throw new TranscriptionError(
+        'network_error',
+        `Failed to read local audio recording: file not found (404) ${errText}`
+      );
     } else {
       blob = new Blob(['audio'], { type: fileType });
+    }
+
+    if (typeof blob?.size === 'number' && blob.size === 0) {
+      throw new TranscriptionError(
+        'unintelligible',
+        'Audio recording is empty (0 bytes). Please ensure microphone permission is granted and try speaking again.'
+      );
     }
 
     // Attach filename and MIME type so Expo's getFormDataPartHeaders adds
@@ -65,10 +78,18 @@ export async function buildAudioFormData(
         writable: true,
         configurable: true,
       });
+      Object.defineProperty(blob, 'type', {
+        value: fileType,
+        writable: true,
+        configurable: true,
+      });
     } catch {}
 
     formData.append('file', blob, filename);
   } catch (blobErr: any) {
+    if (blobErr instanceof TranscriptionError) {
+      throw blobErr;
+    }
     console.error('[SpeechTranscriber] Failed to resolve audio blob:', normalizedUri, blobErr);
     throw new TranscriptionError(
       'network_error',
@@ -87,6 +108,86 @@ export async function buildAudioFormData(
   return formData;
 }
 
+async function uploadAudioFileNative(
+  endpointUrl: string,
+  audioUri: string,
+  apiKey: string,
+  model: string,
+  options?: TranscriptionOptions
+): Promise<TranscriptionResult | null> {
+  if (
+    Platform.OS === 'web' ||
+    !audioUri ||
+    audioUri.startsWith('blob:') ||
+    audioUri.startsWith('data:') ||
+    audioUri.startsWith('http:') ||
+    audioUri.startsWith('https:')
+  ) {
+    return null;
+  }
+
+  try {
+    const { uploadAsync, FileSystemUploadType } = require('expo-file-system/legacy');
+    if (typeof uploadAsync !== 'function' || !FileSystemUploadType) {
+      return null;
+    }
+
+    let normalizedUri = audioUri;
+    if (audioUri.startsWith('file:/') && !audioUri.startsWith('file:///')) {
+      normalizedUri = `file:///${audioUri.replace(/^file:\/+/, '')}`;
+    } else if (audioUri.startsWith('/')) {
+      normalizedUri = `file://${audioUri}`;
+    }
+
+    const parameters: Record<string, string> = {
+      model,
+      language: options?.language ?? 'en',
+      temperature: '0',
+    };
+    if (options?.prompt) {
+      parameters.prompt = options.prompt;
+    }
+
+    console.log(`[SpeechTranscriber] Using native FileSystem.uploadAsync for: ${normalizedUri} (model: ${model})`);
+
+    const result = await uploadAsync(endpointUrl, normalizedUri, {
+      fieldName: 'file',
+      mimeType: 'audio/m4a',
+      uploadType: FileSystemUploadType.MULTIPART,
+      httpMethod: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+      },
+      parameters,
+    });
+
+    const status = result.status;
+    if (status < 200 || status >= 300) {
+      let code: TranscriptionErrorCode = 'unknown';
+      if (status === 401 || status === 403) {
+        code = 'unauthorized';
+      } else if (status === 429) {
+        code = 'rate_limited';
+      } else if (status === 400 || status === 422) {
+        code = 'unintelligible';
+      } else if (status >= 500) {
+        code = 'network_error';
+      }
+      throw new TranscriptionError(code, `Audio transcription failed (${status}): ${result.body}`);
+    }
+
+    const data = JSON.parse(result.body);
+    return {
+      text: data.text || '',
+    };
+  } catch (err: any) {
+    if (err instanceof TranscriptionError) {
+      throw err;
+    }
+    return null;
+  }
+}
+
 export class WhisperTranscriber implements SpeechTranscriber {
   private apiKey: string;
 
@@ -97,6 +198,17 @@ export class WhisperTranscriber implements SpeechTranscriber {
   async transcribe(audioUri: string, options?: TranscriptionOptions): Promise<TranscriptionResult> {
     if (!this.apiKey) {
       throw new TranscriptionError('unauthorized', 'OpenAI API key is required for transcription');
+    }
+
+    const nativeResult = await uploadAudioFileNative(
+      'https://api.openai.com/v1/audio/transcriptions',
+      audioUri,
+      this.apiKey,
+      'whisper-1',
+      options
+    );
+    if (nativeResult) {
+      return nativeResult;
     }
 
     const formData = await buildAudioFormData(audioUri, 'whisper-1', options);
@@ -188,6 +300,17 @@ export class GroqTranscriber implements SpeechTranscriber {
   async transcribe(audioUri: string, options?: TranscriptionOptions): Promise<TranscriptionResult> {
     if (!this.apiKey) {
       throw new TranscriptionError('unauthorized', 'Groq API key is required for transcription');
+    }
+
+    const nativeResult = await uploadAudioFileNative(
+      'https://api.groq.com/openai/v1/audio/transcriptions',
+      audioUri,
+      this.apiKey,
+      this.model,
+      options
+    );
+    if (nativeResult) {
+      return nativeResult;
     }
 
     const formData = await buildAudioFormData(audioUri, this.model, options);

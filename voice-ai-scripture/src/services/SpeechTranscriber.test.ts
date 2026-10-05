@@ -405,5 +405,37 @@ describe('SpeechTranscriber Seam (Ticket 11)', () => {
         code: 'network_error',
       });
     });
+
+    it('buildAudioFormData rejects with network_error when audio file fetch returns !ok', async () => {
+      const { buildAudioFormData } = require('./SpeechTranscriber');
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        status: 404,
+        text: async () => 'File not found',
+      });
+
+      await expect(
+        buildAudioFormData('file:///data/missing.m4a', 'whisper-large-v3-turbo')
+      ).rejects.toMatchObject({
+        name: 'TranscriptionError',
+        code: 'network_error',
+      });
+    });
+
+    it('buildAudioFormData rejects with unintelligible when audio blob is 0 bytes', async () => {
+      const { buildAudioFormData } = require('./SpeechTranscriber');
+      const emptyBlob = new Blob([], { type: 'audio/m4a' });
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: true,
+        blob: async () => emptyBlob,
+      });
+
+      await expect(
+        buildAudioFormData('file:///data/empty.m4a', 'whisper-large-v3-turbo')
+      ).rejects.toMatchObject({
+        name: 'TranscriptionError',
+        code: 'unintelligible',
+      });
+    });
   });
 });

@@ -182,6 +182,48 @@ export class WebAudioDriver implements AudioDriver {
   }
 }
 
+function resolvePlatformRecordingOptions(options: any): any {
+  try {
+    const { createRecordingOptions } = require('expo-audio/build/utils/options');
+    if (typeof createRecordingOptions === 'function') {
+      return createRecordingOptions(options);
+    }
+  } catch {}
+
+  const common = {
+    extension: options.extension ?? '.m4a',
+    sampleRate: options.sampleRate ?? 44100,
+    numberOfChannels: options.numberOfChannels ?? 1,
+    bitRate: options.bitRate ?? 128000,
+    isMeteringEnabled: options.isMeteringEnabled ?? true,
+  };
+
+  if (Platform.OS === 'ios') {
+    return {
+      ...common,
+      directory: options.directory,
+      outputFormat: 'aac ',
+      audioQuality: 0x7f,
+      linearPCMBitDepth: 16,
+      linearPCMIsBigEndian: false,
+      linearPCMIsFloat: false,
+      ...(options.ios || {}),
+    };
+  } else if (Platform.OS === 'android') {
+    return {
+      ...common,
+      directory: options.directory,
+      outputFormat: 'mpeg4',
+      audioEncoder: 'aac',
+      ...(options.android || {}),
+    };
+  }
+  return {
+    ...common,
+    ...(options.web || {}),
+  };
+}
+
 export class NativeAudioDriver implements AudioDriver {
   private recording: any = null;
   private meterInterval: any = null;
@@ -189,6 +231,8 @@ export class NativeAudioDriver implements AudioDriver {
   private speechResultSubscription: any = null;
   private speechErrorSubscription: any = null;
   private liveTranscript: string = '';
+
+  private startTime: number = 0;
 
   async requestPermissions(): Promise<boolean> {
     try {
@@ -213,6 +257,7 @@ export class NativeAudioDriver implements AudioDriver {
   ): Promise<void> {
     this.onMeterCallback = onMeter || null;
     this.liveTranscript = '';
+    this.startTime = Date.now();
     const { AudioModule } = require('expo-audio');
 
     // Attempt to start on-device speech recognition in background if available
@@ -250,21 +295,39 @@ export class NativeAudioDriver implements AudioDriver {
     const basePreset = RecordingPresets?.HIGH_QUALITY || {
       extension: '.m4a',
       sampleRate: 44100,
-      numberOfChannels: 1,
+      numberOfChannels: 2,
       bitRate: 128000,
     };
 
     const recordingOptions = {
       ...basePreset,
+      extension: '.m4a',
+      sampleRate: 44100,
+      numberOfChannels: 2,
+      bitRate: 128000,
       isMeteringEnabled: true,
+      outputFormat: 'mpeg4',
+      audioEncoder: 'aac',
       android: {
-        ...(basePreset.android || {}),
+        extension: '.m4a',
+        sampleRate: 44100,
+        numberOfChannels: 2,
+        bitRate: 128000,
         outputFormat: 'mpeg4',
         audioEncoder: 'aac',
+        ...(basePreset.android || {}),
       },
       ios: {
-        ...(basePreset.ios || {}),
+        extension: '.m4a',
+        sampleRate: 44100,
+        numberOfChannels: 2,
+        bitRate: 128000,
         outputFormat: 'aac ',
+        audioQuality: 0x7f,
+        linearPCMBitDepth: 16,
+        linearPCMIsBigEndian: false,
+        linearPCMIsFloat: false,
+        ...(basePreset.ios || {}),
       },
     };
 
@@ -313,10 +376,22 @@ export class NativeAudioDriver implements AudioDriver {
 
     if (!this.recording) return null;
 
+    // Ensure at least 600ms of recording has elapsed so MediaRecorder.stop() flushes properly on Android
+    if (this.startTime > 0) {
+      const elapsed = Date.now() - this.startTime;
+      if (elapsed < 600) {
+        await new Promise((r) => setTimeout(r, 600 - elapsed));
+      }
+    }
+
     try {
-      const uriBeforeStop = this.recording.uri;
+      const uriBeforeStop = this.recording.uri || null;
       const stopResult = await this.recording.stop();
-      const uri = this.recording?.uri || uriBeforeStop || (stopResult as any)?.url;
+      if ((stopResult as any)?.hasError) {
+        console.warn('[AudioRecorderService] Native stop reported error:', (stopResult as any)?.error);
+      }
+      const rawUri = (stopResult as any)?.url || this.recording?.uri || uriBeforeStop;
+      const uri = (typeof rawUri === 'string' && rawUri.trim().length > 0) ? rawUri.trim() : null;
       this.recording = null;
       if (uri && this.liveTranscript) {
         setNativeTranscript(uri, this.liveTranscript);
