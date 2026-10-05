@@ -25,7 +25,7 @@ import { normalizeSpeechLanguage } from '../utils/languageNormalizer';
 
 export const formatNativeRecognizerLanguage = normalizeSpeechLanguage;
 
-import { getWebTranscript } from './AudioRecorderService';
+import { getNativeTranscript, getWebTranscript } from './AudioRecorderService';
 
 export class WebSpeechRecognizerDriver implements NativeSpeechRecognizerDriver {
   async isAvailable(): Promise<boolean> {
@@ -45,10 +45,106 @@ export class WebSpeechRecognizerDriver implements NativeSpeechRecognizerDriver {
   }
 }
 
-export class DefaultNativeDriver implements NativeSpeechRecognizerDriver {
-  private webDriver = new WebSpeechRecognizerDriver();
+export class ExpoSpeechRecognitionDriver implements NativeSpeechRecognizerDriver {
+  private module: any;
+
+  constructor(module?: any) {
+    if (module !== undefined) {
+      this.module = module;
+    } else {
+      try {
+        const { ExpoSpeechRecognitionModule } = require('expo-speech-recognition');
+        this.module = ExpoSpeechRecognitionModule;
+      } catch {
+        this.module = null;
+      }
+    }
+  }
 
   async isAvailable(): Promise<boolean> {
+    if (!this.module) return false;
+    try {
+      if (typeof this.module.isRecognitionAvailable === 'function') {
+        return !!this.module.isRecognitionAvailable();
+      }
+      return false;
+    } catch {
+      return false;
+    }
+  }
+
+  async transcribeAudio(
+    audioUri: string,
+    options?: { language?: string; prompt?: string }
+  ): Promise<string> {
+    const transcript = getNativeTranscript(audioUri);
+    if (transcript && transcript.trim().length > 0) {
+      return transcript.trim();
+    }
+
+    if (this.module && typeof this.module.start === 'function' && audioUri) {
+      return new Promise<string>((resolve) => {
+        let finalResult = '';
+        let timer: any = null;
+
+        const subResult = this.module.addListener?.('result', (event: any) => {
+          if (event?.results?.[0]?.transcript) {
+            finalResult = event.results[0].transcript;
+          }
+          if (event?.isFinal) {
+            cleanup();
+            resolve(finalResult);
+          }
+        });
+
+        const subError = this.module.addListener?.('error', () => {
+          cleanup();
+          resolve(finalResult);
+        });
+
+        const cleanup = () => {
+          if (timer) clearTimeout(timer);
+          subResult?.remove?.();
+          subError?.remove?.();
+          try {
+            this.module.stop?.();
+          } catch {}
+        };
+
+        timer = setTimeout(() => {
+          cleanup();
+          resolve(finalResult);
+        }, 5000);
+
+        try {
+          this.module.start({
+            lang: formatNativeRecognizerLanguage(options?.language),
+            audioSource: { uri: audioUri },
+          });
+        } catch {
+          cleanup();
+          resolve('');
+        }
+      });
+    }
+
+    return '';
+  }
+}
+
+export class DefaultNativeDriver implements NativeSpeechRecognizerDriver {
+  private expoDriver: ExpoSpeechRecognitionDriver;
+  private webDriver: WebSpeechRecognizerDriver;
+
+  constructor(expoDriver?: ExpoSpeechRecognitionDriver, webDriver?: WebSpeechRecognizerDriver) {
+    this.expoDriver = expoDriver ?? new ExpoSpeechRecognitionDriver();
+    this.webDriver = webDriver ?? new WebSpeechRecognizerDriver();
+  }
+
+  async isAvailable(): Promise<boolean> {
+    if (await this.expoDriver.isAvailable()) {
+      return true;
+    }
     if (await this.webDriver.isAvailable()) {
       return true;
     }
@@ -59,6 +155,9 @@ export class DefaultNativeDriver implements NativeSpeechRecognizerDriver {
     audioUri: string,
     options?: { language?: string; prompt?: string }
   ): Promise<string> {
+    if (await this.expoDriver.isAvailable()) {
+      return this.expoDriver.transcribeAudio(audioUri, options);
+    }
     if (await this.webDriver.isAvailable()) {
       return this.webDriver.transcribeAudio(audioUri, options);
     }

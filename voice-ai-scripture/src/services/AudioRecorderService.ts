@@ -39,6 +39,30 @@ export function clearWebTranscript(uri?: string): void {
   }
 }
 
+const nativeTranscriptStore = new Map<string, string>();
+let lastNativeTranscript = '';
+
+export function getNativeTranscript(uri?: string): string | undefined {
+  if (uri && nativeTranscriptStore.has(uri)) {
+    return nativeTranscriptStore.get(uri);
+  }
+  return lastNativeTranscript;
+}
+
+export function setNativeTranscript(uri: string, transcript: string): void {
+  nativeTranscriptStore.set(uri, transcript);
+  lastNativeTranscript = transcript;
+}
+
+export function clearNativeTranscript(uri?: string): void {
+  if (uri) {
+    nativeTranscriptStore.delete(uri);
+  }
+  if (!uri || nativeTranscriptStore.size === 0) {
+    lastNativeTranscript = '';
+  }
+}
+
 export class WebAudioDriver implements AudioDriver {
   private mediaRecorder: any = null;
   private audioChunks: Blob[] = [];
@@ -161,11 +185,20 @@ export class NativeAudioDriver implements AudioDriver {
   private recording: any = null;
   private meterInterval: any = null;
   private onMeterCallback: ((level: number) => void) | null = null;
+  private speechResultSubscription: any = null;
+  private speechErrorSubscription: any = null;
+  private liveTranscript: string = '';
 
   async requestPermissions(): Promise<boolean> {
     try {
       const { AudioModule } = require('expo-audio');
       const response = await AudioModule.requestRecordingPermissionsAsync();
+      try {
+        const { ExpoSpeechRecognitionModule } = require('expo-speech-recognition');
+        if (typeof ExpoSpeechRecognitionModule?.requestPermissionsAsync === 'function') {
+          await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+        }
+      } catch {}
       return response.granted;
     } catch (e) {
       console.warn('Native permission request error:', e);
@@ -175,10 +208,32 @@ export class NativeAudioDriver implements AudioDriver {
 
   async startRecording(
     onMeter?: (level: number) => void,
-    _options?: AudioRecordingOptions
+    options?: AudioRecordingOptions
   ): Promise<void> {
     this.onMeterCallback = onMeter || null;
+    this.liveTranscript = '';
     const { AudioModule } = require('expo-audio');
+
+    // Attempt to start on-device speech recognition in background
+    try {
+      const { ExpoSpeechRecognitionModule } = require('expo-speech-recognition');
+      if (ExpoSpeechRecognitionModule && typeof ExpoSpeechRecognitionModule.isRecognitionAvailable === 'function' && ExpoSpeechRecognitionModule.isRecognitionAvailable()) {
+        this.speechResultSubscription = ExpoSpeechRecognitionModule.addListener?.('result', (event: any) => {
+          if (event?.results?.[0]?.transcript) {
+            this.liveTranscript = event.results[0].transcript;
+            lastNativeTranscript = this.liveTranscript;
+          }
+        });
+        this.speechErrorSubscription = ExpoSpeechRecognitionModule.addListener?.('error', (err: any) => {
+          console.warn('[ExpoSpeechRecognition] Error during live recording:', err);
+        });
+        ExpoSpeechRecognitionModule.start?.({
+          lang: normalizeSpeechLanguage(options?.language),
+          interimResults: true,
+          continuous: true,
+        });
+      }
+    } catch {}
 
     await AudioModule.setAudioModeAsync({
       allowsRecording: true,
@@ -225,12 +280,28 @@ export class NativeAudioDriver implements AudioDriver {
     }
     this.onMeterCallback = null;
 
+    try {
+      const { ExpoSpeechRecognitionModule } = require('expo-speech-recognition');
+      if (this.speechResultSubscription) {
+        this.speechResultSubscription.remove?.();
+        this.speechResultSubscription = null;
+      }
+      if (this.speechErrorSubscription) {
+        this.speechErrorSubscription.remove?.();
+        this.speechErrorSubscription = null;
+      }
+      ExpoSpeechRecognitionModule?.stop?.();
+    } catch {}
+
     if (!this.recording) return null;
 
     try {
       await this.recording.stop();
       const uri = this.recording.uri;
       this.recording = null;
+      if (uri && this.liveTranscript) {
+        setNativeTranscript(uri, this.liveTranscript);
+      }
       return uri;
     } catch (e) {
       console.error('Failed to stop native recording:', e);
@@ -240,6 +311,7 @@ export class NativeAudioDriver implements AudioDriver {
 
   async deleteAudioFile(uri: string): Promise<boolean> {
     if (!uri) return false;
+    clearNativeTranscript(uri);
     try {
       const FileSystem = require('expo-file-system');
       if (typeof FileSystem?.File === 'function') {

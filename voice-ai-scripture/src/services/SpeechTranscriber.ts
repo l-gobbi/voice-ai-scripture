@@ -115,6 +115,7 @@ import { NativeSpeechTranscriber } from './NativeSpeechTranscriber';
 
 export interface DefaultTranscriberOptions {
   engine?: 'auto' | 'whisper' | 'native' | 'simulated';
+  fallbackToPrompt?: boolean;
 }
 
 export function createDefaultTranscriber(
@@ -128,7 +129,9 @@ export function createDefaultTranscriber(
   }
 
   if (engine === 'native') {
-    return new NativeSpeechTranscriber();
+    return new NativeSpeechTranscriber({
+      fallbackToPrompt: options?.fallbackToPrompt ?? false,
+    });
   }
 
   const key = (apiKey ?? process.env.EXPO_PUBLIC_OPENAI_API_KEY ?? '').trim();
@@ -137,5 +140,7 @@ export function createDefaultTranscriber(
   }
 
   console.info('[SpeechTranscriber] No OpenAI API key configured. Using on-device NativeSpeechTranscriber for free offline practice.');
-  return new NativeSpeechTranscriber();
+  return new NativeSpeechTranscriber({
+    fallbackToPrompt: options?.fallbackToPrompt ?? false,
+  });
 }

@@ -17,6 +17,7 @@ import { bibleProvider, isBundledTranslation } from '../services/BibleProvider';
 import { parseScriptureClipboard } from '../utils/clipboardParser';
 import { normalizeReference } from '../services/ReferenceNormalizer';
 import ReferencePickerModal from './ReferencePickerModal';
+import { colors, typography, spacing, radius, touchTarget } from '../theme/tokens';
 
 export interface AddVerseModalProps {
   visible: boolean;
@@ -336,8 +337,22 @@ export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVe
           />
 
           <View style={styles.modalButtons}>
-            <Button title="Cancel" color="red" onPress={handleCancelModal} />
-            <Button title="Save Verse" onPress={handleSave} />
+            <TouchableOpacity
+              style={[styles.modalActionBtn, styles.cancelBtn]}
+              onPress={handleCancelModal}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+            >
+              <Text style={styles.cancelBtnText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.modalActionBtn, styles.saveBtn]}
+              onPress={handleSave}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+            >
+              <Text style={styles.saveBtnText}>Save Verse</Text>
+            </TouchableOpacity>
           </View>
         </ScrollView>
       </SafeAreaView>
@@ -353,124 +368,216 @@ export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVe
 }
 
 const styles = StyleSheet.create({
-  modalSafeArea: { flex: 1, backgroundColor: '#f9fafb' },
-  modalScrollContent: { padding: 20 },
-  modalHeader: { fontSize: 22, fontWeight: 'bold', marginBottom: 16, color: '#111827' },
-  sectionLabel: { fontSize: 14, fontWeight: '600', color: '#374151', marginBottom: 6 },
-  translationSection: { marginBottom: 14 },
-  groupContainer: { marginBottom: 8 },
-  groupTitle: { fontSize: 12, fontWeight: '600', color: '#6b7280', marginBottom: 4 },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  modalSafeArea: {
+    flex: 1,
+    backgroundColor: colors.parchment.background,
+  },
+  modalScrollContent: {
+    padding: spacing.md,
+  },
+  modalHeader: {
+    fontFamily: typography.fontFamily.scripture,
+    fontSize: typography.heading.fontSize,
+    lineHeight: typography.heading.lineHeight,
+    fontWeight: typography.heading.fontWeight,
+    marginBottom: spacing.md,
+    color: colors.parchment.textPrimary,
+  },
+  sectionLabel: {
+    fontFamily: typography.fontFamily.ui,
+    fontSize: typography.subheading.fontSize,
+    fontWeight: typography.subheading.fontWeight,
+    color: colors.parchment.textPrimary,
+    marginBottom: spacing.xs,
+  },
+  translationSection: {
+    marginBottom: spacing.md,
+  },
+  groupContainer: {
+    marginBottom: spacing.sm,
+  },
+  groupTitle: {
+    fontFamily: typography.fontFamily.ui,
+    fontSize: typography.caption.fontSize,
+    fontWeight: typography.caption.fontWeight,
+    color: colors.parchment.textSecondary,
+    marginBottom: spacing.xs,
+  },
+  chipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.xs,
+  },
   chip: {
-    paddingHorizontal: 10,
+    minHeight: touchTarget.min,
+    paddingHorizontal: 12,
     paddingVertical: 6,
-    borderRadius: 16,
-    backgroundColor: '#e2e8f0',
+    borderRadius: radius.pill,
+    backgroundColor: colors.parchment.surfaceMuted,
+    borderWidth: 1,
+    borderColor: colors.parchment.border,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   activeChip: {
-    backgroundColor: '#4f46e5',
+    backgroundColor: colors.parchment.accentSacred,
+    borderColor: colors.parchment.accentSacred,
   },
   chipText: {
-    fontSize: 12,
-    color: '#334155',
+    fontFamily: typography.fontFamily.ui,
+    fontSize: typography.caption.fontSize,
+    color: colors.parchment.textPrimary,
     fontWeight: '500',
   },
   activeChipText: {
-    color: 'white',
+    color: '#ffffff',
     fontWeight: '700',
   },
   copyrightBanner: {
-    backgroundColor: '#fef3c7',
-    borderColor: '#fde68a',
+    backgroundColor: colors.parchment.surfaceMuted,
+    borderColor: colors.parchment.border,
     borderWidth: 1,
-    borderRadius: 8,
-    padding: 10,
-    marginBottom: 12,
+    borderRadius: radius.md,
+    padding: spacing.sm,
+    marginBottom: spacing.md,
   },
   copyrightText: {
-    fontSize: 12,
-    color: '#92400e',
+    fontFamily: typography.fontFamily.ui,
+    fontSize: typography.caption.fontSize,
+    color: colors.parchment.textSecondary,
     lineHeight: 16,
   },
-  inputLabel: { fontSize: 14, fontWeight: '600', color: '#374151', marginBottom: 4 },
+  inputLabel: {
+    fontFamily: typography.fontFamily.ui,
+    fontSize: typography.subheading.fontSize,
+    fontWeight: typography.subheading.fontWeight,
+    color: colors.parchment.textPrimary,
+    marginBottom: spacing.xs,
+  },
   referenceHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 6,
+    marginBottom: spacing.xs,
   },
   pickerTriggerBtn: {
-    backgroundColor: '#eff6ff',
+    minHeight: touchTarget.min,
+    backgroundColor: colors.parchment.surfaceMuted,
     borderWidth: 1,
-    borderColor: '#93c5fd',
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    borderColor: colors.parchment.border,
+    borderRadius: radius.md,
+    paddingHorizontal: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   pickerTriggerBtnText: {
-    color: '#1d4ed8',
-    fontSize: 13,
+    fontFamily: typography.fontFamily.ui,
+    color: colors.parchment.accentSacred,
+    fontSize: typography.body.fontSize,
     fontWeight: '600',
   },
   referenceRow: {
     flexDirection: 'row',
-    gap: 8,
-    marginBottom: 12,
+    gap: spacing.sm,
+    marginBottom: spacing.md,
   },
   input: {
+    minHeight: touchTarget.min,
     borderWidth: 1,
-    borderColor: '#d1d5db',
-    backgroundColor: 'white',
-    padding: 12,
-    borderRadius: 8,
-    fontSize: 15,
+    borderColor: colors.parchment.border,
+    backgroundColor: colors.parchment.surface,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.md,
+    fontSize: typography.body.fontSize,
+    color: colors.parchment.textPrimary,
   },
   referenceInput: {
     flex: 1,
   },
   fetchButton: {
-    backgroundColor: '#eef2ff',
-    borderColor: '#c7d2fe',
+    minHeight: touchTarget.min,
+    backgroundColor: colors.parchment.surfaceMuted,
+    borderColor: colors.parchment.border,
     borderWidth: 1,
-    borderRadius: 8,
+    borderRadius: radius.md,
     paddingHorizontal: 12,
     justifyContent: 'center',
     alignItems: 'center',
   },
   fetchButtonText: {
-    color: '#4338ca',
+    fontFamily: typography.fontFamily.ui,
+    color: colors.parchment.accentSacred,
     fontWeight: '600',
-    fontSize: 13,
+    fontSize: typography.body.fontSize,
   },
   clipboardButton: {
-    backgroundColor: '#f0fdf4',
-    borderColor: '#bbf7d0',
+    minHeight: touchTarget.min,
+    backgroundColor: colors.parchment.surfaceMuted,
+    borderColor: colors.parchment.border,
     borderWidth: 1,
-    borderRadius: 8,
-    paddingVertical: 10,
+    borderRadius: radius.md,
+    paddingVertical: spacing.sm,
     alignItems: 'center',
-    marginBottom: 12,
+    justifyContent: 'center',
+    marginBottom: spacing.md,
   },
   clipboardButtonText: {
-    color: '#15803d',
+    fontFamily: typography.fontFamily.ui,
+    color: colors.parchment.accentSacred,
     fontWeight: '600',
-    fontSize: 13,
+    fontSize: typography.body.fontSize,
   },
   noticeText: {
-    fontSize: 12,
-    color: '#4338ca',
-    marginBottom: 8,
+    fontFamily: typography.fontFamily.ui,
+    fontSize: typography.caption.fontSize,
+    color: colors.parchment.accentSacred,
+    marginBottom: spacing.sm,
     fontStyle: 'italic',
   },
   textArea: {
-    height: 110,
+    fontFamily: typography.fontFamily.scripture,
+    minHeight: 110,
+    fontSize: typography.scriptureBody.fontSize,
+    lineHeight: typography.scriptureBody.lineHeight,
+    color: colors.parchment.textPrimary,
     textAlignVertical: 'top',
-    marginBottom: 16,
+    marginBottom: spacing.md,
   },
   modalButtons: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-    marginTop: 8,
-    marginBottom: 24,
+    justifyContent: 'space-between',
+    gap: spacing.md,
+    marginTop: spacing.sm,
+    marginBottom: spacing.xl,
+  },
+  modalActionBtn: {
+    flex: 1,
+    minHeight: touchTarget.min,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: spacing.md,
+  },
+  cancelBtn: {
+    backgroundColor: colors.parchment.surfaceMuted,
+    borderWidth: 1,
+    borderColor: colors.parchment.border,
+  },
+  cancelBtnText: {
+    fontFamily: typography.fontFamily.ui,
+    fontSize: typography.body.fontSize,
+    fontWeight: '600',
+    color: colors.parchment.diffMissedText,
+  },
+  saveBtn: {
+    backgroundColor: colors.parchment.accentSacred,
+  },
+  saveBtnText: {
+    fontFamily: typography.fontFamily.ui,
+    fontSize: typography.body.fontSize,
+    fontWeight: '600',
+    color: '#ffffff',
   },
 });

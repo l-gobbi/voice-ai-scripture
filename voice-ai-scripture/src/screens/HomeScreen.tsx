@@ -9,6 +9,7 @@ import {
   ScrollView,
   Share,
   AppState,
+  useColorScheme,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
@@ -29,6 +30,7 @@ import {
   SharedDeckVerse,
 } from '../utils/deckSharing';
 import { SpeechTranscriber } from '../services/SpeechTranscriber';
+import { getTheme, touchTarget } from '../theme/tokens';
 
 export function getNextReviewText(allVerses: Verse[], now: Date = new Date()): string {
   return verseEngine.getNextReviewMessage(allVerses, now);
@@ -39,6 +41,9 @@ interface HomeScreenProps {
 }
 
 export default function HomeScreen({ transcriber }: HomeScreenProps = {}) {
+  const scheme = useColorScheme();
+  const theme = getTheme(scheme);
+
   const [summary, setSummary] = useState<VerseSummary>({
     allVerses: [],
     dueVerses: [],
@@ -154,7 +159,6 @@ export default function HomeScreen({ transcriber }: HomeScreenProps = {}) {
               text: verse.text,
               translation: verse.translation,
             });
-            // Schedule first spaced repetition review for tomorrow
             const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
             await verseEngine.updateVerse(added.id, {
               srs: {
@@ -201,15 +205,43 @@ export default function HomeScreen({ transcriber }: HomeScreenProps = {}) {
     : summary.allVerses;
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView
+      style={[
+        styles.container,
+        { backgroundColor: theme.colors.background },
+      ]}
+    >
       <View style={styles.headerRow}>
-        <Text style={styles.header}>My Memory Verses</Text>
+        <Text
+          style={[
+            styles.header,
+            {
+              color: theme.colors.textPrimary,
+              fontFamily: theme.typography.fontFamily.ui,
+            },
+          ]}
+        >
+          My Memory Verses
+        </Text>
         <TouchableOpacity
-          style={styles.reminderHeaderButton}
+          style={[
+            styles.reminderHeaderButton,
+            {
+              backgroundColor: theme.colors.surfaceMuted,
+              borderColor: theme.colors.border,
+            },
+          ]}
           onPress={() => setReminderModalVisible(true)}
           activeOpacity={0.7}
         >
-          <Text style={styles.reminderButtonText}>⏰ Reminders</Text>
+          <Text
+            style={[
+              styles.reminderButtonText,
+              { color: theme.colors.textPrimary },
+            ]}
+          >
+            ⏰ Reminders
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -219,20 +251,62 @@ export default function HomeScreen({ transcriber }: HomeScreenProps = {}) {
         totalDueToday={habitStats.totalDueToday}
       />
 
-      <View style={styles.tabBar}>
+      <View
+        style={[
+          styles.tabBar,
+          {
+            backgroundColor: theme.colors.surfaceMuted,
+            borderColor: theme.colors.border,
+          },
+        ]}
+      >
         <TouchableOpacity
-          style={[styles.tabButton, filterMode === 'due' && styles.activeTabButton]}
+          style={[
+            styles.tabButton,
+            filterMode === 'due' && [
+              styles.activeTabButton,
+              { backgroundColor: theme.colors.surface },
+            ],
+          ]}
           onPress={() => setFilterMode('due')}
         >
-          <Text style={[styles.tabText, filterMode === 'due' && styles.activeTabText]}>
+          <Text
+            style={[
+              styles.tabText,
+              {
+                color:
+                  filterMode === 'due'
+                    ? theme.colors.textPrimary
+                    : theme.colors.textSecondary,
+                fontWeight: filterMode === 'due' ? '700' : '500',
+              },
+            ]}
+          >
             🔥 Due Today ({summary.dueCount})
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.tabButton, filterMode === 'all' && styles.activeTabButton]}
+          style={[
+            styles.tabButton,
+            filterMode === 'all' && [
+              styles.activeTabButton,
+              { backgroundColor: theme.colors.surface },
+            ],
+          ]}
           onPress={() => setFilterMode('all')}
         >
-          <Text style={[styles.tabText, filterMode === 'all' && styles.activeTabText]}>
+          <Text
+            style={[
+              styles.tabText,
+              {
+                color:
+                  filterMode === 'all'
+                    ? theme.colors.textPrimary
+                    : theme.colors.textSecondary,
+                fontWeight: filterMode === 'all' ? '700' : '500',
+              },
+            ]}
+          >
             📚 All ({summary.allVerses.length})
           </Text>
         </TouchableOpacity>
@@ -250,13 +324,33 @@ export default function HomeScreen({ transcriber }: HomeScreenProps = {}) {
             return (
               <TouchableOpacity
                 key={deck}
-                style={[styles.deckChip, isSelected && styles.activeDeckChip]}
+                style={[
+                  styles.deckChip,
+                  {
+                    backgroundColor: isSelected
+                      ? theme.colors.accentSacred
+                      : theme.colors.surface,
+                    borderColor: isSelected
+                      ? theme.colors.accentSacred
+                      : theme.colors.border,
+                  },
+                ]}
                 onPress={() => setSelectedDeckFilter(isSelected ? null : deck)}
                 testID={`deck-filter-${deck}`}
                 accessibilityRole="button"
                 accessibilityState={{ selected: isSelected }}
               >
-                <Text style={[styles.deckChipText, isSelected && styles.activeDeckChipText]}>
+                <Text
+                  style={[
+                    styles.deckChipText,
+                    {
+                      color: isSelected
+                        ? '#FFFFFF'
+                        : theme.colors.textSecondary,
+                      fontWeight: isSelected ? '700' : '500',
+                    },
+                  ]}
+                >
                   #{deck}
                 </Text>
               </TouchableOpacity>
@@ -266,10 +360,28 @@ export default function HomeScreen({ transcriber }: HomeScreenProps = {}) {
       ) : null}
 
       {selectedDeckFilter ? (
-        <View style={styles.deckBannerRow}>
-          <Text style={styles.deckBannerText}>Deck: #{selectedDeckFilter}</Text>
+        <View
+          style={[
+            styles.deckBannerRow,
+            {
+              backgroundColor: theme.colors.surfaceMuted,
+              borderColor: theme.colors.border,
+            },
+          ]}
+        >
+          <Text
+            style={[
+              styles.deckBannerText,
+              { color: theme.colors.textPrimary },
+            ]}
+          >
+            Deck: #{selectedDeckFilter}
+          </Text>
           <TouchableOpacity
-            style={styles.shareDeckButton}
+            style={[
+              styles.shareDeckButton,
+              { backgroundColor: theme.colors.accentSacred },
+            ]}
             testID="share-deck-button"
             onPress={handleShareCurrentDeck}
             accessibilityRole="button"
@@ -291,7 +403,16 @@ export default function HomeScreen({ transcriber }: HomeScreenProps = {}) {
           const lastScore = item.lastScore ?? item.srs?.lastScore;
 
           return (
-            <View style={styles.verseItem} testID={`verse-card-${item.id}`}>
+            <View
+              style={[
+                styles.verseItem,
+                {
+                  backgroundColor: theme.colors.surface,
+                  borderColor: theme.colors.border,
+                },
+              ]}
+              testID={`verse-card-${item.id}`}
+            >
               <View style={styles.cardTopRow}>
                 <TouchableOpacity
                   style={styles.verseContentTouchable}
@@ -300,28 +421,95 @@ export default function HomeScreen({ transcriber }: HomeScreenProps = {}) {
                   activeOpacity={0.7}
                 >
                   <View style={styles.verseTitleContainer}>
-                    <Text style={styles.verseReference}>{item.reference}</Text>
+                    <Text
+                      style={[
+                        styles.verseReference,
+                        { color: theme.colors.textPrimary },
+                      ]}
+                    >
+                      {item.reference}
+                    </Text>
                     {item.translation ? (
-                      <Text style={styles.translationBadge}>[{item.translation}]</Text>
+                      <Text
+                        style={[
+                          styles.translationBadge,
+                          {
+                            backgroundColor: theme.colors.surfaceMuted,
+                            color: theme.colors.textSecondary,
+                          },
+                        ]}
+                      >
+                        [{item.translation}]
+                      </Text>
                     ) : null}
                     {item.deck ? (
-                      <Text style={styles.deckTagBadge}>#{item.deck}</Text>
+                      <Text
+                        style={[
+                          styles.deckTagBadge,
+                          {
+                            backgroundColor: theme.colors.surfaceMuted,
+                            color: theme.colors.accentSacred,
+                          },
+                        ]}
+                      >
+                        #{item.deck}
+                      </Text>
                     ) : null}
                   </View>
                   <View style={styles.statusPillsRow}>
                     {isDue ? (
-                      <Text style={styles.dueStatusPill}>Due Today</Text>
+                      <Text
+                        style={[
+                          styles.dueStatusPill,
+                          {
+                            backgroundColor: theme.colors.diffMissedBg,
+                            color: theme.colors.diffMissedText,
+                            borderColor: theme.colors.diffMissedBg,
+                          },
+                        ]}
+                      >
+                        Due Today
+                      </Text>
                     ) : isMastered ? (
-                      <Text style={styles.masteredStatusPill}>
+                      <Text
+                        style={[
+                          styles.masteredStatusPill,
+                          {
+                            backgroundColor: theme.colors.diffMatchBg,
+                            color: theme.colors.diffMatchText,
+                            borderColor: theme.colors.diffMatchBg,
+                          },
+                        ]}
+                      >
                         Mastered (Interval: {interval}d)
                       </Text>
                     ) : (
-                      <Text style={styles.learningStatusPill}>
+                      <Text
+                        style={[
+                          styles.learningStatusPill,
+                          {
+                            backgroundColor: theme.colors.surfaceMuted,
+                            color: theme.colors.textSecondary,
+                            borderColor: theme.colors.border,
+                          },
+                        ]}
+                      >
                         Learning (Streak: {streak})
                       </Text>
                     )}
                     {lastScore !== undefined ? (
-                      <Text style={styles.accuracyText}>{lastScore}% Accuracy</Text>
+                      <Text
+                        style={[
+                          styles.accuracyText,
+                          {
+                            backgroundColor: theme.colors.diffMatchBg,
+                            color: theme.colors.diffMatchText,
+                            borderColor: theme.colors.diffMatchBg,
+                          },
+                        ]}
+                      >
+                        {lastScore}% Accuracy
+                      </Text>
                     ) : null}
                   </View>
                 </TouchableOpacity>
@@ -332,7 +520,7 @@ export default function HomeScreen({ transcriber }: HomeScreenProps = {}) {
                     e?.stopPropagation?.();
                     setVerseToDelete(item);
                   }}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                   testID={`delete-verse-${item.id}`}
                   accessibilityRole="button"
                   accessibilityLabel={`Excluir versículo ${item.reference}`}
@@ -341,19 +529,35 @@ export default function HomeScreen({ transcriber }: HomeScreenProps = {}) {
                 </TouchableOpacity>
               </View>
 
-              <View style={styles.cardBottomRow}>
+              <View
+                style={[
+                  styles.cardBottomRow,
+                  { borderTopColor: theme.colors.border },
+                ]}
+              >
                 <TouchableOpacity
                   onPress={() => setActiveReviewVerse(item)}
                   activeOpacity={0.7}
+                  style={styles.tapPromptTouchable}
                 >
-                  <Text style={styles.tapPrompt}>Tap to practice →</Text>
+                  <Text
+                    style={[
+                      styles.tapPrompt,
+                      { color: theme.colors.textSecondary },
+                    ]}
+                  >
+                    Tap to practice →
+                  </Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={styles.reciteActionButton}
+                  style={[
+                    styles.reciteActionButton,
+                    { backgroundColor: theme.colors.accentSacred },
+                  ]}
                   testID={`recite-button-${item.id}`}
                   onPress={() => setActiveReviewVerse(item)}
-                  activeOpacity={0.7}
+                  activeOpacity={0.8}
                   accessibilityRole="button"
                   accessibilityLabel={`Recitar versículo ${item.reference}`}
                 >
@@ -372,21 +576,52 @@ export default function HomeScreen({ transcriber }: HomeScreenProps = {}) {
               onPracticeAhead={() => setFilterMode('all')}
             />
           ) : (
-            <Text style={styles.emptyText}>No verses found.</Text>
+            <Text
+              style={[
+                styles.emptyText,
+                { color: theme.colors.textSecondary },
+              ]}
+            >
+              No verses found.
+            </Text>
           )
         }
       />
 
       <View style={styles.footerButtons}>
         <View style={styles.buttonSpacing}>
-          <Button
-            title="📖 Browse Topical Packs"
-            color="#4f46e5"
+          <TouchableOpacity
+            style={[
+              styles.footerPrimaryButton,
+              { backgroundColor: theme.colors.accentSacred },
+            ]}
             onPress={() => setPackBrowserVisible(true)}
-          />
+            activeOpacity={0.8}
+          >
+            <Text style={styles.footerPrimaryButtonText}>📖 Browse Topical Packs</Text>
+          </TouchableOpacity>
         </View>
         <View style={styles.buttonSpacing}>
-          <Button title="+ Type Custom Verse" color="#4b5563" onPress={() => setModalVisible(true)} />
+          <TouchableOpacity
+            style={[
+              styles.footerSecondaryButton,
+              {
+                backgroundColor: theme.colors.surfaceMuted,
+                borderColor: theme.colors.border,
+              },
+            ]}
+            onPress={() => setModalVisible(true)}
+            activeOpacity={0.7}
+          >
+            <Text
+              style={[
+                styles.footerSecondaryButtonText,
+                { color: theme.colors.textPrimary },
+              ]}
+            >
+              + Type Custom Verse
+            </Text>
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -425,36 +660,44 @@ export default function HomeScreen({ transcriber }: HomeScreenProps = {}) {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: '#f9fafb' },
+  container: {
+    flex: 1,
+    padding: 16,
+  },
   headerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 16,
   },
-  header: { fontSize: 24, fontWeight: 'bold', color: '#111827' },
+  header: {
+    fontSize: 24,
+    fontWeight: '700',
+    letterSpacing: -0.3,
+  },
   reminderHeaderButton: {
     paddingHorizontal: 12,
-    paddingVertical: 6,
-    backgroundColor: '#eef2ff',
-    borderRadius: 16,
+    paddingVertical: 8,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: '#c7d2fe',
+    minHeight: touchTarget.min,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   reminderButtonText: {
     fontSize: 13,
     fontWeight: '600',
-    color: '#4338ca',
   },
   verseItem: {
     padding: 16,
-    backgroundColor: 'white',
-    borderRadius: 12,
+    borderRadius: 16,
     marginBottom: 12,
     elevation: 2,
     borderWidth: 1,
-    borderColor: '#e5e7eb',
-    flexDirection: 'column',
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
   },
   cardTopRow: {
     flexDirection: 'row',
@@ -466,13 +709,13 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
   deleteButton: {
-    padding: 6,
-    borderRadius: 6,
+    minHeight: touchTarget.min,
+    minWidth: touchTarget.min,
     alignItems: 'center',
     justifyContent: 'center',
   },
   deleteButtonText: {
-    fontSize: 15,
+    fontSize: 16,
   },
   verseTitleContainer: {
     flexDirection: 'row',
@@ -481,112 +724,133 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 6,
   },
-  verseReference: { fontSize: 18, fontWeight: '700', color: '#1f2937' },
+  verseReference: {
+    fontSize: 18,
+    fontWeight: '700',
+  },
   translationBadge: {
-    fontSize: 12,
-    backgroundColor: '#f1f5f9',
-    color: '#475569',
+    fontSize: 11,
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 6,
     fontWeight: '600',
   },
-  streakBadge: {
-    fontSize: 12,
-    backgroundColor: '#e0e7ff',
-    color: '#4338ca',
-    paddingHorizontal: 8,
+  deckTagBadge: {
+    fontSize: 11,
+    paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: 12,
+    borderRadius: 6,
     fontWeight: '600',
   },
-  tapPrompt: { fontSize: 13, color: '#6b7280' },
-  emptyText: { textAlign: 'center', marginTop: 40, color: '#6b7280' },
+  tapPromptTouchable: {
+    minHeight: touchTarget.min,
+    justifyContent: 'center',
+  },
+  tapPrompt: {
+    fontSize: 13,
+  },
+  emptyText: {
+    textAlign: 'center',
+    marginTop: 40,
+    fontSize: 14,
+  },
   tabBar: {
     flexDirection: 'row',
-    backgroundColor: '#e2e8f0',
-    borderRadius: 8,
+    borderRadius: 12,
     padding: 4,
     marginBottom: 16,
-    gap: 6,
+    gap: 4,
+    borderWidth: 1,
   },
   tabButton: {
     flex: 1,
-    paddingVertical: 8,
+    minHeight: touchTarget.min,
     alignItems: 'center',
-    borderRadius: 6,
+    justifyContent: 'center',
+    borderRadius: 8,
   },
   activeTabButton: {
-    backgroundColor: 'white',
     shadowColor: '#000',
     shadowOpacity: 0.05,
     shadowRadius: 2,
     elevation: 1,
   },
   tabText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#64748b',
-  },
-  activeTabText: {
-    color: '#1e293b',
+    fontSize: 13,
   },
   footerButtons: {
-    paddingBottom: 36,
-    paddingTop: 12,
+    paddingBottom: 28,
+    paddingTop: 10,
   },
   buttonSpacing: {
-    marginBottom: 12,
+    marginBottom: 10,
+  },
+  footerPrimaryButton: {
+    minHeight: touchTarget.min,
+    borderRadius: 22,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+  footerPrimaryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  footerSecondaryButton: {
+    minHeight: touchTarget.min,
+    borderRadius: 22,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  footerSecondaryButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
   },
   statusPillsRow: {
     flexDirection: 'row',
     alignItems: 'center',
     flexWrap: 'wrap',
     gap: 6,
-    marginTop: 2,
+    marginTop: 4,
   },
   dueStatusPill: {
-    fontSize: 12,
-    backgroundColor: '#fef2f2',
-    color: '#b91c1c',
-    borderColor: '#fecaca',
+    fontSize: 11,
     borderWidth: 1,
     paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 12,
+    paddingVertical: 3,
+    borderRadius: 10,
     fontWeight: '700',
   },
   masteredStatusPill: {
-    fontSize: 12,
-    backgroundColor: '#f0fdf4',
-    color: '#15803d',
-    borderColor: '#bbf7d0',
+    fontSize: 11,
     borderWidth: 1,
     paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 12,
+    paddingVertical: 3,
+    borderRadius: 10,
     fontWeight: '700',
   },
   learningStatusPill: {
-    fontSize: 12,
-    backgroundColor: '#eef2ff',
-    color: '#4338ca',
-    borderColor: '#c7d2fe',
+    fontSize: 11,
     borderWidth: 1,
     paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 12,
+    paddingVertical: 3,
+    borderRadius: 10,
     fontWeight: '600',
   },
   accuracyText: {
-    fontSize: 12,
-    backgroundColor: '#ecfdf5',
-    color: '#059669',
-    borderColor: '#a7f3d0',
+    fontSize: 11,
     borderWidth: 1,
     paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 12,
+    paddingVertical: 3,
+    borderRadius: 10,
     fontWeight: '600',
   },
   cardBottomRow: {
@@ -596,23 +860,26 @@ const styles = StyleSheet.create({
     marginTop: 10,
     paddingTop: 10,
     borderTopWidth: 1,
-    borderTopColor: '#f1f5f9',
   },
   reciteActionButton: {
-    backgroundColor: '#4f46e5',
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: 8,
+    minHeight: touchTarget.min,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
   },
   reciteActionButtonText: {
-    color: 'white',
-    fontSize: 13,
+    color: '#FFFFFF',
     fontWeight: '700',
+    fontSize: 13,
   },
   deckFilterScrollView: {
-    maxHeight: 44,
     marginBottom: 12,
   },
   deckFilterContainer: {
@@ -622,61 +889,42 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
   },
   deckChip: {
-    backgroundColor: '#f1f5f9',
-    borderColor: '#cbd5e1',
     borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-  },
-  activeDeckChip: {
-    backgroundColor: '#4f46e5',
-    borderColor: '#4338ca',
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 18,
+    minHeight: touchTarget.min,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   deckChipText: {
     fontSize: 13,
-    fontWeight: '600',
-    color: '#475569',
-  },
-  activeDeckChipText: {
-    color: 'white',
   },
   deckBannerRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#eef2ff',
-    borderColor: '#c7d2fe',
     borderWidth: 1,
     paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 8,
+    paddingVertical: 10,
+    borderRadius: 12,
     marginBottom: 12,
   },
   deckBannerText: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#3730a3',
   },
   shareDeckButton: {
-    backgroundColor: '#4f46e5',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 6,
+    minHeight: touchTarget.min,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   shareDeckButtonText: {
-    color: 'white',
+    color: '#FFFFFF',
     fontSize: 12,
     fontWeight: '700',
   },
-  deckTagBadge: {
-    fontSize: 12,
-    backgroundColor: '#e0e7ff',
-    color: '#4338ca',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-    fontWeight: '600',
-  },
 });
-

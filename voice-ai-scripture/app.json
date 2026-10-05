@@ -9,10 +9,12 @@
     "ios": {
       "supportsTablet": true,
       "infoPlist": {
-        "NSMicrophoneUsageDescription": "This app needs access to the microphone so you can recite scripture verses."
+        "NSMicrophoneUsageDescription": "Allow voice-ai-scripture to access your microphone to verify scripture recitation.",
+        "NSSpeechRecognitionUsageDescription": "Allow voice-ai-scripture to use speech recognition to transcribe your scripture recitation."
       }
     },
     "android": {
+      "package": "com.voiceai.scripture",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -20,7 +22,10 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "permissions": [
-        "RECORD_AUDIO"
+        "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"
       ],
       "predictiveBackGestureEnabled": false
     },
@@ -28,10 +33,22 @@
       "enabled": false
     },
     "plugins": [
-      "expo-audio"
+      "expo-audio",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Allow voice-ai-scripture to access your microphone to verify scripture recitation.",
+          "speechRecognitionPermission": "Allow voice-ai-scripture to use speech recognition to transcribe your scripture recitation."
+        }
+      ]
     ],
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "98f65f9a-66a2-4865-a6bb-4e587f82e403"
+      }
     }
   }
 }

@@ -1,40 +1,107 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, useColorScheme } from 'react-native';
 import { DiffToken } from '../engines/diffEngine';
+import { getTheme } from '../theme/tokens';
 
 interface DiffViewProps {
   tokens: DiffToken[];
 }
 
 export default function DiffView({ tokens }: DiffViewProps) {
+  const scheme = useColorScheme();
+  const theme = getTheme(scheme);
+
   if (!tokens || tokens.length === 0) {
     return null;
   }
 
   return (
     <View style={styles.container}>
-      <View style={styles.tokenFlow}>
+      <View
+        style={[
+          styles.tokenFlow,
+          {
+            backgroundColor: theme.colors.surfaceMuted,
+            borderColor: theme.colors.border,
+          },
+        ]}
+      >
         {tokens.map((token, index) => {
           if (token.status === 'correct') {
             return (
-              <View key={index} style={[styles.badge, styles.correctBadge]}>
-                <Text style={styles.correctText}>{token.word}</Text>
+              <View
+                key={index}
+                style={[
+                  styles.badge,
+                  { backgroundColor: theme.colors.diffMatchBg },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.tokenText,
+                    styles.correctText,
+                    {
+                      color: theme.colors.diffMatchText,
+                      fontFamily: theme.typography.fontFamily.scripture,
+                    },
+                  ]}
+                >
+                  {token.word}
+                </Text>
               </View>
             );
           }
 
           if (token.status === 'missed') {
             return (
-              <View key={index} style={[styles.badge, styles.missedBadge]}>
-                <Text style={styles.missedText}>{token.word}</Text>
+              <View
+                key={index}
+                style={[
+                  styles.badge,
+                  { backgroundColor: theme.colors.diffMissedBg },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.tokenText,
+                    styles.missedText,
+                    {
+                      color: theme.colors.diffMissedText,
+                      fontFamily: theme.typography.fontFamily.scripture,
+                    },
+                  ]}
+                >
+                  {token.word}
+                </Text>
               </View>
             );
           }
 
           // status === 'added'
           return (
-            <View key={index} style={[styles.badge, styles.addedBadge]}>
-              <Text style={styles.addedText}>+{token.word}</Text>
+            <View
+              key={index}
+              style={[
+                styles.badge,
+                styles.addedBadge,
+                {
+                  backgroundColor: theme.colors.diffAddedBg,
+                  borderColor: theme.colors.accentSacred,
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.tokenText,
+                  styles.addedText,
+                  {
+                    color: theme.colors.diffAddedText,
+                    fontFamily: theme.typography.fontFamily.scripture,
+                  },
+                ]}
+              >
+                +{token.word}
+              </Text>
             </View>
           );
         })}
@@ -42,16 +109,37 @@ export default function DiffView({ tokens }: DiffViewProps) {
 
       <View style={styles.legend}>
         <View style={styles.legendItem}>
-          <View style={[styles.legendDot, { backgroundColor: '#10b981' }]} />
-          <Text style={styles.legendLabel}>Correct</Text>
+          <View
+            style={[
+              styles.legendDot,
+              { backgroundColor: theme.colors.diffMatchText },
+            ]}
+          />
+          <Text style={[styles.legendLabel, { color: theme.colors.textSecondary }]}>
+            Correct
+          </Text>
         </View>
         <View style={styles.legendItem}>
-          <View style={[styles.legendDot, { backgroundColor: '#ef4444' }]} />
-          <Text style={styles.legendLabel}>Missed</Text>
+          <View
+            style={[
+              styles.legendDot,
+              { backgroundColor: theme.colors.diffMissedText },
+            ]}
+          />
+          <Text style={[styles.legendLabel, { color: theme.colors.textSecondary }]}>
+            Missed
+          </Text>
         </View>
         <View style={styles.legendItem}>
-          <View style={[styles.legendDot, { backgroundColor: '#f59e0b' }]} />
-          <Text style={styles.legendLabel}>Added word</Text>
+          <View
+            style={[
+              styles.legendDot,
+              { backgroundColor: theme.colors.diffAddedText },
+            ]}
+          />
+          <Text style={[styles.legendLabel, { color: theme.colors.textSecondary }]}>
+            Added word
+          </Text>
         </View>
       </View>
     </View>
@@ -68,43 +156,31 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     justifyContent: 'center',
     gap: 6,
-    padding: 12,
-    backgroundColor: '#f8fafc',
-    borderRadius: 8,
+    padding: 14,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
   },
   badge: {
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 6,
   },
-  correctBadge: {
-    backgroundColor: '#dcfce7',
+  tokenText: {
+    fontSize: 17,
+    lineHeight: 24,
   },
   correctText: {
-    color: '#15803d',
     fontWeight: '600',
-    fontSize: 16,
-  },
-  missedBadge: {
-    backgroundColor: '#fee2e2',
   },
   missedText: {
-    color: '#b91c1c',
     textDecorationLine: 'line-through',
     fontWeight: '500',
-    fontSize: 16,
   },
   addedBadge: {
-    backgroundColor: '#fef3c7',
     borderWidth: 1,
-    borderColor: '#f59e0b',
     borderStyle: 'dashed',
   },
   addedText: {
-    color: '#b45309',
-    fontSize: 14,
     fontWeight: '500',
   },
   legend: {
@@ -125,6 +201,5 @@ const styles = StyleSheet.create({
   },
   legendLabel: {
     fontSize: 12,
-    color: '#64748b',
   },
 });

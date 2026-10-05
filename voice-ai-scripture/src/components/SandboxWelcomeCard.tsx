@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, useColorScheme } from 'react-native';
 import { Verse } from '../services/VerseEngine';
+import { getTheme, touchTarget } from '../theme/tokens';
 
 export interface SandboxWelcomeCardProps {
   onStartSandbox: (verse: Verse) => void;
@@ -27,6 +28,9 @@ export default function SandboxWelcomeCard({
   onStartSandbox,
   initialLanguage = 'en',
 }: SandboxWelcomeCardProps) {
+  const scheme = useColorScheme();
+  const theme = getTheme(scheme);
+
   const [language, setLanguage] = useState<'en' | 'pt'>(initialLanguage);
   const passage = SANDBOX_PASSAGES[language];
 
@@ -38,50 +42,169 @@ export default function SandboxWelcomeCard({
   };
 
   return (
-    <View style={styles.container} testID="sandbox-welcome-card">
-      <View style={styles.badgeContainer}>
-        <Text style={styles.badgeText}>⚡ 60-Second Quick Start</Text>
+    <View
+      style={[
+        styles.container,
+        {
+          backgroundColor: theme.colors.surface,
+          borderColor: theme.colors.border,
+        },
+      ]}
+      testID="sandbox-welcome-card"
+    >
+      <View
+        style={[
+          styles.badgeContainer,
+          { backgroundColor: theme.colors.surfaceMuted },
+        ]}
+      >
+        <Text
+          style={[
+            styles.badgeText,
+            { color: theme.colors.accentSacred },
+          ]}
+        >
+          ⚡ 60-Second Quick Start
+        </Text>
       </View>
 
-      <Text style={styles.title}>Welcome to Voice AI Scripture! 📖</Text>
-      <Text style={styles.subtitle}>
+      <Text
+        style={[
+          styles.title,
+          {
+            color: theme.colors.textPrimary,
+            fontFamily: theme.typography.fontFamily.ui,
+          },
+        ]}
+      >
+        Welcome to Voice AI Scripture! 📖
+      </Text>
+      <Text
+        style={[
+          styles.subtitle,
+          {
+            color: theme.colors.textSecondary,
+            fontFamily: theme.typography.fontFamily.ui,
+          },
+        ]}
+      >
         Experience 3-tier voice recall (Echo → Cloze → Recite) before adding verses to your library.
         No setup or commitment required.
       </Text>
 
-      <View style={styles.languageRow}>
+      <View
+        style={[
+          styles.languageRow,
+          {
+            backgroundColor: theme.colors.surfaceMuted,
+            borderColor: theme.colors.border,
+          },
+        ]}
+      >
         <TouchableOpacity
-          style={[styles.langButton, language === 'en' && styles.langButtonActive]}
+          style={[
+            styles.langButton,
+            language === 'en' && [
+              styles.langButtonActive,
+              { backgroundColor: theme.colors.surface },
+            ],
+          ]}
           onPress={() => setLanguage('en')}
           testID="sandbox-lang-en"
           accessibilityRole="button"
         >
-          <Text style={[styles.langButtonText, language === 'en' && styles.langButtonTextActive]}>
+          <Text
+            style={[
+              styles.langButtonText,
+              {
+                color:
+                  language === 'en'
+                    ? theme.colors.textPrimary
+                    : theme.colors.textSecondary,
+                fontWeight: language === 'en' ? '700' : '500',
+              },
+            ]}
+          >
             English (WEB)
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.langButton, language === 'pt' && styles.langButtonActive]}
+          style={[
+            styles.langButton,
+            language === 'pt' && [
+              styles.langButtonActive,
+              { backgroundColor: theme.colors.surface },
+            ],
+          ]}
           onPress={() => setLanguage('pt')}
           testID="sandbox-lang-pt"
           accessibilityRole="button"
         >
-          <Text style={[styles.langButtonText, language === 'pt' && styles.langButtonTextActive]}>
+          <Text
+            style={[
+              styles.langButtonText,
+              {
+                color:
+                  language === 'pt'
+                    ? theme.colors.textPrimary
+                    : theme.colors.textSecondary,
+                fontWeight: language === 'pt' ? '700' : '500',
+              },
+            ]}
+          >
             Português (Almeida)
           </Text>
         </TouchableOpacity>
       </View>
 
-      <View style={styles.previewBox}>
+      <View
+        style={[
+          styles.previewBox,
+          {
+            backgroundColor: theme.colors.surfaceMuted,
+            borderColor: theme.colors.border,
+          },
+        ]}
+      >
         <View style={styles.previewHeader}>
-          <Text style={styles.previewReference}>{passage.reference}</Text>
-          <Text style={styles.previewBadge}>[{passage.translation}]</Text>
+          <Text
+            style={[
+              styles.previewReference,
+              { color: theme.colors.textPrimary },
+            ]}
+          >
+            {passage.reference}
+          </Text>
+          <Text
+            style={[
+              styles.previewBadge,
+              {
+                backgroundColor: theme.colors.surface,
+                color: theme.colors.textSecondary,
+              },
+            ]}
+          >
+            [{passage.translation}]
+          </Text>
         </View>
-        <Text style={styles.previewText}>"{passage.text}"</Text>
+        <Text
+          style={[
+            styles.previewText,
+            {
+              color: theme.colors.textPrimary,
+              fontFamily: theme.typography.fontFamily.scripture,
+            },
+          ]}
+        >
+          "{passage.text}"
+        </Text>
       </View>
 
       <TouchableOpacity
-        style={styles.actionButton}
+        style={[
+          styles.actionButton,
+          { backgroundColor: theme.colors.accentSacred },
+        ]}
         onPress={() => onStartSandbox(currentVerse)}
         testID="start-sandbox-button"
         activeOpacity={0.8}
@@ -95,21 +218,18 @@ export default function SandboxWelcomeCard({
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: 'white',
-    borderRadius: 16,
-    padding: 20,
+    borderRadius: 18,
+    padding: 22,
     marginVertical: 12,
     borderWidth: 1,
-    borderColor: '#e0e7ff',
-    shadowColor: '#4f46e5',
-    shadowOpacity: 0.08,
+    shadowColor: '#000',
+    shadowOpacity: 0.05,
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 4 },
     elevation: 3,
   },
   badgeContainer: {
     alignSelf: 'flex-start',
-    backgroundColor: '#eef2ff',
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 12,
@@ -118,37 +238,36 @@ const styles = StyleSheet.create({
   badgeText: {
     fontSize: 12,
     fontWeight: '700',
-    color: '#4f46e5',
     textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   title: {
     fontSize: 20,
-    fontWeight: 'bold',
-    color: '#111827',
+    fontWeight: '700',
     marginBottom: 6,
+    letterSpacing: -0.2,
   },
   subtitle: {
     fontSize: 14,
-    color: '#4b5563',
     lineHeight: 20,
     marginBottom: 16,
   },
   languageRow: {
     flexDirection: 'row',
-    backgroundColor: '#f1f5f9',
-    borderRadius: 8,
-    padding: 4,
+    borderRadius: 10,
+    padding: 3,
     marginBottom: 16,
-    gap: 6,
+    gap: 4,
+    borderWidth: 1,
   },
   langButton: {
     flex: 1,
-    paddingVertical: 6,
+    minHeight: touchTarget.min,
+    justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: 6,
+    borderRadius: 8,
   },
   langButtonActive: {
-    backgroundColor: 'white',
     shadowColor: '#000',
     shadowOpacity: 0.05,
     shadowRadius: 2,
@@ -156,60 +275,50 @@ const styles = StyleSheet.create({
   },
   langButtonText: {
     fontSize: 13,
-    fontWeight: '600',
-    color: '#64748b',
-  },
-  langButtonTextActive: {
-    color: '#1e293b',
   },
   previewBox: {
-    backgroundColor: '#f8fafc',
-    borderRadius: 10,
-    padding: 14,
+    borderRadius: 12,
+    padding: 16,
     marginBottom: 18,
     borderWidth: 1,
-    borderColor: '#e2e8f0',
   },
   previewHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginBottom: 6,
+    marginBottom: 8,
   },
   previewReference: {
     fontSize: 16,
     fontWeight: '700',
-    color: '#1e293b',
   },
   previewBadge: {
-    fontSize: 12,
-    backgroundColor: '#e2e8f0',
-    color: '#475569',
+    fontSize: 11,
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
     fontWeight: '600',
   },
   previewText: {
-    fontSize: 14,
-    color: '#334155',
-    lineHeight: 21,
+    fontSize: 17,
+    lineHeight: 26,
     fontStyle: 'italic',
   },
   actionButton: {
-    backgroundColor: '#4f46e5',
-    paddingVertical: 14,
-    borderRadius: 10,
+    minHeight: touchTarget.min,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#4f46e5',
-    shadowOpacity: 0.25,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
     shadowRadius: 6,
-    shadowOffset: { width: 0, height: 3 },
+    shadowOffset: { width: 0, height: 2 },
     elevation: 2,
   },
   actionButtonText: {
-    color: 'white',
+    color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '700',
   },
