@@ -275,4 +275,84 @@ describe('SpeechTranscriber Seam (Ticket 11)', () => {
       );
     });
   });
+
+  describe('Ticket 41: Groq Cloud Whisper Transcriber', () => {
+    const originalFetch = global.fetch;
+
+    afterEach(() => {
+      global.fetch = originalFetch;
+    });
+
+    it('throws TranscriptionError unauthorized if instantiated with empty Groq key', async () => {
+      const { GroqTranscriber } = require('./SpeechTranscriber');
+      const groq = new GroqTranscriber('');
+      await expect(groq.transcribe('file:///dummy.m4a')).rejects.toMatchObject({
+        name: 'TranscriptionError',
+        code: 'unauthorized',
+      });
+    });
+
+    it('sends audio to Groq with whisper-large-v3-turbo, language, and scripture prompt', async () => {
+      const { GroqTranscriber } = require('./SpeechTranscriber');
+      let capturedUrl = '';
+      let capturedHeaders: any = {};
+      let capturedBody: any = null;
+
+      global.fetch = jest.fn().mockImplementation(async (url, init) => {
+        capturedUrl = url;
+        capturedHeaders = init?.headers;
+        capturedBody = init?.body;
+        return {
+          ok: true,
+          json: async () => ({ text: 'O Senhor é o meu pastor; nada me faltará.' }),
+        };
+      });
+
+      const groq = new GroqTranscriber('gsk-test-key-123');
+      const result = await groq.transcribe('file:///recording.m4a', {
+        language: 'pt',
+        prompt: 'Salmos 23:1: O Senhor é o meu pastor; nada me faltará.',
+      });
+
+      expect(capturedUrl).toBe('https://api.groq.com/openai/v1/audio/transcriptions');
+      expect(capturedHeaders['Authorization']).toBe('Bearer gsk-test-key-123');
+      expect(capturedBody).toBeInstanceOf(FormData);
+      expect(result.text).toBe('O Senhor é o meu pastor; nada me faltará.');
+    });
+
+    it('maps Groq 429 rate limit to TranscriptionError rate_limited', async () => {
+      const { GroqTranscriber } = require('./SpeechTranscriber');
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        status: 429,
+        text: async () => 'Rate limit exceeded on Groq LPU',
+      });
+
+      const groq = new GroqTranscriber('gsk-test-key');
+      await expect(groq.transcribe('file:///audio.m4a')).rejects.toMatchObject({
+        name: 'TranscriptionError',
+        code: 'rate_limited',
+      });
+    });
+
+    it('prioritizes EXPO_PUBLIC_GROQ_API_KEY in createDefaultTranscriber', () => {
+      const prevGroq = process.env.EXPO_PUBLIC_GROQ_API_KEY;
+      const prevOpenAI = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
+
+      process.env.EXPO_PUBLIC_GROQ_API_KEY = 'gsk-active-key';
+      process.env.EXPO_PUBLIC_OPENAI_API_KEY = 'sk-active-openai';
+
+      try {
+        const { GroqTranscriber } = require('./SpeechTranscriber');
+        const transcriber = createDefaultTranscriber();
+        expect(transcriber).toBeInstanceOf(GroqTranscriber);
+      } finally {
+        if (prevGroq) process.env.EXPO_PUBLIC_GROQ_API_KEY = prevGroq;
+        else delete process.env.EXPO_PUBLIC_GROQ_API_KEY;
+
+        if (prevOpenAI) process.env.EXPO_PUBLIC_OPENAI_API_KEY = prevOpenAI;
+        else delete process.env.EXPO_PUBLIC_OPENAI_API_KEY;
+      }
+    });
+  });
 });

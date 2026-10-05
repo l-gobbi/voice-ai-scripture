@@ -43,6 +43,7 @@ export default function ReviewScreen({
 
   const [showPaywall, setShowPaywall] = useState(false);
   const [showSandboxOptIn, setShowSandboxOptIn] = useState(false);
+  const [showDebugTray, setShowDebugTray] = useState(false);
 
   const {
     level,
@@ -52,6 +53,7 @@ export default function ReviewScreen({
     isTextRevealed,
     assistanceUsed,
     currentResult,
+    rawTranscript,
     errorMessage,
     startReciting,
     stopAndVerify,
@@ -200,18 +202,85 @@ export default function ReviewScreen({
             },
           ]}
         >
-          {/* Reference Heading */}
-          <Text
-            style={[
-              styles.reference,
-              {
-                color: theme.colors.textPrimary,
-                fontFamily: theme.typography.fontFamily.ui,
-              },
-            ]}
+          {/* Reference Heading (Long press in __DEV__ toggles Acoustic Diagnostics) */}
+          <TouchableOpacity
+            onLongPress={() => {
+              if (typeof __DEV__ !== 'undefined' && __DEV__) {
+                setShowDebugTray((prev) => !prev);
+              }
+            }}
+            activeOpacity={0.8}
           >
-            {verse.reference}
-          </Text>
+            <Text
+              style={[
+                styles.reference,
+                {
+                  color: theme.colors.textPrimary,
+                  fontFamily: theme.typography.fontFamily.ui,
+                },
+              ]}
+            >
+              {verse.reference}
+            </Text>
+          </TouchableOpacity>
+
+          {/* Developer Acoustic Debug Tray (__DEV__ only) */}
+          {typeof __DEV__ !== 'undefined' && __DEV__ && showDebugTray && (
+            <View
+              style={[
+                styles.debugTray,
+                {
+                  backgroundColor: theme.colors.surfaceMuted,
+                  borderColor: theme.colors.accentSacred,
+                },
+              ]}
+            >
+              <View style={styles.debugHeaderRow}>
+                <Text
+                  style={[
+                    styles.debugTitle,
+                    { color: theme.colors.accentSacred },
+                  ]}
+                >
+                  🛠️ Acoustic Diagnostics (__DEV__)
+                </Text>
+                <TouchableOpacity onPress={() => setShowDebugTray(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Text style={[styles.debugCloseText, { color: theme.colors.textSecondary }]}>✕</Text>
+                </TouchableOpacity>
+              </View>
+
+              <Text style={[styles.debugLabel, { color: theme.colors.textSecondary }]}>
+                Speech Provider:{' '}
+                <Text style={{ color: theme.colors.textPrimary, fontWeight: '600' }}>
+                  {process.env.EXPO_PUBLIC_GROQ_API_KEY
+                    ? '⚡ Groq Cloud Whisper (whisper-large-v3-turbo)'
+                    : process.env.EXPO_PUBLIC_OPENAI_API_KEY
+                    ? '☁️ OpenAI Cloud (gpt-transcribe)'
+                    : '📱 On-Device Native Speech Recognizer'}
+                </Text>
+              </Text>
+
+              <Text style={[styles.debugLabel, { color: theme.colors.textSecondary, marginTop: 6 }]}>
+                Raw Recognized Transcript:
+              </Text>
+              <View
+                style={[
+                  styles.debugTranscriptBox,
+                  { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.debugTranscriptText,
+                    { color: theme.colors.textPrimary },
+                  ]}
+                  selectable
+                >
+                  {rawTranscript || (isVerifying ? 'Transcribing...' : isReciting ? 'Listening...' : 'No transcription captured yet')}
+                </Text>
+              </View>
+            </View>
+          )}
 
           {/* Level 1: Echo Mode */}
           {level === 1 && (
@@ -1035,5 +1104,41 @@ const styles = StyleSheet.create({
   modalSecondaryButtonText: {
     fontSize: 14,
     fontWeight: '600',
+  },
+  debugTray: {
+    width: '100%',
+    marginVertical: 12,
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  debugHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+  },
+  debugTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  debugCloseText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    padding: 4,
+  },
+  debugLabel: {
+    fontSize: 12,
+  },
+  debugTranscriptBox: {
+    marginTop: 6,
+    padding: 10,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  debugTranscriptText: {
+    fontSize: 13,
   },
 });

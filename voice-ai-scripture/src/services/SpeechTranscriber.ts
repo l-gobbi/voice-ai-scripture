@@ -111,11 +111,82 @@ export class SimulatedTranscriber implements SpeechTranscriber {
   }
 }
 
+export class GroqTranscriber implements SpeechTranscriber {
+  private apiKey: string;
+  private model: string;
+
+  constructor(apiKey: string, model: string = 'whisper-large-v3-turbo') {
+    this.apiKey = (apiKey ?? '').trim();
+    this.model = model;
+  }
+
+  async transcribe(audioUri: string, options?: TranscriptionOptions): Promise<TranscriptionResult> {
+    if (!this.apiKey) {
+      throw new TranscriptionError('unauthorized', 'Groq API key is required for transcription');
+    }
+
+    const formData = new FormData();
+    const filename = audioUri.split('/').pop() || 'recording.m4a';
+    const fileType = filename.endsWith('.mp3') ? 'audio/mpeg' : 'audio/m4a';
+
+    formData.append('file', {
+      uri: audioUri,
+      name: filename,
+      type: fileType,
+    } as any);
+
+    formData.append('model', this.model);
+    formData.append('language', options?.language ?? 'en');
+
+    if (options?.prompt) {
+      formData.append('prompt', options.prompt);
+    }
+
+    let response: Response;
+    try {
+      response = await fetch('https://api.groq.com/openai/v1/audio/transcriptions', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+        },
+        body: formData,
+      });
+    } catch (networkErr: any) {
+      throw new TranscriptionError('network_error', networkErr?.message || 'Network request failed', networkErr);
+    }
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      const status = response.status;
+      let code: TranscriptionErrorCode = 'unknown';
+
+      if (status === 401 || status === 403) {
+        code = 'unauthorized';
+      } else if (status === 429) {
+        code = 'rate_limited';
+      } else if (status === 400 || status === 422) {
+        code = 'unintelligible';
+      } else if (status >= 500) {
+        code = 'network_error';
+      }
+
+      throw new TranscriptionError(code, `Groq audio transcription failed (${status}): ${errorText}`);
+    }
+
+    const data = await response.json();
+    return {
+      text: data.text || '',
+    };
+  }
+}
+
 import { NativeSpeechTranscriber } from './NativeSpeechTranscriber';
 
 export interface DefaultTranscriberOptions {
-  engine?: 'auto' | 'whisper' | 'native' | 'simulated';
+  engine?: 'auto' | 'groq' | 'whisper' | 'native' | 'simulated';
   fallbackToPrompt?: boolean;
+  groqApiKey?: string;
+  openaiApiKey?: string;
 }
 
 export function createDefaultTranscriber(
@@ -134,12 +205,29 @@ export function createDefaultTranscriber(
     });
   }
 
-  const key = (apiKey ?? process.env.EXPO_PUBLIC_OPENAI_API_KEY ?? '').trim();
-  if (key.length > 0) {
-    return new WhisperTranscriber(key);
+  if (engine === 'groq') {
+    const groqKey = (options?.groqApiKey ?? apiKey ?? process.env.EXPO_PUBLIC_GROQ_API_KEY ?? '').trim();
+    return new GroqTranscriber(groqKey);
   }
 
-  console.info('[SpeechTranscriber] No OpenAI API key configured. Using on-device NativeSpeechTranscriber for free offline practice.');
+  if (engine === 'whisper') {
+    const openaiKey = (options?.openaiApiKey ?? apiKey ?? process.env.EXPO_PUBLIC_OPENAI_API_KEY ?? '').trim();
+    return new WhisperTranscriber(openaiKey);
+  }
+
+  // Precedence: 1. Groq Cloud Whisper (ultra-low latency & cost)
+  const groqKey = (options?.groqApiKey ?? process.env.EXPO_PUBLIC_GROQ_API_KEY ?? '').trim();
+  if (groqKey.length > 0) {
+    return new GroqTranscriber(groqKey);
+  }
+
+  // Precedence: 2. OpenAI Whisper
+  const openaiKey = (apiKey ?? options?.openaiApiKey ?? process.env.EXPO_PUBLIC_OPENAI_API_KEY ?? '').trim();
+  if (openaiKey.length > 0) {
+    return new WhisperTranscriber(openaiKey);
+  }
+
+  console.info('[SpeechTranscriber] No OpenAI API key configured (or Groq API key). Using on-device NativeSpeechTranscriber for free offline practice.');
   return new NativeSpeechTranscriber({
     fallbackToPrompt: options?.fallbackToPrompt ?? false,
   });

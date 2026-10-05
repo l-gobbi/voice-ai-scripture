@@ -83,4 +83,68 @@ describe('diffEngine', () => {
     const score = calculateScore(result);
     expect(score).toBeGreaterThanOrEqual(90);
   });
+
+  describe('Ticket 40: Diacritic-Lenient Verification & Canonical Scripture Projection', () => {
+    const psalmVerse = 'O Senhor é o meu pastor; nada me faltará.';
+
+    it('matches Portuguese recitation 100% even when speech recognition drops accents', () => {
+      // Speech recognition drops 'é' accent to 'e' and 'faltará' to 'faltara'
+      const speechTranscript = 'o senhor e o meu pastor nada me faltara';
+      const result = diffVerses(psalmVerse, speechTranscript);
+
+      expect(result.every((t) => t.status === 'correct')).toBe(true);
+      expect(calculateScore(result)).toBe(100);
+
+      // Asserts Canonical Scripture Projection: original casing, accents, and attached punctuation
+      expect(result.map((t) => t.word)).toEqual([
+        'O',
+        'Senhor',
+        'é',
+        'o',
+        'meu',
+        'pastor;',
+        'nada',
+        'me',
+        'faltará.',
+      ]);
+    });
+
+    it('handles omission in accented verse with canonical projection for missed tokens', () => {
+      // User forgot "nada me faltara"
+      const speechTranscript = 'o senhor e o meu pastor';
+      const result = diffVerses(psalmVerse, speechTranscript);
+
+      const correct = result.filter((t) => t.status === 'correct');
+      const missed = result.filter((t) => t.status === 'missed');
+
+      expect(correct.map((t) => t.word)).toEqual(['O', 'Senhor', 'é', 'o', 'meu', 'pastor;']);
+      expect(missed.map((t) => t.word)).toEqual(['nada', 'me', 'faltará.']);
+      expect(calculateScore(result)).toBeLessThan(100);
+      expect(calculateScore(result)).toBeGreaterThan(60);
+    });
+
+    it('handles spoken addition without corrupting canonical projection', () => {
+      const speechTranscript = 'o senhor e o meu pastor amem nada me faltara';
+      const result = diffVerses(psalmVerse, speechTranscript);
+
+      const added = result.filter((t) => t.status === 'added');
+      expect(added.length).toBe(1);
+      expect(added[0].word).toBe('amem');
+
+      const correct = result.filter((t) => t.status === 'correct');
+      expect(correct.length).toBe(9);
+      expect(correct.map((t) => t.word)).toEqual([
+        'O',
+        'Senhor',
+        'é',
+        'o',
+        'meu',
+        'pastor;',
+        'nada',
+        'me',
+        'faltará.',
+      ]);
+    });
+  });
 });
+

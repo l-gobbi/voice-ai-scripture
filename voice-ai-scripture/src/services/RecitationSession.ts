@@ -55,6 +55,7 @@ export interface VoiceRecitationResult {
   score: number;
   passed: boolean;
   srsResult: SRSResult;
+  rawTranscript?: string;
 }
 
 export interface RecitationState {
@@ -67,6 +68,7 @@ export interface RecitationState {
   currentResult: VoiceRecitationResult | null;
   officialResult: VoiceRecitationResult | null;
   result: VoiceRecitationResult | null;
+  rawTranscript?: string | null;
   errorMessage: string | null;
 }
 
@@ -122,6 +124,7 @@ export class RecitationSession {
       currentResult: null,
       officialResult: null,
       result: null,
+      rawTranscript: null,
       errorMessage: null,
     };
 
@@ -206,6 +209,7 @@ export class RecitationSession {
       isTextRevealed: false,
       currentResult: null,
       result: null,
+      rawTranscript: null,
       errorMessage: null,
     });
   }
@@ -351,6 +355,7 @@ export class RecitationSession {
         score,
         passed,
         srsResult,
+        rawTranscript: transcript,
       };
 
       // Atomic Privacy Invariant: discard audio file before publishing verified state
@@ -368,6 +373,7 @@ export class RecitationSession {
         currentResult: result,
         result,
         officialResult,
+        rawTranscript: transcript,
       });
       return result;
     } catch (err: any) {
@@ -378,6 +384,7 @@ export class RecitationSession {
       this.setState({
         status: 'error',
         errorMessage: userMessage,
+        rawTranscript: null,
       });
       return null;
     } finally {
@@ -407,6 +414,7 @@ export class RecitationSession {
       volumeLevel: 0,
       currentResult: null,
       result: null,
+      rawTranscript: null,
       errorMessage: null,
     });
   }

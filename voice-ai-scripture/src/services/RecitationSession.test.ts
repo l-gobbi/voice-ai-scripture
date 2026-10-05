@@ -1063,5 +1063,33 @@ describe('RecitationSession (Ticket 07)', () => {
       expect(recordSpy).not.toHaveBeenCalled();
     });
   });
+
+  describe('Ticket 42: Raw Transcript Retention for Diagnostics', () => {
+    it('retains raw transcribed text in result and session state upon verification', async () => {
+      jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValue(true);
+      jest.spyOn(audioRecorder, 'startRecording').mockResolvedValue(undefined);
+      jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValue('file:///test.m4a');
+      jest.spyOn(audioRecorder, 'deleteAudioFile').mockResolvedValue(true);
+
+      const mockTranscriber = new SimulatedTranscriber({
+        defaultText: 'o senhor e o meu pastor nada me faltara',
+      });
+
+      const session = new RecitationSession(mockVerse, {
+        transcriber: mockTranscriber,
+        isUnmetered: true,
+      });
+
+      await session.startReciting();
+      const result = await session.stopAndVerify();
+
+      expect(result?.rawTranscript).toBe('o senhor e o meu pastor nada me faltara');
+      expect(session.getState().rawTranscript).toBe('o senhor e o meu pastor nada me faltara');
+
+      session.practiceAgain();
+      expect(session.getState().rawTranscript).toBeNull();
+    });
+  });
 });
+
 
