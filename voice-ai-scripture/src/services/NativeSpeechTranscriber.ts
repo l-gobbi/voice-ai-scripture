@@ -26,6 +26,7 @@ import { normalizeSpeechLanguage } from '../utils/languageNormalizer';
 export const formatNativeRecognizerLanguage = normalizeSpeechLanguage;
 
 import { getNativeTranscript, getWebTranscript } from './AudioRecorderService';
+import { getExpoSpeechRecognitionModule } from './NativeSpeechRecognitionHelper';
 
 export class WebSpeechRecognizerDriver implements NativeSpeechRecognizerDriver {
   async isAvailable(): Promise<boolean> {
@@ -52,12 +53,7 @@ export class ExpoSpeechRecognitionDriver implements NativeSpeechRecognizerDriver
     if (module !== undefined) {
       this.module = module;
     } else {
-      try {
-        const { ExpoSpeechRecognitionModule } = require('expo-speech-recognition');
-        this.module = ExpoSpeechRecognitionModule;
-      } catch {
-        this.module = null;
-      }
+      this.module = getExpoSpeechRecognitionModule();
     }
   }
 

@@ -1,5 +1,6 @@
 import { Platform } from 'react-native';
 import { normalizeSpeechLanguage } from '../utils/languageNormalizer';
+import { getExpoSpeechRecognitionModule } from './NativeSpeechRecognitionHelper';
 
 export interface AudioRecordingOptions {
   language?: string;
@@ -194,9 +195,9 @@ export class NativeAudioDriver implements AudioDriver {
       const { AudioModule } = require('expo-audio');
       const response = await AudioModule.requestRecordingPermissionsAsync();
       try {
-        const { ExpoSpeechRecognitionModule } = require('expo-speech-recognition');
-        if (typeof ExpoSpeechRecognitionModule?.requestPermissionsAsync === 'function') {
-          await ExpoSpeechRecognitionModule.requestPermissionsAsync();
+        const SpeechRec = getExpoSpeechRecognitionModule();
+        if (typeof SpeechRec?.requestPermissionsAsync === 'function') {
+          await SpeechRec.requestPermissionsAsync();
         }
       } catch {}
       return response.granted;
@@ -214,20 +215,20 @@ export class NativeAudioDriver implements AudioDriver {
     this.liveTranscript = '';
     const { AudioModule } = require('expo-audio');
 
-    // Attempt to start on-device speech recognition in background
+    // Attempt to start on-device speech recognition in background if available
     try {
-      const { ExpoSpeechRecognitionModule } = require('expo-speech-recognition');
-      if (ExpoSpeechRecognitionModule && typeof ExpoSpeechRecognitionModule.isRecognitionAvailable === 'function' && ExpoSpeechRecognitionModule.isRecognitionAvailable()) {
-        this.speechResultSubscription = ExpoSpeechRecognitionModule.addListener?.('result', (event: any) => {
+      const SpeechRec = getExpoSpeechRecognitionModule();
+      if (SpeechRec && typeof SpeechRec.isRecognitionAvailable === 'function' && SpeechRec.isRecognitionAvailable()) {
+        this.speechResultSubscription = SpeechRec.addListener?.('result', (event: any) => {
           if (event?.results?.[0]?.transcript) {
             this.liveTranscript = event.results[0].transcript;
             lastNativeTranscript = this.liveTranscript;
           }
         });
-        this.speechErrorSubscription = ExpoSpeechRecognitionModule.addListener?.('error', (err: any) => {
+        this.speechErrorSubscription = SpeechRec.addListener?.('error', (err: any) => {
           console.warn('[ExpoSpeechRecognition] Error during live recording:', err);
         });
-        ExpoSpeechRecognitionModule.start?.({
+        SpeechRec.start?.({
           lang: normalizeSpeechLanguage(options?.language),
           interimResults: true,
           continuous: true,
@@ -286,7 +287,7 @@ export class NativeAudioDriver implements AudioDriver {
     this.onMeterCallback = null;
 
     try {
-      const { ExpoSpeechRecognitionModule } = require('expo-speech-recognition');
+      const SpeechRec = getExpoSpeechRecognitionModule();
       if (this.speechResultSubscription) {
         this.speechResultSubscription.remove?.();
         this.speechResultSubscription = null;
@@ -295,7 +296,7 @@ export class NativeAudioDriver implements AudioDriver {
         this.speechErrorSubscription.remove?.();
         this.speechErrorSubscription = null;
       }
-      ExpoSpeechRecognitionModule?.stop?.();
+      SpeechRec?.stop?.();
     } catch {}
 
     if (!this.recording) return null;
