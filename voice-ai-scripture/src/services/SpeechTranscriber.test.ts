@@ -354,5 +354,53 @@ describe('SpeechTranscriber Seam (Ticket 11)', () => {
         else delete process.env.EXPO_PUBLIC_OPENAI_API_KEY;
       }
     });
+
+    it('buildAudioFormData resolves blob: URLs into actual Blobs on web', async () => {
+      const { buildAudioFormData } = require('./SpeechTranscriber');
+      const mockBlob = new Blob(['fake audio'], { type: 'audio/m4a' });
+      global.fetch = jest.fn().mockResolvedValue({
+        blob: async () => mockBlob,
+      });
+
+      const appendSpy = jest.spyOn(FormData.prototype, 'append');
+      const formData = await buildAudioFormData('blob:http://localhost:8081/recording-123', 'whisper-large-v3-turbo', {
+        language: 'pt',
+        prompt: 'Salmos 23:1',
+      });
+
+      expect(global.fetch).toHaveBeenCalledWith('blob:http://localhost:8081/recording-123');
+      expect(appendSpy).toHaveBeenCalledWith('file', mockBlob, 'recording-123.m4a');
+      expect(appendSpy).toHaveBeenCalledWith('model', 'whisper-large-v3-turbo');
+      expect(appendSpy).toHaveBeenCalledWith('language', 'pt');
+      expect(appendSpy).toHaveBeenCalledWith('prompt', 'Salmos 23:1');
+    });
+
+    it('buildAudioFormData normalizes file URIs on native and ensures .m4a extension', async () => {
+      const { buildAudioFormData } = require('./SpeechTranscriber');
+      const appendSpy = jest.spyOn(FormData.prototype, 'append');
+
+      await buildAudioFormData('file:/data/user/0/cache/recording-uuid', 'whisper-large-v3-turbo');
+
+      expect(appendSpy).toHaveBeenCalledWith(
+        'file',
+        expect.objectContaining({
+          uri: 'file:///data/user/0/cache/recording-uuid',
+          name: 'recording-uuid.m4a',
+          type: 'audio/m4a',
+        })
+      );
+    });
+
+    it('buildAudioFormData wraps blob fetch failure into TranscriptionError network_error', async () => {
+      const { buildAudioFormData } = require('./SpeechTranscriber');
+      global.fetch = jest.fn().mockRejectedValue(new Error('Failed to fetch blob'));
+
+      await expect(
+        buildAudioFormData('blob:http://broken', 'whisper-large-v3-turbo')
+      ).rejects.toMatchObject({
+        name: 'TranscriptionError',
+        code: 'network_error',
+      });
+    });
   });
 });

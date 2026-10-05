@@ -70,6 +70,7 @@ export interface RecitationState {
   result: VoiceRecitationResult | null;
   rawTranscript?: string | null;
   errorMessage: string | null;
+  errorDetails?: string | null;
 }
 
 export interface RecitationSessionOptions {
@@ -126,6 +127,7 @@ export class RecitationSession {
       result: null,
       rawTranscript: null,
       errorMessage: null,
+      errorDetails: null,
     };
 
     if (initialLevel === 1 && this.autoVocalizeOnLevel1) {
@@ -253,7 +255,7 @@ export class RecitationSession {
   async startReciting(options?: { unmetered?: boolean }): Promise<void> {
     await this.synthesizer.stop().catch(() => {});
 
-    this.setState({ errorMessage: null, currentResult: null, result: null, volumeLevel: 0 });
+    this.setState({ errorMessage: null, errorDetails: null, currentResult: null, result: null, volumeLevel: 0 });
 
     try {
       // 1. Microphone Permissions
@@ -377,6 +379,7 @@ export class RecitationSession {
       });
       return result;
     } catch (err: any) {
+      console.error('[RecitationSession] Verification error:', err);
       const userMessage = err instanceof TranscriptionError
         ? err.getUserFacingMessage()
         : err?.message || 'An error occurred during verification.';
@@ -384,6 +387,7 @@ export class RecitationSession {
       this.setState({
         status: 'error',
         errorMessage: userMessage,
+        errorDetails: err?.message || null,
         rawTranscript: null,
       });
       return null;

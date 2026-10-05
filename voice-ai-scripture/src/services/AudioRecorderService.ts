@@ -245,15 +245,20 @@ export class NativeAudioDriver implements AudioDriver {
       throw new Error('AudioRecorder is not available on AudioModule');
     }
 
-    this.recording = new RecorderClass({
+    const recordingOptions = {
+      extension: '.m4a',
       sampleRate: 44100,
-      channels: 1,
+      numberOfChannels: 1,
       bitRate: 128000,
       isMeteringEnabled: true,
-    });
+      ...(Platform.OS === 'android' ? { outputFormat: 'mpeg4', audioEncoder: 'aac' } : {}),
+      ...(Platform.OS === 'ios' ? { outputFormat: 'aac ', audioQuality: 0x7f } : {}),
+    };
+
+    this.recording = new RecorderClass(recordingOptions);
 
     if (typeof this.recording.prepareToRecordAsync === 'function') {
-      await this.recording.prepareToRecordAsync();
+      await this.recording.prepareToRecordAsync(recordingOptions);
     }
 
     this.recording.record();
@@ -296,15 +301,16 @@ export class NativeAudioDriver implements AudioDriver {
     if (!this.recording) return null;
 
     try {
-      await this.recording.stop();
-      const uri = this.recording.uri;
+      const uriBeforeStop = this.recording.uri;
+      const stopResult = await this.recording.stop();
+      const uri = this.recording?.uri || uriBeforeStop || (stopResult as any)?.url;
       this.recording = null;
       if (uri && this.liveTranscript) {
         setNativeTranscript(uri, this.liveTranscript);
       }
       return uri;
     } catch (e) {
-      console.error('Failed to stop native recording:', e);
+      console.error('[AudioRecorderService] Failed to stop native recording:', e);
       return null;
     }
   }

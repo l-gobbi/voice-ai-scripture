@@ -55,6 +55,7 @@ export default function ReviewScreen({
     currentResult,
     rawTranscript,
     errorMessage,
+    errorDetails,
     startReciting,
     stopAndVerify,
     setLevel,
@@ -279,6 +280,30 @@ export default function ReviewScreen({
                   {rawTranscript || (isVerifying ? 'Transcribing...' : isReciting ? 'Listening...' : 'No transcription captured yet')}
                 </Text>
               </View>
+
+              {errorDetails ? (
+                <>
+                  <Text style={[styles.debugLabel, { color: theme.colors.diffMissedText, marginTop: 6 }]}>
+                    Last Error Details:
+                  </Text>
+                  <View
+                    style={[
+                      styles.debugTranscriptBox,
+                      { backgroundColor: theme.colors.surface, borderColor: theme.colors.diffMissedText },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.debugTranscriptText,
+                        { color: theme.colors.diffMissedText, fontSize: 12 },
+                      ]}
+                      selectable
+                    >
+                      {errorDetails}
+                    </Text>
+                  </View>
+                </>
+              ) : null}
             </View>
           )}
 
@@ -590,9 +615,16 @@ export default function ReviewScreen({
         </View>
 
         {errorMessage ? (
-          <Text style={[styles.error, { color: theme.colors.diffMissedText }]}>
-            {errorMessage}
-          </Text>
+          <View style={{ marginHorizontal: 24, marginTop: 12, alignItems: 'center' }}>
+            <Text style={[styles.error, { color: theme.colors.diffMissedText, marginTop: 0 }]}>
+              {errorMessage}
+            </Text>
+            {typeof __DEV__ !== 'undefined' && __DEV__ && errorDetails ? (
+              <Text style={{ fontSize: 11, color: theme.colors.textSecondary, marginTop: 4, textAlign: 'center' }}>
+                ({errorDetails})
+              </Text>
+            ) : null}
+          </View>
         ) : null}
 
         {/* Docked Floating Action Bar */}

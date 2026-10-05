@@ -8,6 +8,73 @@ import {
   SpeechTranscriber,
 } from './SpeechTranscriberTypes';
 
+import { Platform } from 'react-native';
+
+/**
+ * Builds multipart/form-data for transcription requests across Web and Native platforms.
+ * - On Web (or blob: / data: URIs): reads the audio Blob directly via fetch(audioUri)
+ * - On Native (Android / iOS): normalizes the file URI scheme and supplies { uri, name, type }
+ */
+export async function buildAudioFormData(
+  audioUri: string,
+  model: string,
+  options?: TranscriptionOptions
+): Promise<FormData> {
+  const formData = new FormData();
+
+  const rawFilename = audioUri.split('/').pop()?.split('?')[0] || 'recording.m4a';
+  const hasExt = rawFilename.includes('.');
+  const filename = hasExt ? rawFilename : `${rawFilename}.m4a`;
+
+  const lowerName = filename.toLowerCase();
+  const fileType = lowerName.endsWith('.mp3')
+    ? 'audio/mpeg'
+    : lowerName.endsWith('.wav')
+    ? 'audio/wav'
+    : lowerName.endsWith('.webm')
+    ? 'audio/webm'
+    : lowerName.endsWith('.ogg')
+    ? 'audio/ogg'
+    : 'audio/m4a';
+
+  if (Platform.OS === 'web' || audioUri.startsWith('blob:') || audioUri.startsWith('data:')) {
+    try {
+      const audioResponse = await fetch(audioUri);
+      const audioBlob = await audioResponse.blob();
+      formData.append('file', audioBlob, filename);
+    } catch (blobErr: any) {
+      console.error('[SpeechTranscriber] Failed to resolve audio blob:', audioUri, blobErr);
+      throw new TranscriptionError(
+        'network_error',
+        `Failed to resolve audio recording: ${blobErr?.message || 'blob resolution failed'}`,
+        blobErr
+      );
+    }
+  } else {
+    let normalizedUri = audioUri;
+    if (audioUri.startsWith('file:/') && !audioUri.startsWith('file:///')) {
+      normalizedUri = `file:///${audioUri.replace(/^file:\/+/, '')}`;
+    } else if (audioUri.startsWith('/')) {
+      normalizedUri = `file://${audioUri}`;
+    }
+
+    formData.append('file', {
+      uri: normalizedUri,
+      name: filename,
+      type: fileType,
+    } as any);
+  }
+
+  formData.append('model', model);
+  formData.append('language', options?.language ?? 'en');
+
+  if (options?.prompt) {
+    formData.append('prompt', options.prompt);
+  }
+
+  return formData;
+}
+
 export class WhisperTranscriber implements SpeechTranscriber {
   private apiKey: string;
 
@@ -20,22 +87,7 @@ export class WhisperTranscriber implements SpeechTranscriber {
       throw new TranscriptionError('unauthorized', 'OpenAI API key is required for transcription');
     }
 
-    const formData = new FormData();
-    const filename = audioUri.split('/').pop() || 'recording.m4a';
-    const fileType = filename.endsWith('.mp3') ? 'audio/mpeg' : 'audio/m4a';
-
-    formData.append('file', {
-      uri: audioUri,
-      name: filename,
-      type: fileType,
-    } as any);
-
-    formData.append('model', 'whisper-1');
-    formData.append('language', options?.language ?? 'en');
-
-    if (options?.prompt) {
-      formData.append('prompt', options.prompt);
-    }
+    const formData = await buildAudioFormData(audioUri, 'whisper-1', options);
 
     let response: Response;
     try {
@@ -47,6 +99,7 @@ export class WhisperTranscriber implements SpeechTranscriber {
         body: formData,
       });
     } catch (networkErr: any) {
+      console.error('[SpeechTranscriber] Whisper fetch network error:', networkErr);
       throw new TranscriptionError('network_error', networkErr?.message || 'Network request failed', networkErr);
     }
 
@@ -125,22 +178,7 @@ export class GroqTranscriber implements SpeechTranscriber {
       throw new TranscriptionError('unauthorized', 'Groq API key is required for transcription');
     }
 
-    const formData = new FormData();
-    const filename = audioUri.split('/').pop() || 'recording.m4a';
-    const fileType = filename.endsWith('.mp3') ? 'audio/mpeg' : 'audio/m4a';
-
-    formData.append('file', {
-      uri: audioUri,
-      name: filename,
-      type: fileType,
-    } as any);
-
-    formData.append('model', this.model);
-    formData.append('language', options?.language ?? 'en');
-
-    if (options?.prompt) {
-      formData.append('prompt', options.prompt);
-    }
+    const formData = await buildAudioFormData(audioUri, this.model, options);
 
     let response: Response;
     try {
@@ -152,6 +190,7 @@ export class GroqTranscriber implements SpeechTranscriber {
         body: formData,
       });
     } catch (networkErr: any) {
+      console.error('[SpeechTranscriber] Groq fetch network error:', networkErr);
       throw new TranscriptionError('network_error', networkErr?.message || 'Network request failed', networkErr);
     }
 
