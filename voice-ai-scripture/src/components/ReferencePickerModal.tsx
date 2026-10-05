@@ -11,13 +11,10 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { VerseTranslation } from '../services/VerseEngine';
-import { isPortugueseTranslation } from '../services/BibleProvider';
 import {
+  scriptureCatalog,
   CanonBook,
-  getCanonBooks,
-  searchCanonBooks,
-  getVerseCount,
-} from '../data/bibleCanon';
+} from '../services/ScriptureCatalog';
 import { colors, typography, spacing, radius, touchTarget } from '../theme/tokens';
 
 export interface ReferencePickerModalProps {
@@ -36,7 +33,7 @@ export default function ReferencePickerModal({
   onClose,
   onSelectReference,
 }: ReferencePickerModalProps) {
-  const isPt = useMemo(() => isPortugueseTranslation(translation), [translation]);
+  const isPt = useMemo(() => scriptureCatalog.isPortugueseTranslation(translation), [translation]);
 
   const [step, setStep] = useState<Step>('book');
   const [selectedBook, setSelectedBook] = useState<CanonBook | null>(null);
@@ -62,10 +59,7 @@ export default function ReferencePickerModal({
 
   const displayedBooks = useMemo(() => {
     const filter = testamentFilter === 'all' ? undefined : testamentFilter;
-    if (searchQuery.trim()) {
-      return searchCanonBooks(searchQuery, filter);
-    }
-    return getCanonBooks(filter);
+    return scriptureCatalog.getBooks(filter, searchQuery);
   }, [searchQuery, testamentFilter]);
 
   const handleSelectBook = (book: CanonBook) => {
@@ -142,7 +136,7 @@ export default function ReferencePickerModal({
 
   const totalVerses =
     selectedBook && selectedChapter
-      ? getVerseCount(selectedBook.id, selectedChapter)
+      ? scriptureCatalog.getVerseCount(selectedBook.id, selectedChapter)
       : 0;
 
   const chaptersArray = useMemo(() => {

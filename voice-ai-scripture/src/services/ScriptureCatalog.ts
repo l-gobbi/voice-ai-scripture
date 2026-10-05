@@ -4,12 +4,14 @@ import {
   getCanonBook,
   getChapterCount,
   getVerseCount,
+  searchCanonBooks,
 } from '../data/bibleCanon';
 import webData from '../data/bibles/web.json';
 import kjvData from '../data/bibles/kjv.json';
 import almeidaData from '../data/bibles/almeida.json';
 import onbvData from '../data/bibles/onbv.json';
 
+export type { CanonBook };
 export type SupportedTranslation = 'WEB' | 'KJV' | 'ALMEIDA' | 'ONBV';
 
 export const BUNDLED_TRANSLATIONS: readonly SupportedTranslation[] = [
@@ -258,7 +260,10 @@ export class ScriptureCatalog {
     return 'en';
   }
 
-  getBooks(testament?: 'OT' | 'NT'): CanonBook[] {
+  getBooks(testament?: 'OT' | 'NT', query?: string): readonly CanonBook[] {
+    if (query && query.trim()) {
+      return searchCanonBooks(query, testament);
+    }
     if (testament) {
       return CANON_BOOKS.filter((b) => b.testament === testament);
     }

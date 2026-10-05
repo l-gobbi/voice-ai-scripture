@@ -1,6 +1,8 @@
 import { DEFAULT_SRS_STATE, SRSResult, SRSState, calculateNextReview, isVerseDue } from '../engines/srsEngine';
-import { normalizeReference } from './ReferenceNormalizer';
-import { SupportedTranslation } from './BibleProvider';
+import {
+  scriptureCatalog,
+  SupportedTranslation,
+} from './ScriptureCatalog';
 
 export { SRSResult };
 
@@ -49,7 +51,7 @@ const createInitialSRS = () => ({
 });
 
 export const resolveDefaultTranslation = (reference: string): VerseTranslation => {
-  const norm = normalizeReference(reference);
+  const norm = scriptureCatalog.resolveReference(reference);
   return norm?.language === 'pt' ? 'ALMEIDA' : 'WEB';
 };
 

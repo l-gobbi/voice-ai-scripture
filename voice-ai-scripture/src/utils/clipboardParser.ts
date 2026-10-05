@@ -1,4 +1,4 @@
-import { normalizeReference } from '../services/ReferenceNormalizer';
+import { scriptureCatalog } from '../services/ScriptureCatalog';
 import { VerseTranslation } from '../services/VerseEngine';
 
 export interface ParsedScriptureClipboard {
@@ -81,7 +81,7 @@ export function parseScriptureClipboard(rawText: string): ParsedScriptureClipboa
     const match = line.match(citationRegex);
     if (match) {
       const candidateRef = match[1].trim();
-      const norm = normalizeReference(candidateRef);
+      const norm = scriptureCatalog.resolveReference(candidateRef);
       if (norm) {
         citationLineIndex = i;
         detectedRef = candidateRef;

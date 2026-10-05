@@ -13,9 +13,8 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
 import { verseEngine, VerseTranslation } from '../services/VerseEngine';
-import { bibleProvider, isBundledTranslation } from '../services/BibleProvider';
+import { scriptureCatalog } from '../services/ScriptureCatalog';
 import { parseScriptureClipboard } from '../utils/clipboardParser';
-import { normalizeReference } from '../services/ReferenceNormalizer';
 import ReferencePickerModal from './ReferencePickerModal';
 import { colors, typography, spacing, radius, touchTarget } from '../theme/tokens';
 
@@ -83,27 +82,27 @@ export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVe
       return;
     }
 
-    const norm = normalizeReference(trimmed);
-    if (!norm) {
-      if (manual) {
-        setFetchNotice('Referência não reconhecida. Ex: João 3:16 ou Rom 8:28.');
-      }
-      return;
-    }
-
-    if (!isBundledTranslation(translation)) {
-      if (manual) {
-        setFetchNotice('Esta tradução requer digitação manual ou o botão "Colar".');
-      }
-      return;
-    }
-
     try {
       setIsFetching(true);
       setFetchNotice(null);
-      const passage = await bibleProvider.fetchPassage(trimmed, translation);
-      if (passage && passage.text) {
-        setText(passage.text);
+
+      const resolved = scriptureCatalog.resolvePassage(trimmed, translation);
+      if (!resolved) {
+        if (manual) {
+          setFetchNotice('Referência não reconhecida. Ex: João 3:16 ou Rom 8:28.');
+        }
+        return;
+      }
+
+      if (!resolved.isBundled) {
+        if (manual) {
+          setFetchNotice('Esta tradução requer digitação manual ou o botão "Colar".');
+        }
+        return;
+      }
+
+      if (resolved.text) {
+        setText(resolved.text);
         setFetchNotice(null);
       } else if (manual) {
         setFetchNotice(`Versículo não encontrado na versão ${translation}.`);
@@ -133,7 +132,7 @@ export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVe
     }
 
     const trimmed = reference.trim();
-    if (!trimmed || !isBundledTranslation(selectedTranslation)) {
+    if (!trimmed || !scriptureCatalog.isBundledTranslation(selectedTranslation)) {
       return;
     }
 
@@ -213,7 +212,7 @@ export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVe
       clearTimeout(debounceTimerRef.current);
     }
 
-    if (isBundledTranslation(selectedTranslation)) {
+    if (scriptureCatalog.isBundledTranslation(selectedTranslation)) {
       fetchVerseText(canonicalRef, selectedTranslation, false);
     } else {
       setFetchNotice('Referência definida! Cole o texto da sua Bíblia ou digite-o abaixo.');
@@ -223,7 +222,7 @@ export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVe
     }
   };
 
-  const isCopyrighted = !isBundledTranslation(selectedTranslation);
+  const isCopyrighted = !scriptureCatalog.isBundledTranslation(selectedTranslation);
 
   return (
     <Modal visible={visible} animationType="slide">
