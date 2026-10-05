@@ -18,8 +18,10 @@ describe('WhisperService', () => {
 
     const result = await transcribeAudio('file:///mock/audio.m4a', 'sk-test-key');
 
-    expect(global.fetch).toHaveBeenCalledTimes(1);
-    const [url, options] = (global.fetch as jest.Mock).mock.calls[0];
+    expect(global.fetch).toHaveBeenCalledTimes(2);
+    const postCall = (global.fetch as jest.Mock).mock.calls.find(call => call[0].includes('openai.com'));
+    expect(postCall).toBeDefined();
+    const [url, options] = postCall;
 
     expect(url).toBe('https://api.openai.com/v1/audio/transcriptions');
     expect(options.method).toBe('POST');

@@ -135,7 +135,8 @@ describe('SpeechTranscriber Seam (Ticket 11)', () => {
         })
       );
 
-      const body = mockFetch.mock.calls[0][1].body;
+      const postCall = mockFetch.mock.calls.find((call) => call[0].includes('openai.com'));
+      const body = postCall?.[1]?.body;
       expect(body).toBeDefined();
     });
 
@@ -375,20 +376,18 @@ describe('SpeechTranscriber Seam (Ticket 11)', () => {
       expect(appendSpy).toHaveBeenCalledWith('prompt', 'Salmos 23:1');
     });
 
-    it('buildAudioFormData normalizes file URIs on native and ensures .m4a extension', async () => {
+    it('buildAudioFormData normalizes file URIs on native and ensures .m4a extension as a Blob', async () => {
       const { buildAudioFormData } = require('./SpeechTranscriber');
       const appendSpy = jest.spyOn(FormData.prototype, 'append');
+      const mockBlob = new Blob(['mock audio'], { type: 'audio/m4a' });
+      global.fetch = jest.fn().mockResolvedValue({
+        blob: async () => mockBlob,
+      });
 
       await buildAudioFormData('file:/data/user/0/cache/recording-uuid', 'whisper-large-v3-turbo');
 
-      expect(appendSpy).toHaveBeenCalledWith(
-        'file',
-        expect.objectContaining({
-          uri: 'file:///data/user/0/cache/recording-uuid',
-          name: 'recording-uuid.m4a',
-          type: 'audio/m4a',
-        })
-      );
+      expect(global.fetch).toHaveBeenCalledWith('file:///data/user/0/cache/recording-uuid');
+      expect(appendSpy).toHaveBeenCalledWith('file', mockBlob, 'recording-uuid.m4a');
     });
 
     it('buildAudioFormData wraps blob fetch failure into TranscriptionError network_error', async () => {

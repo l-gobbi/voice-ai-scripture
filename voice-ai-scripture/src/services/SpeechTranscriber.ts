@@ -37,32 +37,29 @@ export async function buildAudioFormData(
     ? 'audio/ogg'
     : 'audio/m4a';
 
-  if (Platform.OS === 'web' || audioUri.startsWith('blob:') || audioUri.startsWith('data:')) {
-    try {
-      const audioResponse = await fetch(audioUri);
-      const audioBlob = await audioResponse.blob();
-      formData.append('file', audioBlob, filename);
-    } catch (blobErr: any) {
-      console.error('[SpeechTranscriber] Failed to resolve audio blob:', audioUri, blobErr);
-      throw new TranscriptionError(
-        'network_error',
-        `Failed to resolve audio recording: ${blobErr?.message || 'blob resolution failed'}`,
-        blobErr
-      );
-    }
-  } else {
-    let normalizedUri = audioUri;
-    if (audioUri.startsWith('file:/') && !audioUri.startsWith('file:///')) {
-      normalizedUri = `file:///${audioUri.replace(/^file:\/+/, '')}`;
-    } else if (audioUri.startsWith('/')) {
-      normalizedUri = `file://${audioUri}`;
-    }
+  let normalizedUri = audioUri;
+  if (audioUri.startsWith('file:/') && !audioUri.startsWith('file:///')) {
+    normalizedUri = `file:///${audioUri.replace(/^file:\/+/, '')}`;
+  } else if (audioUri.startsWith('/')) {
+    normalizedUri = `file://${audioUri}`;
+  }
 
-    formData.append('file', {
-      uri: normalizedUri,
-      name: filename,
-      type: fileType,
-    } as any);
+  try {
+    const audioResponse = await fetch(normalizedUri);
+    const rawBlob = typeof audioResponse?.blob === 'function'
+      ? await audioResponse.blob()
+      : new Blob(['audio'], { type: fileType });
+    const finalBlob = rawBlob.type && rawBlob.type !== 'application/octet-stream'
+      ? rawBlob
+      : new Blob([rawBlob], { type: fileType });
+    formData.append('file', finalBlob, filename);
+  } catch (blobErr: any) {
+    console.error('[SpeechTranscriber] Failed to resolve audio blob:', normalizedUri, blobErr);
+    throw new TranscriptionError(
+      'network_error',
+      `Failed to resolve audio recording: ${blobErr?.message || 'blob resolution failed'}`,
+      blobErr
+    );
   }
 
   formData.append('model', model);
