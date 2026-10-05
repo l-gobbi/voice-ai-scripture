@@ -4,9 +4,9 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** ready-for-human
 
-- [ ] `AddVerseModal` refactored to use `scriptureCatalog.resolvePassage(query, translation)` in a single call instead of coordinating `normalizeReference`, `isBundledTranslation`, and `bibleProvider.fetchPassage`
-- [ ] `ReferencePickerModal` refactored to query `scriptureCatalog.getBooks()` and `scriptureCatalog.getVerseCount()` directly instead of importing static `bibleCanon` functions
-- [ ] `ReferenceNormalizer.ts` and `BibleProvider.ts` retired/cleaned up to re-export from `ScriptureCatalog` or removed from active call sites
-- [ ] All tests in `AddVerseModal.test.tsx`, `ReferencePickerModal.test.tsx`, `ScriptureCatalog.test.ts`, and `BibleProvider.test.ts` pass cleanly
+- [x] `AddVerseModal` refactored to use `scriptureCatalog.resolvePassage(query, translation)` in a single call instead of coordinating `normalizeReference`, `isBundledTranslation`, and `bibleProvider.fetchPassage`
+- [x] `ReferencePickerModal` refactored to query `scriptureCatalog.getBooks()` and `scriptureCatalog.getVerseCount()` directly instead of importing static `bibleCanon` functions
+- [x] `ReferenceNormalizer.ts` and `BibleProvider.ts` retired/cleaned up to re-export from `ScriptureCatalog` or removed from active call sites
+- [x] All tests in `AddVerseModal.test.tsx`, `ReferencePickerModal.test.tsx`, `ScriptureCatalog.test.ts`, and `BibleProvider.test.ts` pass cleanly

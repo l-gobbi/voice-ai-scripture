@@ -4,10 +4,10 @@
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** ready-for-human
 
-- [ ] `RecitationSession` encapsulates Level 1 automatic speech vocalization with audio cancellation on mode switch or disposal
-- [ ] Level 3 word peek lifeline timer (3 seconds) auto-remasks the peeked word, sets `assistanceUsed: true`, and cleans up existing timers on mode changes or reset
-- [ ] Controller exposes declarative intent methods: `startReciting()`, `stopAndVerify()`, `setLevel()`, `nextLevel()`, `practiceAgain()`, `toggleTextReveal()`, `tapWord()`, `vocalize()`, `reset()`, and `dispose()`
-- [ ] `useRecitationSession` forwards state stream and bound intent callbacks to callers cleanly
-- [ ] Headless unit tests in `RecitationSession.test.ts` verify all timers, level transitions, assistance capping, and audio interruption with fake timers and zero React Native renderer dependencies
+- [x] `RecitationSession` encapsulates Level 1 automatic speech vocalization with audio cancellation on mode switch or disposal
+- [x] Level 3 word peek lifeline timer (3 seconds) auto-remasks the peeked word, sets `assistanceUsed: true`, and cleans up existing timers on mode changes or reset
+- [x] Controller exposes declarative intent methods: `startReciting()`, `stopAndVerify()`, `setLevel()`, `nextLevel()`, `practiceAgain()`, `toggleTextReveal()`, `tapWord()`, `vocalize()`, `reset()`, and `dispose()`
+- [x] `useRecitationSession` forwards state stream and bound intent callbacks to callers cleanly
+- [x] Headless unit tests in `RecitationSession.test.ts` verify all timers, level transitions, assistance capping, and audio interruption with fake timers and zero React Native renderer dependencies

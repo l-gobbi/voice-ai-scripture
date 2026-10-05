@@ -4,11 +4,11 @@
 
 **Blocked by:** 49: Deepen RecitationController with Scaffolding Lifecycle & Lifeline Timers
 
-**Status:** ready-for-agent
+**Status:** ready-for-human
 
-- [ ] `ReviewScreen.tsx` refactored to consume `RecitationUIState` from `useRecitationSession` and dispatch user action callbacks
-- [ ] Imperative `setTimeout` peek timers and manual audio calls removed from `ReviewScreen`
-- [ ] Sacred editorial styling, theme tokens, Level 1/2/3 visual layouts, DiffView, and Waveform visualizers fully preserved
-- [ ] Acoustic debug tray and sandbox opt-in modal maintained with clean component separation
-- [ ] Screen line count reduced by > 50% (< 550 lines)
-- [ ] TypeScript compilation succeeds with zero type errors and integration tests pass cleanly
+- [x] `ReviewScreen.tsx` refactored to consume `RecitationUIState` from `useRecitationSession` and dispatch user action callbacks
+- [x] Imperative `setTimeout` peek timers and manual audio calls removed from `ReviewScreen`
+- [x] Sacred editorial styling, theme tokens, Level 1/2/3 visual layouts, DiffView, and Waveform visualizers fully preserved
+- [x] Acoustic debug tray and sandbox opt-in modal maintained with clean component separation
+- [x] Screen line count reduced by > 50% (< 550 lines)
+- [x] TypeScript compilation succeeds with zero type errors and integration tests pass cleanly
