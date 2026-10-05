@@ -99,10 +99,25 @@ export function useRecitationSession(
     await sessionRef.current?.vocalize();
   }, []);
 
+  const isReciting = state.status === 'reciting';
+  const isVerifying = state.status === 'verifying';
+
+  const toggleRecitation = useCallback(async () => {
+    if (sessionRef.current?.getState().status === 'reciting') {
+      return (await sessionRef.current?.stopAndVerify()) ?? null;
+    } else {
+      await sessionRef.current?.startReciting();
+      return null;
+    }
+  }, []);
+
   return {
     ...state,
+    isReciting,
+    isVerifying,
     startReciting,
     stopAndVerify,
+    toggleRecitation,
     reset,
     setLevel,
     nextLevel,
