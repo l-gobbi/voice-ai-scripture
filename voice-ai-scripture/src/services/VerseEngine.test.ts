@@ -418,125 +418,47 @@ describe('VerseEngine (Ticket 09)', () => {
     });
   });
 
-  describe('Slice 8: Global Daily Streak Engine & Habit Stats (Ticket 30)', () => {
-    it('initializes with 0 streak and 0 completed reviews', async () => {
+  describe('Slice 8: HabitTracker Delegation Seam (Ticket 47)', () => {
+    it('delegates review activity to injected HabitTracker', async () => {
       const storage = new MapStorageAdapter();
-      const engine = new VerseEngine(storage);
-
-      const stats = await engine.getHabitStats();
-      expect(stats.currentStreak).toBe(0);
-      expect(stats.longestStreak).toBe(0);
-      expect(stats.lastActiveDate).toBeNull();
-      expect(stats.completedTodayCount).toBe(0);
-      expect(stats.dueCount).toBe(0);
-      expect(stats.totalDueToday).toBe(0);
-    });
-
-    it('increments streak to 1 on first recorded review and tracks completed today count', async () => {
-      const storage = new MapStorageAdapter();
-      const engine = new VerseEngine(storage);
+      const mockRecordActivity = jest.fn().mockResolvedValue({
+        currentStreak: 1,
+        longestStreak: 1,
+        lastActiveDate: '2026-09-18',
+        completedTodayCount: 1,
+        totalDueToday: 1,
+        dueCount: 0,
+      });
+      const fakeHabitTracker: any = {
+        recordActivity: mockRecordActivity,
+      };
+      const engine = new VerseEngine(storage, fakeHabitTracker);
       const v1 = await engine.addVerse({ reference: 'John 3:16', text: 'For God so loved...' });
 
       const day1 = new Date('2026-09-18T10:00:00Z');
       await engine.recordReview(v1.id, 100, day1);
 
-      const stats = await engine.getHabitStats(day1);
-      expect(stats.currentStreak).toBe(1);
-      expect(stats.longestStreak).toBe(1);
-      expect(stats.lastActiveDate).toBe('2026-09-18');
-      expect(stats.completedTodayCount).toBe(1);
+      expect(mockRecordActivity).toHaveBeenCalledWith(v1.id, true, day1);
     });
 
-    it('maintains streak on multiple reviews on the same calendar day', async () => {
+    it('passes wasDue = false when reviewing a non-due verse ahead of schedule', async () => {
       const storage = new MapStorageAdapter();
-      const engine = new VerseEngine(storage);
-      const v1 = await engine.addVerse({ reference: 'John 3:16', text: 'For God so loved...' });
-      const v2 = await engine.addVerse({ reference: 'Romans 8:28', text: 'And we know...' });
-
-      const day1Morning = new Date('2026-09-18T09:00:00Z');
-      await engine.recordReview(v1.id, 100, day1Morning);
-
-      const day1Evening = new Date('2026-09-18T19:00:00Z');
-      await engine.recordReview(v2.id, 95, day1Evening);
-
-      const stats = await engine.getHabitStats(day1Evening);
-      expect(stats.currentStreak).toBe(1);
-      expect(stats.longestStreak).toBe(1);
-      expect(stats.completedTodayCount).toBe(2);
-    });
-
-    it('increments streak on consecutive calendar days', async () => {
-      const storage = new MapStorageAdapter();
-      const engine = new VerseEngine(storage);
-      const v1 = await engine.addVerse({ reference: 'John 3:16', text: 'For God so loved...' });
-
-      const day1 = new Date('2026-09-18T10:00:00Z');
-      await engine.recordReview(v1.id, 100, day1);
-
-      const day2 = new Date('2026-09-19T10:00:00Z');
-      await engine.recordReview(v1.id, 100, day2);
-
-      const stats = await engine.getHabitStats(day2);
-      expect(stats.currentStreak).toBe(2);
-      expect(stats.longestStreak).toBe(2);
-      expect(stats.lastActiveDate).toBe('2026-09-19');
-      expect(stats.completedTodayCount).toBe(1);
-    });
-
-    it('reports streak as 0 when a calendar day is missed, resetting to 1 upon next review', async () => {
-      const storage = new MapStorageAdapter();
-      const engine = new VerseEngine(storage);
-      const v1 = await engine.addVerse({ reference: 'John 3:16', text: 'For God so loved...' });
-
-      const day1 = new Date('2026-09-18T10:00:00Z');
-      await engine.recordReview(v1.id, 100, day1);
-
-      const day2 = new Date('2026-09-19T10:00:00Z');
-      await engine.recordReview(v1.id, 100, day2);
-
-      // Missed 2026-09-20. Checking on 2026-09-21:
-      const day4 = new Date('2026-09-21T10:00:00Z');
-      const brokenStats = await engine.getHabitStats(day4);
-      expect(brokenStats.currentStreak).toBe(0);
-      expect(brokenStats.longestStreak).toBe(2);
-
-      // User performs a review on day 4:
-      await engine.recordReview(v1.id, 100, day4);
-      const renewedStats = await engine.getHabitStats(day4);
-      expect(renewedStats.currentStreak).toBe(1);
-      expect(renewedStats.longestStreak).toBe(2);
-      expect(renewedStats.lastActiveDate).toBe('2026-09-21');
-    });
-
-    it('calculates totalDueToday based on completed today plus current due count', async () => {
-      const storage = new MapStorageAdapter();
-      const engine = new VerseEngine(storage);
-
-      const v1 = await engine.addVerse({ reference: 'John 3:16', text: 'For God so loved...' });
-      const v2 = await engine.addVerse({ reference: 'Romans 8:28', text: 'And we know...' });
-
-      // Both are due immediately upon creation:
-      const initialStats = await engine.getHabitStats();
-      expect(initialStats.dueCount).toBe(2);
-      expect(initialStats.completedTodayCount).toBe(0);
-      expect(initialStats.totalDueToday).toBe(2);
-
-      // Review v1:
-      await engine.recordReview(v1.id, 100);
-      const postStats = await engine.getHabitStats();
-      expect(postStats.completedTodayCount).toBe(1);
-      expect(postStats.dueCount).toBe(1);
-      expect(postStats.totalDueToday).toBe(2);
-    });
-
-    it('does not increment completedTodayCount or inflate totalDueToday when reviewing a non-due verse', async () => {
-      const storage = new MapStorageAdapter();
-      const engine = new VerseEngine(storage);
+      const mockRecordActivity = jest.fn().mockResolvedValue({
+        currentStreak: 1,
+        longestStreak: 1,
+        lastActiveDate: '2026-09-18',
+        completedTodayCount: 0,
+        totalDueToday: 0,
+        dueCount: 0,
+      });
+      const fakeHabitTracker: any = {
+        recordActivity: mockRecordActivity,
+      };
+      const engine = new VerseEngine(storage, fakeHabitTracker);
 
       const now = new Date('2026-09-18T10:00:00Z');
       const tomorrow = new Date('2026-09-19T10:00:00Z');
 
-      // Add a verse and manually schedule it for tomorrow
       const verse = await engine.addVerse({ reference: 'John 3:16', text: 'Text' });
       await engine.updateVerse(verse.id, {
         srs: {
@@ -548,20 +470,8 @@ describe('VerseEngine (Ticket 09)', () => {
         },
       });
 
-      const initialStats = await engine.getHabitStats(now);
-      expect(initialStats.dueCount).toBe(0);
-      expect(initialStats.completedTodayCount).toBe(0);
-      expect(initialStats.totalDueToday).toBe(0);
-
-      // Review the non-due verse (practice ahead)
       await engine.recordReview(verse.id, 100, now);
-
-      const postStats = await engine.getHabitStats(now);
-      expect(postStats.completedTodayCount).toBe(0);
-      expect(postStats.totalDueToday).toBe(0);
-      expect(postStats.dueCount).toBe(0);
-      // Active streak is still maintained
-      expect(postStats.currentStreak).toBe(1);
+      expect(mockRecordActivity).toHaveBeenCalledWith(verse.id, false, now);
     });
   });
 

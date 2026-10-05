@@ -1107,6 +1107,84 @@ describe('RecitationSession (Ticket 07)', () => {
       expect(session.getState().rawTranscript).toBeNull();
     });
   });
+
+  describe('Ticket 49: Scaffolding Lifecycle & Lifeline Timers', () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+    });
+
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('Level 3 word peek reveals word and auto-remasks after 3 seconds', () => {
+      const session = new RecitationSession(mockVerse, {
+        initialLevel: 3,
+      });
+
+      // Initially all cloze tokens are masked in Level 3
+      expect(session.getState().clozeTokens[0].isRevealed).toBe(false);
+      expect(session.getState().assistanceUsed).toBe(false);
+
+      // Tap first token
+      session.tapWord(0);
+      expect(session.getState().clozeTokens[0].isRevealed).toBe(true);
+      expect(session.getState().assistanceUsed).toBe(true);
+
+      // Advance timers by 2900ms - still revealed
+      jest.advanceTimersByTime(2900);
+      expect(session.getState().clozeTokens[0].isRevealed).toBe(true);
+
+      // Advance by remaining 100ms (total 3000ms) - auto-remasked
+      jest.advanceTimersByTime(100);
+      expect(session.getState().clozeTokens[0].isRevealed).toBe(false);
+      // Assistance flag remains true
+      expect(session.getState().assistanceUsed).toBe(true);
+    });
+
+    it('caps score at 75% when assistanceUsed is true in Level 3', async () => {
+      jest.useRealTimers();
+      const mockTranscriber = new SimulatedTranscriber({
+        defaultText: mockVerse.text, // 100% accurate verbatim
+      });
+
+      const session = new RecitationSession(mockVerse, {
+        initialLevel: 3,
+        transcriber: mockTranscriber,
+        subscriptionService: subscribedService,
+      });
+
+      // User triggers peek lifeline
+      session.tapWord(0);
+      expect(session.getState().assistanceUsed).toBe(true);
+
+      await session.startReciting();
+      const result = await session.stopAndVerify();
+
+      // Even though verbatim matched, score is capped at 75%
+      expect(result?.score).toBe(75);
+    });
+
+    it('cleans up peek timers when level changes or session is disposed', () => {
+      const session = new RecitationSession(mockVerse, {
+        initialLevel: 3,
+      });
+
+      session.tapWord(0);
+      expect(session.getState().clozeTokens[0].isRevealed).toBe(true);
+
+      // Switch to level 1 should clear active peek timers
+      session.setLevel(1);
+      expect(session.getState().level).toBe(1);
+
+      // Advance timers by 4000ms to verify no stale state mutations occur
+      expect(() => jest.advanceTimersByTime(4000)).not.toThrow();
+
+      // Dispose should execute cleanly
+      expect(() => session.dispose()).not.toThrow();
+    });
+  });
 });
+
 
 

@@ -3,8 +3,8 @@ import { scriptureCatalog, NormalizedReference } from './ScriptureCatalog';
 export type { NormalizedReference };
 
 /**
- * Normalizes an arbitrary scripture reference string to its canonical form and language.
- * Delegates to the authoritative ScriptureCatalog.
+ * @deprecated Legacy shallow facade retired in Ticket 48.
+ * Call `scriptureCatalog.resolveReference(rawInput)` directly.
  */
 export function normalizeReference(rawInput: string): NormalizedReference | null {
   return scriptureCatalog.resolveReference(rawInput);

@@ -15,6 +15,10 @@ export interface BiblePassage {
   language: 'en' | 'pt';
 }
 
+/**
+ * @deprecated Legacy shallow facade retired in Ticket 48.
+ * Call `scriptureCatalog.resolvePassage(...)` directly.
+ */
 export interface BibleProvider {
   fetchPassage(reference: string, translation: SupportedTranslation | string): Promise<BiblePassage | null>;
 }

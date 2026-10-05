@@ -111,6 +111,10 @@ export function useRecitationSession(
     }
   }, []);
 
+  const dispose = useCallback(() => {
+    sessionRef.current?.dispose();
+  }, []);
+
   return {
     ...state,
     isReciting,
@@ -125,5 +129,7 @@ export function useRecitationSession(
     toggleTextReveal,
     tapWord,
     vocalize,
+    dispose,
   };
 }
+

@@ -71,7 +71,7 @@ export default function HomeScreen({ transcriber }: HomeScreenProps = {}) {
 
   const loadVerses = async () => {
     const data = await verseEngine.getVersesSummary();
-    const stats = await habitTracker.getHabitStats();
+    const stats = await habitTracker.getHabitStats(new Date(), data.dueCount);
     setSummary(data);
     setHabitStats(stats);
   };

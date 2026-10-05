@@ -30,10 +30,8 @@ export interface VerseSummary {
 import {
   HabitTracker,
   habitTracker as defaultHabitTracker,
-  HabitStats,
 } from './HabitTracker';
 
-export type { HabitStats };
 
 import {
   StorageAdapter,
@@ -72,11 +70,14 @@ export class VerseEngine {
 
   constructor(storage?: StorageAdapter, habitTrackerInstance?: HabitTracker) {
     this.storage = storage ?? new AsyncStorageAdapter();
-    this.habitTracker =
-      habitTrackerInstance ??
-      (storage
-        ? new HabitTracker(storage, async (now) => (await this.getVersesSummary(now)).dueCount)
-        : defaultHabitTracker);
+    if (habitTrackerInstance) {
+      this.habitTracker = habitTrackerInstance;
+    } else if (storage) {
+      this.habitTracker = new HabitTracker(storage, async (now) => (await this.getVersesSummary(now)).dueCount);
+    } else {
+      defaultHabitTracker.setDueCountFn(async (now) => (await this.getVersesSummary(now)).dueCount);
+      this.habitTracker = defaultHabitTracker;
+    }
   }
 
   private async persistVerses(verses: Verse[]): Promise<void> {
@@ -217,10 +218,6 @@ export class VerseEngine {
     }
     await this.persistVerses(filtered);
     return true;
-  }
-
-  async getHabitStats(now = new Date()): Promise<HabitStats> {
-    return this.habitTracker.getHabitStats(now);
   }
 
   async recordReview(verseId: string, score: number, now = new Date()): Promise<SRSResult> {

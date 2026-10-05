@@ -212,9 +212,11 @@ export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVe
       clearTimeout(debounceTimerRef.current);
     }
 
-    if (scriptureCatalog.isBundledTranslation(selectedTranslation)) {
-      fetchVerseText(canonicalRef, selectedTranslation, false);
-    } else {
+    const resolved = scriptureCatalog.resolvePassage(canonicalRef, selectedTranslation);
+    if (resolved?.isBundled && resolved.text) {
+      setText(resolved.text);
+      setFetchNotice(null);
+    } else if (resolved && !resolved.isBundled) {
       setFetchNotice('Referência definida! Cole o texto da sua Bíblia ou digite-o abaixo.');
       setTimeout(() => {
         textAreaRef.current?.focus();

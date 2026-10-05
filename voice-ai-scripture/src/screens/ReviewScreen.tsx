@@ -2,11 +2,9 @@ import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
-  StyleSheet,
   ActivityIndicator,
   ScrollView,
   TouchableOpacity,
-  Modal,
   useColorScheme,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -15,9 +13,13 @@ import { useRecitationSession, RecitationLevel } from '../hooks/useRecitationSes
 import DiffView from '../components/DiffView';
 import PaywallModal from '../components/PaywallModal';
 import WaveformVisualizer from '../components/WaveformVisualizer';
+import AcousticDebugTray from '../components/AcousticDebugTray';
+import SandboxOptInModal from '../components/SandboxOptInModal';
+import ScaffoldingLevelCard from '../components/ScaffoldingLevelCard';
 import { SubscriptionService } from '../services/SubscriptionService';
 import { SpeechTranscriber } from '../services/RecitationSession';
-import { getTheme, touchTarget } from '../theme/tokens';
+import { getTheme } from '../theme/tokens';
+import { styles } from './ReviewScreen.styles';
 
 export type { RecitationLevel };
 
@@ -103,18 +105,24 @@ export default function ReviewScreen({
             style={[
               styles.backButton,
               {
-                backgroundColor: theme.colors.surface,
+                backgroundColor: theme.colors.surfaceMuted,
                 borderColor: theme.colors.border,
               },
             ]}
             onPress={onComplete}
             activeOpacity={0.7}
           >
-            <Text style={[styles.backButtonText, { color: theme.colors.textPrimary }]}>
+            <Text
+              style={[
+                styles.backButtonText,
+                { color: theme.colors.textPrimary },
+              ]}
+            >
               ← Back
             </Text>
           </TouchableOpacity>
 
+          {/* Three-Tier Scaffolding Segmented Control */}
           <View
             style={[
               styles.modeToggle,
@@ -124,69 +132,52 @@ export default function ReviewScreen({
               },
             ]}
           >
-            <TouchableOpacity
-              onPress={() => setLevel(1)}
-              style={[
-                styles.modeTabContainer,
-                level === 1 && { backgroundColor: theme.colors.surface },
-              ]}
-              activeOpacity={0.8}
-            >
-              <Text
+            {(
+              [
+                { lvl: 1 as RecitationLevel, label: '1. Echo' },
+                { lvl: 2 as RecitationLevel, label: '2. Cloze' },
+                { lvl: 3 as RecitationLevel, label: '3. Recite' },
+              ] as const
+            ).map((item) => (
+              <TouchableOpacity
+                key={item.lvl}
                 style={[
-                  styles.modeTab,
-                  { color: level === 1 ? theme.colors.textPrimary : theme.colors.textSecondary },
-                  level === 1 && styles.activeModeTabText,
+                  styles.modeTabContainer,
+                  level === item.lvl && {
+                    backgroundColor: theme.colors.surface,
+                    shadowColor: '#000',
+                    shadowOpacity: 0.08,
+                    shadowRadius: 4,
+                    shadowOffset: { width: 0, height: 1 },
+                    elevation: 1,
+                  },
                 ]}
+                onPress={() => setLevel(item.lvl)}
+                activeOpacity={0.7}
               >
-                1. Echo
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              onPress={() => setLevel(2)}
-              style={[
-                styles.modeTabContainer,
-                level === 2 && { backgroundColor: theme.colors.surface },
-              ]}
-              activeOpacity={0.8}
-            >
-              <Text
-                style={[
-                  styles.modeTab,
-                  { color: level === 2 ? theme.colors.textPrimary : theme.colors.textSecondary },
-                  level === 2 && styles.activeModeTabText,
-                ]}
-              >
-                2. Cloze
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              onPress={() => setLevel(3)}
-              style={[
-                styles.modeTabContainer,
-                level === 3 && { backgroundColor: theme.colors.surface },
-              ]}
-              activeOpacity={0.8}
-            >
-              <Text
-                style={[
-                  styles.modeTab,
-                  { color: level === 3 ? theme.colors.textPrimary : theme.colors.textSecondary },
-                  level === 3 && styles.activeModeTabText,
-                ]}
-              >
-                3. Recite
-              </Text>
-            </TouchableOpacity>
+                <Text
+                  style={[
+                    styles.modeTab,
+                    {
+                      color:
+                        level === item.lvl
+                          ? theme.colors.accentSacred
+                          : theme.colors.textSecondary,
+                    },
+                    level === item.lvl && styles.activeModeTabText,
+                  ]}
+                >
+                  {item.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
           </View>
         </View>
 
-        {/* Central Editorial Scripture Plane */}
+        {/* Sacred Editorial Card */}
         <View
           style={[
-            styles.verseContainer,
+            styles.card,
             {
               backgroundColor: theme.colors.surface,
               borderColor: theme.colors.border,
@@ -194,342 +185,54 @@ export default function ReviewScreen({
           ]}
         >
           {/* Reference Heading (Long press in __DEV__ toggles Acoustic Diagnostics) */}
-          <TouchableOpacity
-            onLongPress={() => {
-              if (typeof __DEV__ !== 'undefined' && __DEV__) {
+          <View style={styles.cardHeader}>
+            <TouchableOpacity
+              onLongPress={() => {
                 setShowDebugTray((prev) => !prev);
-              }
-            }}
-            activeOpacity={0.8}
-          >
-            <Text
-              style={[
-                styles.reference,
-                {
-                  color: theme.colors.textPrimary,
-                  fontFamily: theme.typography.fontFamily.ui,
-                },
-              ]}
+              }}
+              delayLongPress={600}
+              activeOpacity={0.8}
             >
-              {verse.reference}
-            </Text>
-          </TouchableOpacity>
-
-          {/* Developer Acoustic Debug Tray (__DEV__ only) */}
-          {typeof __DEV__ !== 'undefined' && __DEV__ && showDebugTray && (
-            <View
-              style={[
-                styles.debugTray,
-                {
-                  backgroundColor: theme.colors.surfaceMuted,
-                  borderColor: theme.colors.accentSacred,
-                },
-              ]}
-            >
-              <View style={styles.debugHeaderRow}>
-                <Text
-                  style={[
-                    styles.debugTitle,
-                    { color: theme.colors.accentSacred },
-                  ]}
-                >
-                  🛠️ Acoustic Diagnostics (__DEV__)
-                </Text>
-                <TouchableOpacity onPress={() => setShowDebugTray(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                  <Text style={[styles.debugCloseText, { color: theme.colors.textSecondary }]}>✕</Text>
-                </TouchableOpacity>
-              </View>
-
-              <Text style={[styles.debugLabel, { color: theme.colors.textSecondary }]}>
-                Speech Provider:{' '}
-                <Text style={{ color: theme.colors.textPrimary, fontWeight: '600' }}>
-                  {process.env.EXPO_PUBLIC_GROQ_API_KEY
-                    ? '⚡ Groq Cloud Whisper (whisper-large-v3-turbo)'
-                    : process.env.EXPO_PUBLIC_OPENAI_API_KEY
-                    ? '☁️ OpenAI Cloud (gpt-transcribe)'
-                    : '📱 On-Device Native Speech Recognizer'}
-                </Text>
-              </Text>
-
-              <Text style={[styles.debugLabel, { color: theme.colors.textSecondary, marginTop: 6 }]}>
-                Raw Recognized Transcript:
-              </Text>
-              <View
-                style={[
-                  styles.debugTranscriptBox,
-                  { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.debugTranscriptText,
-                    { color: theme.colors.textPrimary },
-                  ]}
-                  selectable
-                >
-                  {rawTranscript || (isVerifying ? 'Transcribing...' : isReciting ? 'Listening...' : 'No transcription captured yet')}
-                </Text>
-              </View>
-
-              {errorDetails ? (
-                <>
-                  <Text style={[styles.debugLabel, { color: theme.colors.diffMissedText, marginTop: 6 }]}>
-                    Last Error Details:
-                  </Text>
-                  <View
-                    style={[
-                      styles.debugTranscriptBox,
-                      { backgroundColor: theme.colors.surface, borderColor: theme.colors.diffMissedText },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.debugTranscriptText,
-                        { color: theme.colors.diffMissedText, fontSize: 12 },
-                      ]}
-                      selectable
-                    >
-                      {errorDetails}
-                    </Text>
-                  </View>
-                </>
-              ) : null}
-            </View>
-          )}
-
-          {/* Level 1: Echo Mode */}
-          {level === 1 && (
-            <View style={styles.levelCard}>
-              <View
-                style={[
-                  styles.levelBadgeContainer,
-                  { backgroundColor: theme.colors.surfaceMuted },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.levelBadge,
-                    { color: theme.colors.accentSacred },
-                  ]}
-                >
-                  Level 1: Echo Mode (Ear Training)
-                </Text>
-              </View>
-
-              {isTextRevealed ? (
-                <Text
-                  style={[
-                    styles.verseText,
-                    {
-                      color: theme.colors.textPrimary,
-                      fontFamily: theme.typography.fontFamily.scripture,
-                    },
-                  ]}
-                >
-                  {verse.text}
-                </Text>
-              ) : (
-                <View style={styles.concealedBox}>
-                  <Text
-                    style={[
-                      styles.concealedHint,
-                      { color: theme.colors.textSecondary },
-                    ]}
-                  >
-                    Listen to the audio, meditate, and repeat aloud into the microphone.
-                  </Text>
-                </View>
-              )}
-
-              <View style={styles.level1Controls}>
-                <TouchableOpacity
-                  style={[
-                    styles.secondaryPillButton,
-                    {
-                      backgroundColor: theme.colors.surfaceMuted,
-                      borderColor: theme.colors.border,
-                    },
-                  ]}
-                  onPress={toggleTextReveal}
-                  activeOpacity={0.7}
-                >
-                  <Text
-                    style={[
-                      styles.secondaryPillButtonText,
-                      { color: theme.colors.textPrimary },
-                    ]}
-                  >
-                    {isTextRevealed ? 'Conceal Text' : 'Reveal Text'}
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    styles.secondaryPillButton,
-                    {
-                      backgroundColor: theme.colors.surfaceMuted,
-                      borderColor: theme.colors.border,
-                    },
-                  ]}
-                  onPress={vocalize}
-                  activeOpacity={0.7}
-                >
-                  <Text
-                    style={[
-                      styles.secondaryPillButtonText,
-                      { color: theme.colors.textPrimary },
-                    ]}
-                  >
-                    🔊 Listen Again
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          )}
-
-          {/* Level 2: Cloze Practice */}
-          {level === 2 && (
-            <View style={styles.levelCard}>
-              <View style={styles.levelHeaderRow}>
-                <View
-                  style={[
-                    styles.levelBadgeContainer,
-                    { backgroundColor: theme.colors.surfaceMuted },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.levelBadge,
-                      { color: theme.colors.accentSacred },
-                    ]}
-                  >
-                    Level 2: Cloze Practice
-                  </Text>
-                </View>
-
-                <TouchableOpacity
-                  style={[
-                    styles.secondaryPillButton,
-                    {
-                      backgroundColor: theme.colors.surfaceMuted,
-                      borderColor: theme.colors.border,
-                    },
-                  ]}
-                  onPress={vocalize}
-                  activeOpacity={0.7}
-                >
-                  <Text
-                    style={[
-                      styles.secondaryPillButtonText,
-                      { color: theme.colors.textPrimary },
-                    ]}
-                  >
-                    🔊 Listen
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
               <Text
                 style={[
-                  styles.instructionText,
-                  { color: theme.colors.textSecondary },
+                  styles.reference,
+                  { color: theme.colors.accentSacred },
                 ]}
               >
-                Tap any blanked word to reveal it inline if you need a prompt.
+                {verse.reference}
               </Text>
+            </TouchableOpacity>
+            <Text
+              style={[
+                styles.translationBadge,
+                { color: theme.colors.textSecondary },
+              ]}
+            >
+              {verse.translation || 'WEB'}
+            </Text>
+          </View>
 
-              <View style={styles.clozeContainer}>
-                {clozeTokens.map((token, idx) => (
-                  <TouchableOpacity
-                    key={idx}
-                    onPress={() => tapWord(idx)}
-                    activeOpacity={0.7}
-                    style={styles.tokenTouchTarget}
-                  >
-                    <Text
-                      style={[
-                        styles.clozeToken,
-                        {
-                          color: theme.colors.textPrimary,
-                          fontFamily: theme.typography.fontFamily.scripture,
-                        },
-                        token.isRevealed && [
-                          styles.clozeRevealed,
-                          { color: theme.colors.accentSacred },
-                        ],
-                      ]}
-                    >
-                      {token.isRevealed ? token.word : token.masked}
-                      {token.trailingSpace ? ' ' : ''}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-          )}
+          {/* Developer Acoustic Debug Tray (__DEV__ only) */}
+          <AcousticDebugTray
+            visible={showDebugTray}
+            rawTranscript={rawTranscript}
+            isVerifying={isVerifying}
+            isReciting={isReciting}
+            errorDetails={errorDetails}
+            onClose={() => setShowDebugTray(false)}
+          />
 
-          {/* Level 3: Blind Recitation */}
-          {level === 3 && (
-            <View style={styles.levelCard}>
-              <View
-                style={[
-                  styles.levelBadgeContainer,
-                  { backgroundColor: theme.colors.surfaceMuted },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.levelBadge,
-                    { color: theme.colors.accentSacred },
-                  ]}
-                >
-                  Level 3: Blind Recitation (Active Recall)
-                </Text>
-              </View>
-
-              {assistanceUsed && (
-                <Text
-                  style={[
-                    styles.assistedWarning,
-                    { color: theme.colors.diffAddedText },
-                  ]}
-                >
-                  ⚠️ Word Peek Lifeline used (Session score capped at 75%)
-                </Text>
-              )}
-
-              <View style={styles.clozeContainer}>
-                {clozeTokens.map((token, idx) => (
-                  <TouchableOpacity
-                    key={idx}
-                    onPress={() => tapWord(idx)}
-                    activeOpacity={0.7}
-                    style={styles.tokenTouchTarget}
-                  >
-                    <Text
-                      style={[
-                        styles.clozeToken,
-                        {
-                          color: theme.colors.textPrimary,
-                          fontFamily: theme.typography.fontFamily.scripture,
-                        },
-                        token.isRevealed && [
-                          styles.peekToken,
-                          {
-                            color: theme.colors.diffAddedText,
-                            backgroundColor: theme.colors.diffAddedBg,
-                          },
-                        ],
-                      ]}
-                    >
-                      {token.isRevealed ? token.word : token.masked}
-                      {token.trailingSpace ? ' ' : ''}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-          )}
+          {/* Scaffolding Practice Card (Levels 1, 2, 3) */}
+          <ScaffoldingLevelCard
+            level={level}
+            verse={verse}
+            clozeTokens={clozeTokens}
+            isTextRevealed={isTextRevealed}
+            assistanceUsed={assistanceUsed}
+            onToggleTextReveal={toggleTextReveal}
+            onVocalize={vocalize}
+            onTapWord={tapWord}
+          />
 
           {/* Waveform & Recitation Feedback */}
           <View style={styles.voiceSection}>
@@ -714,12 +417,18 @@ export default function ReviewScreen({
       />
 
       {/* Sandbox Opt-in Modal */}
-      <Modal
+      <SandboxOptInModal
         visible={showSandboxOptIn}
-        transparent={true}
-        animationType="fade"
-        testID="sandbox-opt-in-modal"
-        onRequestClose={() => {
+        verse={verse}
+        onSave={() => {
+          setShowSandboxOptIn(false);
+          if (onSandboxComplete) {
+            onSandboxComplete(verse, true);
+          } else {
+            onComplete();
+          }
+        }}
+        onDismiss={() => {
           setShowSandboxOptIn(false);
           if (onSandboxComplete) {
             onSandboxComplete(verse, false);
@@ -727,440 +436,7 @@ export default function ReviewScreen({
             onComplete();
           }
         }}
-      >
-        <View style={styles.modalBackdrop}>
-          <View
-            style={[
-              styles.modalCard,
-              {
-                backgroundColor: theme.colors.surface,
-                borderColor: theme.colors.border,
-              },
-            ]}
-          >
-            <Text
-              style={[
-                styles.modalTitle,
-                { color: theme.colors.textPrimary },
-              ]}
-            >
-              Add {verse.reference} to your memory verses?
-            </Text>
-            <Text
-              style={[
-                styles.modalDescription,
-                { color: theme.colors.textSecondary },
-              ]}
-            >
-              You've successfully tested all 3 tiers of recitation! Would you like to add this verse to your memory verses for daily spaced repetition?
-            </Text>
-            <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={[
-                  styles.modalButton,
-                  { backgroundColor: theme.colors.accentSacred },
-                ]}
-                testID="sandbox-opt-in-save"
-                onPress={() => {
-                  setShowSandboxOptIn(false);
-                  if (onSandboxComplete) {
-                    onSandboxComplete(verse, true);
-                  } else {
-                    onComplete();
-                  }
-                }}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.modalPrimaryButtonText}>Add to My Verses</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.modalButton,
-                  {
-                    backgroundColor: theme.colors.surfaceMuted,
-                    borderColor: theme.colors.border,
-                    borderWidth: 1,
-                  },
-                ]}
-                testID="sandbox-opt-in-dismiss"
-                onPress={() => {
-                  setShowSandboxOptIn(false);
-                  if (onSandboxComplete) {
-                    onSandboxComplete(verse, false);
-                  } else {
-                    onComplete();
-                  }
-                }}
-                activeOpacity={0.7}
-              >
-                <Text
-                  style={[
-                    styles.modalSecondaryButtonText,
-                    { color: theme.colors.textSecondary },
-                  ]}
-                >
-                  Explore App without Saving
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
+      />
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  scrollContent: {
-    padding: 16,
-    paddingBottom: 48,
-  },
-  headerRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  backButton: {
-    minHeight: touchTarget.min,
-    minWidth: touchTarget.min,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 20,
-    borderWidth: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  backButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  modeToggle: {
-    flexDirection: 'row',
-    borderRadius: 22,
-    borderWidth: 1,
-    padding: 3,
-  },
-  modeTabContainer: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 18,
-    minHeight: 44,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modeTab: {
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  activeModeTabText: {
-    fontWeight: '700',
-  },
-  verseContainer: {
-    borderRadius: 18,
-    padding: 24,
-    minHeight: 240,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 20,
-    borderWidth: 1,
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 2,
-  },
-  reference: {
-    fontSize: 22,
-    fontWeight: '700',
-    marginBottom: 16,
-    textAlign: 'center',
-    letterSpacing: -0.3,
-  },
-  levelCard: {
-    width: '100%',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  levelBadgeContainer: {
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: 12,
-    marginBottom: 14,
-  },
-  levelBadge: {
-    fontSize: 11,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
-  },
-  levelHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    width: '100%',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  instructionText: {
-    fontSize: 13,
-    marginBottom: 14,
-    textAlign: 'center',
-    lineHeight: 18,
-  },
-  assistedWarning: {
-    fontSize: 12,
-    fontWeight: '600',
-    marginBottom: 10,
-    textAlign: 'center',
-  },
-  verseText: {
-    fontSize: 20,
-    lineHeight: 32,
-    textAlign: 'center',
-    paddingHorizontal: 4,
-  },
-  concealedBox: {
-    padding: 20,
-    alignItems: 'center',
-  },
-  concealedHint: {
-    fontSize: 15,
-    fontStyle: 'italic',
-    textAlign: 'center',
-    lineHeight: 22,
-  },
-  level1Controls: {
-    flexDirection: 'row',
-    marginTop: 16,
-    justifyContent: 'center',
-    gap: 12,
-  },
-  secondaryPillButton: {
-    minHeight: touchTarget.min,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 22,
-    borderWidth: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  secondaryPillButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  clozeContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    paddingVertical: 10,
-  },
-  tokenTouchTarget: {
-    minHeight: 44,
-    justifyContent: 'center',
-    marginVertical: 2,
-  },
-  clozeToken: {
-    fontSize: 20,
-    lineHeight: 34,
-  },
-  clozeRevealed: {
-    fontWeight: '700',
-    textDecorationLine: 'underline',
-  },
-  peekToken: {
-    fontWeight: '700',
-    borderRadius: 4,
-    paddingHorizontal: 3,
-  },
-  voiceSection: {
-    width: '100%',
-    alignItems: 'center',
-    marginTop: 12,
-  },
-  voiceHint: {
-    fontSize: 14,
-    textAlign: 'center',
-    marginVertical: 10,
-    lineHeight: 20,
-  },
-  loadingBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginVertical: 16,
-  },
-  loadingText: {
-    fontWeight: '600',
-    fontSize: 14,
-  },
-  resultContainer: {
-    width: '100%',
-    alignItems: 'center',
-  },
-  scoreHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    width: '100%',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  scoreBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 14,
-    fontWeight: '700',
-    fontSize: 13,
-  },
-  streakText: {
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  voiceActions: {
-    width: '100%',
-    alignSelf: 'center',
-    maxWidth: 360,
-    marginTop: 8,
-  },
-  primaryHeroButton: {
-    minHeight: touchTarget.hero,
-    borderRadius: 32,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-    shadowColor: '#000',
-    shadowOpacity: 0.12,
-    shadowRadius: 10,
-    shadowOffset: { width: 0, height: 4 },
-    elevation: 4,
-  },
-  primaryHeroButtonText: {
-    color: '#FFFFFF',
-    fontSize: 17,
-    fontWeight: '700',
-    letterSpacing: 0.3,
-  },
-  doneActions: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    width: '100%',
-  },
-  actionButton: {
-    flex: 1,
-    minHeight: 48,
-    borderRadius: 24,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-  },
-  practiceAgainButton: {
-    borderWidth: 1,
-  },
-  nextLevelButton: {},
-  finishButton: {},
-  actionButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  primaryActionButtonText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  error: {
-    textAlign: 'center',
-    marginBottom: 12,
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.6)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-  },
-  modalCard: {
-    borderRadius: 20,
-    padding: 24,
-    width: '100%',
-    maxWidth: 400,
-    borderWidth: 1,
-    elevation: 6,
-    shadowColor: '#000',
-    shadowOpacity: 0.18,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 4 },
-  },
-  modalTitle: {
-    fontSize: 19,
-    fontWeight: '700',
-    marginBottom: 12,
-    textAlign: 'center',
-    letterSpacing: -0.3,
-  },
-  modalDescription: {
-    fontSize: 15,
-    lineHeight: 22,
-    marginBottom: 24,
-    textAlign: 'center',
-  },
-  modalActions: {
-    gap: 12,
-  },
-  modalButton: {
-    minHeight: touchTarget.min,
-    paddingVertical: 14,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  modalPrimaryButtonText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  modalSecondaryButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  debugTray: {
-    width: '100%',
-    marginVertical: 12,
-    padding: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-  },
-  debugHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 6,
-  },
-  debugTitle: {
-    fontSize: 12,
-    fontWeight: '700',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  debugCloseText: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    padding: 4,
-  },
-  debugLabel: {
-    fontSize: 12,
-  },
-  debugTranscriptBox: {
-    marginTop: 6,
-    padding: 10,
-    borderRadius: 6,
-    borderWidth: 1,
-  },
-  debugTranscriptText: {
-    fontSize: 13,
-  },
-});

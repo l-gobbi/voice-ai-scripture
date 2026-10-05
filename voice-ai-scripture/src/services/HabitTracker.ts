@@ -46,6 +46,10 @@ export class HabitTracker {
     this.getDueCountFn = getDueCountFn;
   }
 
+  setDueCountFn(fn: (now?: Date) => Promise<number>): void {
+    this.getDueCountFn = fn;
+  }
+
   private async getStoredHabitData(): Promise<StoredHabitData> {
     try {
       const data = await this.storage.getItem(HABIT_STORAGE_KEY);
@@ -72,7 +76,23 @@ export class HabitTracker {
     await this.storage.setItem(HABIT_STORAGE_KEY, JSON.stringify(data));
   }
 
-  async getHabitStats(now = new Date()): Promise<HabitStats> {
+  private buildStats(
+    habitData: StoredHabitData,
+    completedToday: number,
+    dueCount: number,
+    displayStreak: number
+  ): HabitStats {
+    return {
+      currentStreak: displayStreak,
+      longestStreak: habitData.longestStreak,
+      lastActiveDate: habitData.lastActiveDate,
+      completedTodayCount: completedToday,
+      totalDueToday: completedToday + dueCount,
+      dueCount,
+    };
+  }
+
+  async getHabitStats(now = new Date(), overrideDueCount?: number): Promise<HabitStats> {
     const habitData = await this.getStoredHabitData();
     const todayStr = toCalendarDateString(now);
     const yesterdayStr = getYesterdayCalendarString(now);
@@ -87,17 +107,14 @@ export class HabitTracker {
     }
 
     const completedToday = (habitData.completedDates[todayStr] || []).length;
-    const dueCount = this.getDueCountFn ? await this.getDueCountFn(now) : 0;
-    const totalDueToday = completedToday + dueCount;
+    const dueCount =
+      overrideDueCount !== undefined
+        ? overrideDueCount
+        : this.getDueCountFn
+        ? await this.getDueCountFn(now)
+        : 0;
 
-    return {
-      currentStreak: displayStreak,
-      longestStreak: habitData.longestStreak,
-      lastActiveDate: habitData.lastActiveDate,
-      completedTodayCount: completedToday,
-      totalDueToday,
-      dueCount,
-    };
+    return this.buildStats(habitData, completedToday, dueCount, displayStreak);
   }
 
   async recordActivity(
@@ -135,16 +152,8 @@ export class HabitTracker {
 
     const completedToday = (habitData.completedDates[todayStr] || []).length;
     const dueCount = this.getDueCountFn ? await this.getDueCountFn(now) : 0;
-    const totalDueToday = completedToday + dueCount;
 
-    return {
-      currentStreak: habitData.currentStreak,
-      longestStreak: habitData.longestStreak,
-      lastActiveDate: habitData.lastActiveDate,
-      completedTodayCount: completedToday,
-      totalDueToday,
-      dueCount,
-    };
+    return this.buildStats(habitData, completedToday, dueCount, habitData.currentStreak);
   }
 
   async resetHabit(): Promise<void> {
@@ -158,3 +167,4 @@ export class HabitTracker {
 }
 
 export const habitTracker = new HabitTracker();
+

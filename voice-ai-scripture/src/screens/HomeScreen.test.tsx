@@ -3,11 +3,28 @@ import { Share } from 'react-native';
 import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
 import HomeScreen from './HomeScreen';
 import { verseEngine } from '../services/VerseEngine';
+import { habitTracker } from '../services/HabitTracker';
 import { bibleProvider } from '../services/BibleProvider';
 import { audioRecorder } from '../services/AudioRecorderService';
 import { SimulatedTranscriber } from '../services/SpeechTranscriber';
 import * as Clipboard from 'expo-clipboard';
 import { encodeDeckPayload } from '../utils/deckSharing';
+
+// Mock HabitTracker
+jest.mock('../services/HabitTracker', () => ({
+  habitTracker: {
+    getHabitStats: jest.fn().mockResolvedValue({
+      currentStreak: 0,
+      longestStreak: 0,
+      lastActiveDate: null,
+      completedTodayCount: 0,
+      totalDueToday: 0,
+      dueCount: 0,
+    }),
+    recordActivity: jest.fn(),
+    resetHabit: jest.fn(),
+  },
+}));
 
 // Mock verseEngine
 jest.mock('../services/VerseEngine', () => ({
@@ -15,14 +32,6 @@ jest.mock('../services/VerseEngine', () => ({
     getVersesSummary: jest.fn().mockResolvedValue({
       allVerses: [],
       dueVerses: [],
-      dueCount: 0,
-    }),
-    getHabitStats: jest.fn().mockResolvedValue({
-      currentStreak: 0,
-      longestStreak: 0,
-      lastActiveDate: null,
-      completedTodayCount: 0,
-      totalDueToday: 0,
       dueCount: 0,
     }),
     addVerse: jest.fn().mockResolvedValue({
@@ -67,8 +76,8 @@ describe('HomeScreen Integration (Ticket 16)', () => {
       dueVerses: [],
       dueCount: 0,
     });
-    (verseEngine.getHabitStats as jest.Mock).mockReset();
-    (verseEngine.getHabitStats as jest.Mock).mockResolvedValue({
+    (habitTracker.getHabitStats as jest.Mock).mockReset();
+    (habitTracker.getHabitStats as jest.Mock).mockResolvedValue({
       currentStreak: 0,
       longestStreak: 0,
       lastActiveDate: null,
@@ -492,7 +501,7 @@ describe('HomeScreen Integration (Ticket 16)', () => {
 
   describe('HomeScreen Habit Banner (Ticket 30)', () => {
     it('renders habit banner with streak and daily progress', async () => {
-      (verseEngine.getHabitStats as jest.Mock).mockResolvedValueOnce({
+      (habitTracker.getHabitStats as jest.Mock).mockResolvedValueOnce({
         currentStreak: 4,
         longestStreak: 7,
         lastActiveDate: '2026-09-18',
