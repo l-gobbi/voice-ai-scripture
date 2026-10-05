@@ -46,13 +46,28 @@ export async function buildAudioFormData(
 
   try {
     const audioResponse = await fetch(normalizedUri);
-    const rawBlob = typeof audioResponse?.blob === 'function'
-      ? await audioResponse.blob()
-      : new Blob(['audio'], { type: fileType });
-    const finalBlob = rawBlob.type && rawBlob.type !== 'application/octet-stream'
-      ? rawBlob
-      : new Blob([rawBlob], { type: fileType });
-    formData.append('file', finalBlob, filename);
+    let blob: Blob;
+
+    if (typeof audioResponse?.blob === 'function') {
+      blob = await audioResponse.blob();
+    } else if (typeof audioResponse?.arrayBuffer === 'function') {
+      const buffer = await audioResponse.arrayBuffer();
+      blob = new Blob([buffer], { type: fileType });
+    } else {
+      blob = new Blob(['audio'], { type: fileType });
+    }
+
+    // Attach filename and MIME type so Expo's getFormDataPartHeaders adds
+    // `Content-Disposition: form-data; name="file"; filename="<filename>"` and `Content-Type: <fileType>`
+    try {
+      Object.defineProperty(blob, 'name', {
+        value: filename,
+        writable: true,
+        configurable: true,
+      });
+    } catch {}
+
+    formData.append('file', blob, filename);
   } catch (blobErr: any) {
     console.error('[SpeechTranscriber] Failed to resolve audio blob:', normalizedUri, blobErr);
     throw new TranscriptionError(

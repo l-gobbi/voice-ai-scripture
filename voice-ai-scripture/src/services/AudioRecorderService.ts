@@ -246,14 +246,26 @@ export class NativeAudioDriver implements AudioDriver {
       throw new Error('AudioRecorder is not available on AudioModule');
     }
 
-    const recordingOptions = {
+    const { RecordingPresets } = require('expo-audio');
+    const basePreset = RecordingPresets?.HIGH_QUALITY || {
       extension: '.m4a',
       sampleRate: 44100,
       numberOfChannels: 1,
       bitRate: 128000,
+    };
+
+    const recordingOptions = {
+      ...basePreset,
       isMeteringEnabled: true,
-      ...(Platform.OS === 'android' ? { outputFormat: 'mpeg4', audioEncoder: 'aac' } : {}),
-      ...(Platform.OS === 'ios' ? { outputFormat: 'aac ', audioQuality: 0x7f } : {}),
+      android: {
+        ...(basePreset.android || {}),
+        outputFormat: 'mpeg4',
+        audioEncoder: 'aac',
+      },
+      ios: {
+        ...(basePreset.ios || {}),
+        outputFormat: 'aac ',
+      },
     };
 
     this.recording = new RecorderClass(recordingOptions);

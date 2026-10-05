@@ -387,7 +387,11 @@ describe('SpeechTranscriber Seam (Ticket 11)', () => {
       await buildAudioFormData('file:/data/user/0/cache/recording-uuid', 'whisper-large-v3-turbo');
 
       expect(global.fetch).toHaveBeenCalledWith('file:///data/user/0/cache/recording-uuid');
-      expect(appendSpy).toHaveBeenCalledWith('file', mockBlob, 'recording-uuid.m4a');
+      expect(appendSpy).toHaveBeenCalledWith(
+        'file',
+        mockBlob,
+        'recording-uuid.m4a'
+      );
     });
 
     it('buildAudioFormData wraps blob fetch failure into TranscriptionError network_error', async () => {
