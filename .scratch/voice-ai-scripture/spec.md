@@ -1,140 +1,132 @@
-# Specification: Architectural Deepening — Unified VoiceInput, ScriptureCatalog & Pure RecitationEvaluator
+# Specification: Architectural Deepening — HabitTracker Extraction, ScriptureCatalog Consolidation & Recitation Controller Refinement
 
 **Status:** ready-for-agent  
-**Domain:** Voice Capture / Speech Recognition / Scripture Canon & Translation / Recitation Evaluation / Spaced Repetition  
-**Governing Documents:** `CONTEXT.md`, `docs/adr/0001-deterministic-dp-diffing-over-llm-evaluation.md`, `docs/adr/0005-deep-verse-engine-domain-architecture.md`, `docs/adr/0006-speech-transcriber-seam.md`, `docs/adr/0007-multi-translation-and-bible-provider.md`, `docs/adr/0008-guided-reference-picker-and-canon-matrix.md`, `docs/adr/0011-three-tier-scaffolded-recitation-and-speech-infrastructure.md`, `docs/adr/0012-deepen-recitationsession-with-scaffolding-and-lifelines.md`, `docs/adr/0014-canonical-projection-and-diacritic-lenient-verification.md`
+**Domain:** Retention & Habit Tracking / Scripture Canon & Translation / Recitation Scaffolding & Presentation Controller / Spaced Repetition  
+**Governing Documents:** `CONTEXT.md`, `docs/adr/0005-deep-verse-engine-domain-architecture.md`, `docs/adr/0007-multi-translation-and-bible-provider.md`, `docs/adr/0008-guided-reference-picker-and-canon-matrix.md`, `docs/adr/0011-three-tier-scaffolded-recitation-and-speech-infrastructure.md`, `docs/adr/0012-deepen-recitationsession-with-scaffolding-and-lifelines.md`, `docs/adr/0013-impeccable-design-system-and-editorial-aesthetic.md`, `docs/adr/0014-canonical-projection-and-diacritic-lenient-verification.md`
 
 ---
 
 ## Problem Statement
 
-As the application expanded from initial text flashcards to multi-tier voice recitation and hybrid speech engines (Groq Cloud Whisper and on-device native speech recognition), three core subsystems accumulated significant architectural friction:
+As the application expanded from initial text flashcards to multi-tier scaffolded recitation and hybrid speech recognition, three core modules accumulated architectural friction and broken locality:
 
-1. **Fragmented Voice Capture & Smuggled State**:
-   Speech recognition was historically bifurcated into two separate modules: an audio recorder and a speech transcriber. When live on-device speech dictation was introduced, it was forced through a batch audio file interface. To bridge the gap, the audio recorder secretly executed speech recognition during recording and smuggled the resulting transcripts into module-global `Map` variables keyed by temporary file URIs. Callers like the recitation session were forced to coordinate recording starts, file URI hand-offs, transcription calls, and defensive disk cleanup across multiple `try/catch/finally` blocks, resulting in repeated platform regressions around file URIs, Blobs, and multipart form uploads.
+1. **Bloated Verse Repository & Leaking Habit Retention**:
+   The verse engine is responsible for verse persistence, collection summaries, and SuperMemo-2 spaced repetition scheduling. However, it also accumulated user retention telemetry: global streak counters, longest streaks, last active dates, daily completed verse IDs, and secondary persistence writes to a separate storage key. Changes to streak rules, calendar date boundaries, or retention policies force modifications to the verse repository. Callers such as the home screen must navigate verse retrieval methods just to obtain retention statistics.
 
-2. **Scattered Scripture Canon & Duplicated Book Catalogs**:
-   Biblical canon knowledge is fragmented across multiple shallow files. The 66 biblical books, their chapter/verse counts, their English and Portuguese aliases, bundled dataset loaders, and bilingual language inference heuristics are duplicated across separate reference normalizers, provider loaders, and canon matrices. Adding an alias or resolving a passage requires callers to coordinate four separate functions across three modules.
+2. **Shallow Scripture Facades & Fragmented Callers**:
+   Recent architectural consolidation introduced an authoritative scripture catalog. However, transition debt left shallow facades in place: a reference normalizer that acts as a 12-line passthrough, and a legacy Bible provider that simply delegates passage fetching. Presentation modals continue to coordinate three separate modules—normalizing a reference, checking if a translation is bundled, and then fetching the passage—instead of utilizing a single high-leverage catalog call. Biblical canon book navigation is similarly fragmented between static dataset helpers and the catalog.
 
-3. **Leaky Recitation Evaluation & Unmetered Simulation**:
-   Verification logic is split across three independent functional engines. The recitation session must manually orchestrate Myers sequence diffing, F1 score calculations, assistance score capping (which is inappropriately exported from visual cloze masking utilities), and manual unmetered SRS result reconstruction. This pollutes session orchestration with low-level mathematical heuristics and forces unmetered practice attempts to hand-patch SuperMemo-2 data structures.
-
-Learners and maintainers need a deep, cohesive architecture where voice capture is a single high-leverage seam with zero disk I/O for native dictation, scripture lookup is an authoritative catalog, and recitation evaluation is a pure, self-contained mathematical pipeline.
+3. **Presentation Monolith & Leaky Scaffolding Orchestration**:
+   The recitation review screen grew into an 1,177-line monolith because it directly manages practice state machines: coordinating text-to-speech auto-vocalization in Echo Mode, tracking interactive cloze word taps, managing 3-second word peek lifeline timers in Blind Recitation, and branching between sandbox and official review paths. Meanwhile, the recitation session hook functions as a shallow proxy that forwards individual method calls without encapsulating UI lifecycle coordination. This tightly couples presentation rendering to temporal timers and state transitions, making headless verification difficult and fragile.
 
 ---
 
 ## Solution
 
-Deepen the three subsystems into cohesive, high-leverage modules following the codebase design principles:
+Deepen the three subsystems into cohesive, high-leverage modules following codebase design principles:
 
-1. **Unified VoiceInput Seam (Candidate 1)**:
-   - Collapse audio recording and speech transcription into a single deep `VoiceInput` seam presenting only `start()` and `stop(): transcript`.
-   - Implement three swappable adapters:
-     - `NativeStreamVoiceAdapter`: Streams directly to platform speech frameworks (Apple Speech, Android SpeechRecognizer, Web Speech API) with real-time volume metering. Produces zero temporary audio files on disk, ensuring absolute privacy and instant evaluation.
-     - `CloudAudioVoiceAdapter`: Captures audio in memory or a transient buffer, streams to Groq Cloud Whisper (`whisper-large-v3-turbo`) or OpenAI Whisper with `temperature: 0` and prompt conditioning, and atomically deletes all transient audio upon completion.
-     - `SimulatedVoiceAdapter`: Stand-in for unit tests and headless environments that delivers predictable transcripts and volume ticks without native hardware dependencies.
-   - Strip all audio file tracking, URI passing, and manual deletion hooks out of `RecitationSession`.
+1. **Authoritative HabitTracker Module (Candidate 1)**:
+   - Extract all streak calculation, daily completion tracking, calendar date arithmetic, and retention storage out of the verse engine into a deep, dedicated `HabitTracker` module.
+   - Inject the habit tracker into the verse engine so that recording a review automatically triggers retention activity recording across a clean internal seam.
+   - Expose a focused interface allowing callers to fetch habit statistics or record completions directly with zero verse repository coupling.
 
-2. **Authoritative ScriptureCatalog (Candidate 2)**:
-   - Consolidate reference normalization, book aliases, canon boundaries, bundled Bible datasets, and bilingual language detection into a single deep `ScriptureCatalog` module.
-   - Expose a clean, cohesive interface: `resolvePassage(query, translation)` to return normalized passage metadata and text in a single pass, `detectLanguage(verse)` for unambiguous linguistic classification, and `getBooks()` / `getVerseCount()` for guided picker navigation.
-   - Eliminate duplicated book arrays and synchronize English and Portuguese book aliases into a unified registry.
+2. **Consolidated ScriptureCatalog & Facade Retirement (Candidate 2)**:
+   - Retire the shallow reference normalizer and Bible provider facades, migrating all presentation modals and services directly to the deep `ScriptureCatalog` seam.
+   - Provide a single-shot passage resolution interface that performs reference normalization, language detection, bundled verification, and passage retrieval in a single operation.
+   - Unify canon book browsing and verse boundary queries under `ScriptureCatalog`, eliminating redundant canon matrix imports.
 
-3. **Pure RecitationEvaluator Pipeline (Candidate 3)**:
-   - Consolidate string tokenization, honorific abbreviation expansion (e.g. `Sra.` $\leftrightarrow$ `Senhor`), diacritic tolerance, Myers diff alignment, F1 precision/recall calculation, assistance score capping (75% for lifeline usage), and SuperMemo-2 unmetered simulation into a single pure function `evaluateRecitation(input)`.
-   - Relieve `RecitationSession` of low-level scoring formulas and manual SRS patching, replacing multi-engine coordination with a single deterministic function call.
-   - Restrict `clozeEngine` strictly to visual cloze token generation and masking.
+3. **Pure Declarative ReviewScreen via Deepened Recitation Controller (Candidate 3)**:
+   - Deepen the recitation session controller to absorb practice scaffolding progression, text-to-speech playback coordination, and word peek lifeline timers.
+   - Expose a consolidated UI state stream and high-level user action intents, relieving the review screen of imperative timer management and mode state machines.
+   - Reduce the review screen to a purely declarative presentation surface focused on layout, sacred typography, and editorial visual feedback.
 
 ---
 
 ## User Stories
 
-### Unified Voice Capture & Privacy
-1. As a learner reciting scripture on mobile, I want speech recognition to begin immediately when I tap the microphone without creating unneeded audio files on disk, so that my device storage is untouched and my speech remains private.
-2. As a learner practicing offline with native speech recognition, I want volume metering for the waveform visualizer to function smoothly during live dictation, so that I have clear visual feedback that the app is listening.
-3. As a learner using cloud neural transcription, I want my recitation audio securely processed by Groq Cloud Whisper and immediately purged from temporary storage after transcription, so that no voice recordings linger on my device.
-4. As a learner whose recitation attempt is cancelled, I want the microphone session to halt immediately and release hardware locks, so that background battery consumption is avoided.
-5. As an automated test suite, I want to simulate full recitation sessions through an in-memory voice adapter without mocking file systems or network sockets, so that tests execute in milliseconds with zero flakiness.
+### Habit Tracking & Retention Locality
+1. As a learner completing daily scripture reviews, I want my active streak updated reliably when I pass a due verse, so that my habit progress reflects my true dedication.
+2. As a learner reviewing multiple verses on the same day, I want each review to contribute to my daily completion count without inflating my consecutive day streak, so that streak statistics remain mathematically accurate.
+3. As a learner practicing after midnight, I want calendar date calculations handled with local date consistency, so that my streak does not prematurely reset due to UTC offset shifts.
+4. As a learner who missed a day of review, I want my current streak reset to zero on my next review while preserving my longest streak record, so that historical achievement is preserved.
+5. As an automated test suite, I want to verify complex streak permutations and date boundary transitions using an in-memory storage adapter without constructing or mocking verse collections, so that habit tests run deterministically in milliseconds.
 
-### Authoritative Scripture Catalog & Guided Navigation
-6. As a learner searching for a verse in Portuguese (e.g. *"Jo 3:16"* or *"Salmos 23:1"*), I want the scripture catalog to recognize common Portuguese abbreviations and resolve canonical text instantly, so that I can add verses without typing friction.
-7. As a learner searching for a verse in English (e.g. *"Jn 3:16"* or *"Ps 23:1"*), I want the scripture catalog to resolve English translations (WEB, KJV) with canonical formatting, so that the verse text is accurate and complete.
-8. As a learner adding a verse from a bundled translation, I want the passage text populated automatically upon typing the reference, so that I do not need to copy and paste text manually.
-9. As a learner navigating the guided reference picker, I want books organized cleanly into Old and New Testaments with accurate chapter and verse counts, so that I cannot select non-existent chapters or verses.
-10. As a learner reciting a verse with English reference labeling but Portuguese text, I want the catalog language detector to recognize Portuguese from the text content, so that the speech engine receives the proper language parameter.
-11. As a developer maintaining biblical canon data, I want all book definitions, aliases, and chapter limits stored in a single authoritative catalog, so that updating an alias never causes inconsistencies between the search bar and picker.
+### Authoritative Scripture Catalog & High-Leverage Resolution
+6. As a learner adding a new verse, I want to input an unnormalized reference (e.g. *"1 Co 13:4"* or *"Sl 23:1"*) and have the canonical reference, translation, and passage text populated in one step, so that verse creation involves zero typing friction.
+7. As a learner browsing biblical books in the reference picker, I want the book list, testament grouping, and verse limits queried from a single authoritative catalog, so that picker navigation is fast and always consistent with text resolution.
+8. As a learner pasting scripture text from the clipboard, I want translation detection and passage normalization to validate against the authoritative catalog, so that malformed references are rejected gracefully with helpful guidance.
+9. As a developer maintaining the codebase, I want all biblical canon definitions, bilingual aliases, and translation datasets located in one module, so that adding a translation alias never requires synchronizing across multiple facade files.
+10. As an automated test suite, I want to test passage resolution across all supported translations through a single catalog interface, so that test setup is minimal and resilient to internal refactoring.
 
-### Pure Recitation Evaluation & Transparent Scoring
-12. As a learner reciting scripture out loud, I want common speech-to-text honorific abbreviations (e.g. *"Sra."* or *"Sr."* for *"Senhor"*, *"St."* for *"Saint"*) recognized as correct matches, so that speech model quirks never penalize my memory score.
-13. As a learner reciting accented scripture, I want unaccented spoken transcriptions to match canonical words with full credit, so that acoustic microphone limitations do not reset my streak.
-14. As a learner who stutters or repeats opening words before reciting cleanly, I want the alignment engine to evaluate the completed verse fairly without cascading alignment errors across the rest of the passage.
-15. As a learner practicing in Echo Mode or Cloze Practice (Levels 1 and 2), I want to see simulated SuperMemo-2 projections without altering my persistent review schedule or streak, so that unmetered practice remains pressure-free.
-16. As a learner using a word peek lifeline in Blind Recitation (Level 3), I want my final score capped transparently at 75% in accordance with spaced repetition policy, so that unassisted recall remains the standard for interval advancement.
-17. As an automated test suite, I want to verify complex recitation scoring permutations through a pure function without constructing session classes or timers, so that regression tests remain comprehensive and deterministic.
+### Scaffolded Recitation & Declarative Presentation
+11. As a learner entering Level 1 (Echo Mode), I want scripture vocalization to begin automatically without manual button taps, so that my auditory memory is primed immediately upon opening the mode.
+12. As a learner in Level 1 (Echo Mode), I want the scripture text concealed by default with an instant toggle to reveal or hide the text, so that I can choose when to visually confirm my recall.
+13. As a learner in Level 2 (Cloze Practice), I want to tap any masked word to reveal it inline, so that I can self-scaffold difficult phrases without penalties.
+14. As a learner in Level 3 (Blind Recitation), I want tapping a blanked word to reveal it temporarily for exactly 3 seconds before re-masking, so that I receive an inline hint without permanently revealing the passage.
+15. As a learner who uses a word peek lifeline during Blind Recitation, I want my review score capped at 75% transparently, so that assisted attempts schedule reinforcement without resetting my streak.
+16. As a learner navigating between scaffolding levels, I want active word peek timers and audio playback cancelled immediately upon switching tabs, so that sensory feedback never bleeds across practice modes.
+17. As a learner completing an unmetered practice attempt, I want my practice score displayed clearly without consuming my daily recitation quota or updating my official spaced repetition schedule, so that practicing remains completely pressure-free.
+18. As a learner completing an official Blind Recitation review, I want the result immediately recorded to spaced repetition and habit tracking with a single celebration state, so that completing a review feels rewarding and seamless.
+19. As a developer modifying the review screen layout, I want the component to receive a single declarative state object and dispatch user action callbacks, so that visual design tweaks never break timer or state machine logic.
+20. As an automated test suite, I want to verify scaffolding level transitions, auto-vocalize triggers, and word peek timeout restorations headlessly through the controller seam without mounting React Native components, so that tests are 100% immune to native renderer missing dependencies.
 
 ---
 
 ## Implementation Decisions
 
-### Seam 1: Unified VoiceInput Seam
-- **Module Interface**:
-  The interface consists of a lifecycle session contract:
-  - `start(options?: VoiceInputOptions): Promise<void>`
-  - `stop(): Promise<{ transcript: string }>`
-  - `cancel(): Promise<void>`
-- **Options Schema**:
-  - `language?: string` (e.g. `'pt'`, `'en'`)
-  - `prompt?: string` (canonical scripture text priming)
-  - `onMeter?: (volumeLevel: number) => void` (normalized volume callback for the waveform visualizer)
-- **Concrete Adapters**:
-  - `NativeStreamVoiceAdapter`: Implements live dictation via on-device speech recognition drivers (Apple Speech, Android SpeechRecognizer, Web Speech API). Streams volume metering via audio levels and captures speech directly into memory. Emits no audio files to disk.
-  - `CloudAudioVoiceAdapter`: Records audio into a transient buffer using standard platform recording options, streams to Groq Cloud Whisper (`whisper-large-v3-turbo`) or OpenAI Whisper with `temperature: 0`, and purges transient audio in an internal `finally` block before returning the transcript.
-  - `SimulatedVoiceAdapter`: Pure in-memory adapter accepting pre-configured transcripts or dynamic handlers for unit tests.
-- **Consumer Simplification**:
-  `RecitationSession` receives an injected `VoiceInput` adapter (defaulting to the system factory). All file URI tracking, `.m4a` extensions, and defensive `deleteAudioFile` calls are removed from `RecitationSession`.
+### Seam 1: Authoritative HabitTracker Seam
+- **Module Concept**:
+  A dedicated domain module encapsulating habit streak calculations, longest streak tracking, daily completed verse registries, and calendar date boundaries.
+- **Interface Contract**:
+  - `getHabitStats(now?: Date): Promise<HabitStats>`: Returns current streak (evaluating whether yesterday was active), longest streak, last active date, completed today count, and total due today.
+  - `recordActivity(verseId: string, wasDue: boolean, now?: Date): Promise<HabitStats>`: Updates active date, increments streak if consecutive, records verse ID in daily completion set, and updates longest streak.
+  - `resetHabit(): Promise<void>`: Purges habit statistics for test or account reset scenarios.
+- **Storage Seam**:
+  Accepts an injectable `StorageAdapter` storing serialized habit data under a dedicated key (`global_habit_stats`). Defaults to `AsyncStorageAdapter`.
+- **Consumer Decoupling**:
+  `VerseEngine` delegates habit updates to `HabitTracker` via an injected dependency. All habit methods, calendar helper functions, and habit data interfaces are removed from `VerseEngine`. `HomeScreen` queries `HabitTracker` directly for habit banner rendering.
 
-### Seam 2: Authoritative ScriptureCatalog
-- **Module Interface**:
-  The module provides a unified biblical registry:
-  - `resolvePassage(query: string, translation?: string): ResolvedPassage | null`
-  - `detectLanguage(verse: { text?: string; reference?: string; translation?: string }): 'en' | 'pt'`
-  - `getBooks(testament?: 'OT' | 'NT', query?: string): CanonBook[]`
-  - `getVerseCount(bookId: string, chapter: number): number`
-  - `getDefaultTranslation(referenceOrLanguage: string): SupportedTranslation`
-- **Passage Resolution Schema**:
-  - `canonicalRef`: Formatted reference string (e.g. `"João 3:16"` or `"John 3:16"`)
-  - `bookId`: Standard 3-letter USFM book code (e.g. `"JHN"`, `"PSA"`)
-  - `chapter`: Chapter number
-  - `startVerse`: Beginning verse number
-  - `endVerse?: number`: Optional ending verse number
-  - `language`: `'en' | 'pt'`
-  - `translation`: Resolved translation code
-  - `text?: string`: Bundled passage text if available; null if manual entry required
-  - `isBundled`: Boolean indicating if text was resolved from local datasets
-- **Consolidation**:
-  The 66 book definitions, Portuguese and English names, regex alias maps from `ReferenceNormalizer`, chapter and verse limits from `canonMatrix.json`, and dataset loaders from `BibleProvider` are consolidated into `ScriptureCatalog`. `AddVerseModal` and `ReferencePickerModal` call `ScriptureCatalog` exclusively.
+### Seam 2: Consolidated ScriptureCatalog Seam
+- **Module Concept**:
+  The authoritative single source of truth for all Protestant biblical canon definitions, chapter/verse boundaries, bilingual aliases (English and Portuguese), and bundled text datasets.
+- **Interface Contract**:
+  - `resolvePassage(query: string, translation?: string): ResolvedPassage | null`: Returns canonical reference, book code, chapter, start/end verse, language, translation, and bundled text in a single step.
+  - `resolveReference(query: string): NormalizedReference | null`: Normalizes freeform reference queries.
+  - `detectLanguage(verse: { text?: string; reference?: string; translation?: string }): 'en' | 'pt'`: Infers canonical language.
+  - `getBooks(testament?: 'OT' | 'NT', query?: string): CanonBook[]`: Returns canon books for guided selection.
+  - `getVerseCount(bookId: string, chapter: number): number`: Returns verse count boundaries.
+  - `isPortugueseTranslation(translation?: string | null): boolean`: Translation classification.
+  - `isBundledTranslation(raw: string): boolean`: Checks if offline text is bundled.
+- **Facade Retirement**:
+  `ReferenceNormalizer` and `BibleProvider` are retired. `AddVerseModal` calls `resolvePassage` directly. `ReferencePickerModal` queries books and verse counts directly from `ScriptureCatalog`.
 
-### Seam 3: Pure RecitationEvaluator Pipeline
-- **Module Interface**:
-  A single pure function:
-  `evaluateRecitation(input: EvaluationInput): RecitationEvaluation`
-- **Input Contract**:
-  - `expectedText: string`: Canonical scripture verse text
-  - `transcribedText: string`: Recognized speech transcript
-  - `assistanceUsed?: boolean`: Whether word peek lifelines were revealed
-  - `currentSRS?: SRSState`: Current SuperMemo-2 card interval state
-  - `isUnmetered?: boolean`: True for Levels 1 and 2 practice attempts
-- **Output Contract**:
-  - `tokens: DiffToken[]`: Myers sequence alignment tokens with Canonical Scripture Projection (`correct`, `missed`, `added`)
-  - `rawScore: number`: Verbatim F1 accuracy percentage (0–100)
-  - `finalScore: number`: Score capped at 75% if `assistanceUsed` is true
-  - `passed: boolean`: Whether `finalScore >= 80` (or assisted pass criteria)
-  - `isAssisted: boolean`: Flag indicating assistance capping occurred
-  - `srsResult: SRSResult`: SuperMemo-2 result structure. If `isUnmetered` is true, interval and streak are preserved while projecting prospective intervals.
-- **Engine Relocations**:
-  - `evaluateAssistedScore` is moved out of `clozeEngine` and encapsulated inside `RecitationEvaluator`.
-  - Abbreviation expansion (`ABBREVIATION_MAP`) and diacritic tolerance remain encapsulated in comparison key generation.
-  - `clozeEngine` is refactored to focus exclusively on visual cloze token generation and masking algorithms.
+### Seam 3: Deepened Recitation Controller Seam
+- **Module Concept**:
+  A stateful lifecycle controller encapsulating the complete multi-tier scaffolding state machine, speech synthesis coordination, word peek lifeline timers, and quota/SRS gating.
+- **Interface Contract**:
+  - **State Snapshot**:
+    - `level`: Current tier (`1` Echo, `2` Cloze, `3` Blind)
+    - `status`: Recitation lifecycle status (`idle`, `reciting`, `verifying`, `verified`, `quota_exhausted`, `error`)
+    - `volumeLevel`: Real-time normalized microphone audio volume
+    - `clozeTokens`: Masked/revealed word tokens for visual rendering
+    - `isTextRevealed`: Text visibility toggle state (Level 1)
+    - `assistanceUsed`: Boolean flag indicating word peek lifeline usage (Level 3)
+    - `currentResult`: Verified recitation result with diff tokens and score
+    - `officialResult`: Official spaced repetition review result
+    - `errorMessage`: User-facing localized error description
+    - `errorDetails`: Technical diagnostic string for acoustic debug tray
+  - **Action Dispatches**:
+    - `startReciting(options?: { unmetered?: boolean }): Promise<void>`
+    - `stopAndVerify(options?: { unmetered?: boolean }): Promise<VoiceRecitationResult | null>`
+    - `setLevel(level: 1 | 2 | 3): void`
+    - `nextLevel(): void`
+    - `practiceAgain(): void`
+    - `toggleTextReveal(): void`
+    - `tapWord(index: number): void`
+    - `vocalize(): Promise<void>`
+    - `reset(): Promise<void>`
+- **Presentation Simplification**:
+  `ReviewScreen` is refactored into a purely declarative presentation surface consuming the controller's state snapshot and dispatching user intent callbacks. All `setTimeout` timers, lifeline reveal tracking, audio player stopping, and mode-switch cleanup are encapsulated inside the controller.
 
 ---
 
@@ -143,28 +135,28 @@ Deepen the three subsystems into cohesive, high-leverage modules following the c
 ### Test Quality & Seam Discipline
 - Tests must verify external behavior through public module interfaces, avoiding assertions on private variables, internal timers, or transient intermediate states.
 - The three modules represent clean testing seams:
-  1. `VoiceInput`: Verified through unit tests against each adapter (`NativeStreamVoiceAdapter`, `CloudAudioVoiceAdapter`, `SimulatedVoiceAdapter`), and end-to-end through `RecitationSession` using `SimulatedVoiceAdapter`.
-  2. `ScriptureCatalog`: Verified through in-process queries testing Portuguese and English alias resolution, canonical formatting, out-of-bounds chapter handling, and bundled verse retrieval.
-  3. `RecitationEvaluator`: 100% pure function tests exercising alignment matrices, accent dropping, honorific abbreviations, stutter penalties, assistance score caps, and unmetered SRS preservation without mocks.
+  1. `HabitTracker`: Tested via fast, in-memory unit tests exercising streak incrementation, same-day multiple reviews, missed-day streak resets, longest streak preservation, and calendar date boundaries without verse dependencies.
+  2. `ScriptureCatalog`: Tested via in-process queries validating single-shot passage resolution, Portuguese/English alias handling, out-of-bounds chapter checks, and bundled dataset text retrieval.
+  3. `RecitationController`: Tested headlessly exercising scaffolding progression (Levels 1 → 2 → 3), auto-vocalization triggers, word peek lifeline 3-second auto-masking, assistance score capping (75%), and unmetered vs official SRS recording without mounting native UI components.
 
 ### Prior Art in Codebase
-- `StorageAdapter.test.ts`: Exemplary adapter-seam testing pattern providing in-memory fake and platform implementations.
-- `diffEngine.test.ts`: Pure functional DP alignment test suite verifying verbatim and diacritic-lenient scripture diffing.
-- `RecitationSession.test.ts`: Multi-tier lifecycle testing pattern validating scaffolding progression and lifelines.
+- `StorageAdapter.test.ts`: Canonical adapter-seam testing pattern providing in-memory fake and platform implementations.
+- `recitationEvaluator.test.ts`: Pure functional DP alignment test suite verifying verbatim and diacritic-lenient scripture diffing.
+- `VoiceInput.test.ts`: Adapter testing pattern validating simulated, cloud, and native streaming voice seams.
 
 ---
 
 ## Out of Scope
 
-- Remote cloud synchronization of user verse repositories (retains offline-first `AsyncStorageAdapter`).
-- Commercial licensing of copyrighted modern English or Portuguese Bible translations (ESV, NIV, NVI API fetching).
-- Voice Activity Detection (VAD) audio trimming libraries (handled via platform recording callbacks).
-- Modifying the visual editorial design tokens or layout structure in `ReviewScreen` and `HomeScreen`.
+- Modifying the visual editorial aesthetic, sacred color palette, or typography tokens defined in `docs/adr/0013-impeccable-design-system-and-editorial-aesthetic.md`.
+- Remote cloud synchronization or cross-device habit backup (retains offline-first `AsyncStorageAdapter`).
+- Commercial licensing of copyrighted modern translations (retains public domain KJV, WEB, Almeida, ONBV datasets).
+- Consolidating deck transfer utilities into `DeckTransfer` (deferred to Candidate 4).
 
 ---
 
 ## Further Notes
 
-- Candidate 4 (extracting `HabitTracker` from `VerseEngine`) remains documented in the architectural review and can be scheduled as a subsequent deepening step once the three primary candidates are implemented.
-- The elimination of temporary audio files for native dictation substantially improves device privacy and resolves all outstanding Expo WinterCG Blob and FormData incompatibilities.
-
+- Retiring `ReferenceNormalizer` and `BibleProvider` removes 2 shallow pass-through modules, eliminating confusion for future agents navigating the codebase.
+- Extracting `HabitTracker` fulfills Candidate 4 from previous architectural notes and directly resolves the churn hotspot in `VerseEngine.ts`.
+- Encapsulating lifeline timers inside the recitation controller ensures timer cleanup is guaranteed on unmount or mode switch, preventing memory leaks and stale state updates.

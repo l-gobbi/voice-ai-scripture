@@ -25,21 +25,13 @@ export interface VerseSummary {
   dueCount: number;
 }
 
-export interface HabitStats {
-  currentStreak: number;
-  longestStreak: number;
-  lastActiveDate: string | null;
-  completedTodayCount: number;
-  totalDueToday: number;
-  dueCount: number;
-}
+import {
+  HabitTracker,
+  habitTracker as defaultHabitTracker,
+  HabitStats,
+} from './HabitTracker';
 
-interface StoredHabitData {
-  currentStreak: number;
-  longestStreak: number;
-  lastActiveDate: string | null;
-  completedDates: Record<string, string[]>;
-}
+export type { HabitStats };
 
 import {
   StorageAdapter,
@@ -50,20 +42,6 @@ import {
 export { StorageAdapter, MapStorageAdapter, AsyncStorageAdapter };
 
 const STORAGE_KEY = 'verses';
-const HABIT_STORAGE_KEY = 'global_habit_stats';
-
-function toCalendarDateString(date: Date): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
-
-function getYesterdayCalendarString(today: Date): string {
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
-  return toCalendarDateString(yesterday);
-}
 
 const createInitialSRS = () => ({
   ...DEFAULT_SRS_STATE,
@@ -88,9 +66,15 @@ const createVerseRecord = (verseData: Omit<Verse, 'id' | 'srs'>): Verse => {
 
 export class VerseEngine {
   private storage: StorageAdapter;
+  private habitTracker: HabitTracker;
 
-  constructor(storage?: StorageAdapter) {
+  constructor(storage?: StorageAdapter, habitTrackerInstance?: HabitTracker) {
     this.storage = storage ?? new AsyncStorageAdapter();
+    this.habitTracker =
+      habitTrackerInstance ??
+      (storage
+        ? new HabitTracker(storage, async (now) => (await this.getVersesSummary(now)).dueCount)
+        : defaultHabitTracker);
   }
 
   private async persistVerses(verses: Verse[]): Promise<void> {
@@ -233,59 +217,8 @@ export class VerseEngine {
     return true;
   }
 
-  private async getStoredHabitData(): Promise<StoredHabitData> {
-    try {
-      const data = await this.storage.getItem(HABIT_STORAGE_KEY);
-      if (!data) {
-        return {
-          currentStreak: 0,
-          longestStreak: 0,
-          lastActiveDate: null,
-          completedDates: {},
-        };
-      }
-      return JSON.parse(data);
-    } catch {
-      return {
-        currentStreak: 0,
-        longestStreak: 0,
-        lastActiveDate: null,
-        completedDates: {},
-      };
-    }
-  }
-
-  private async persistHabitData(data: StoredHabitData): Promise<void> {
-    await this.storage.setItem(HABIT_STORAGE_KEY, JSON.stringify(data));
-  }
-
   async getHabitStats(now = new Date()): Promise<HabitStats> {
-    const habitData = await this.getStoredHabitData();
-    const todayStr = toCalendarDateString(now);
-    const yesterdayStr = getYesterdayCalendarString(now);
-
-    let displayStreak = habitData.currentStreak;
-    if (
-      habitData.lastActiveDate &&
-      habitData.lastActiveDate !== todayStr &&
-      habitData.lastActiveDate !== yesterdayStr
-    ) {
-      displayStreak = 0;
-    }
-
-    const completedToday = (habitData.completedDates[todayStr] || []).length;
-    const summary = await this.getVersesSummary(now);
-    const dueCount = summary.dueCount;
-    const totalDueToday = completedToday + dueCount;
-
-    return {
-      currentStreak: displayStreak,
-      longestStreak: habitData.longestStreak,
-      lastActiveDate: habitData.lastActiveDate,
-      completedTodayCount: completedToday,
-      totalDueToday,
-      dueCount,
-    };
+    return this.habitTracker.getHabitStats(now);
   }
 
   async recordReview(verseId: string, score: number, now = new Date()): Promise<SRSResult> {
@@ -315,34 +248,7 @@ export class VerseEngine {
     verses[index].lastScore = score;
 
     await this.persistVerses(verses);
-
-    const todayStr = toCalendarDateString(now);
-    const yesterdayStr = getYesterdayCalendarString(now);
-    const habitData = await this.getStoredHabitData();
-
-    if (habitData.lastActiveDate === todayStr) {
-      // Already active today, maintain streak
-    } else if (habitData.lastActiveDate === yesterdayStr) {
-      habitData.currentStreak += 1;
-    } else {
-      habitData.currentStreak = 1;
-    }
-
-    if (habitData.currentStreak > habitData.longestStreak) {
-      habitData.longestStreak = habitData.currentStreak;
-    }
-    habitData.lastActiveDate = todayStr;
-
-    if (wasDue) {
-      const todaysCompletions = new Set(habitData.completedDates[todayStr] || []);
-      todaysCompletions.add(verseId);
-      habitData.completedDates = {
-        ...habitData.completedDates,
-        [todayStr]: Array.from(todaysCompletions),
-      };
-    }
-
-    await this.persistHabitData(habitData);
+    await this.habitTracker.recordActivity(verseId, wasDue, now);
 
     return srsResult;
   }

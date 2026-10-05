@@ -13,7 +13,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
-import { verseEngine, Verse, VerseSummary, HabitStats } from '../services/VerseEngine';
+import { verseEngine, Verse, VerseSummary } from '../services/VerseEngine';
+import { habitTracker, HabitStats } from '../services/HabitTracker';
 import ReviewScreen from './ReviewScreen';
 import PackBrowserModal from '../components/PackBrowserModal';
 import ReminderSettingsModal from '../components/ReminderSettingsModal';
@@ -70,7 +71,7 @@ export default function HomeScreen({ transcriber }: HomeScreenProps = {}) {
 
   const loadVerses = async () => {
     const data = await verseEngine.getVersesSummary();
-    const stats = await verseEngine.getHabitStats();
+    const stats = await habitTracker.getHabitStats();
     setSummary(data);
     setHabitStats(stats);
   };
