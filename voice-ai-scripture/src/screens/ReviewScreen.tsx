@@ -56,8 +56,9 @@ export default function ReviewScreen({
     rawTranscript,
     errorMessage,
     errorDetails,
-    startReciting,
-    stopAndVerify,
+    isReciting,
+    isVerifying,
+    toggleRecitation,
     setLevel,
     nextLevel,
     practiceAgain,
@@ -71,9 +72,6 @@ export default function ReviewScreen({
     initialLevel: isSandbox ? 1 : 3,
   });
 
-  const isReciting = status === 'reciting';
-  const isVerifying = status === 'verifying';
-
   useEffect(() => {
     if (status === 'quota_exhausted') {
       setShowPaywall(true);
@@ -85,14 +83,6 @@ export default function ReviewScreen({
       setShowSandboxOptIn(true);
     }
   }, [isSandbox, level, currentResult]);
-
-  const handleToggleRecitation = async () => {
-    if (isReciting) {
-      await stopAndVerify();
-    } else {
-      await startReciting();
-    }
-  };
 
   const displayScore = currentResult ? currentResult.score : 0;
 
@@ -639,7 +629,7 @@ export default function ReviewScreen({
                     : theme.colors.accentSacred,
                 },
               ]}
-              onPress={handleToggleRecitation}
+              onPress={toggleRecitation}
               disabled={isVerifying}
               activeOpacity={0.8}
             >
