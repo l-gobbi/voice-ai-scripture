@@ -40,9 +40,9 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
     jest.useRealTimers();
   });
 
-  it('renders default Level 3 (Blind Recitation) with 3-tier segmented control', async () => {
+  it('renders default Level 3 (Blind Recitation) with 3-tier segmented control and floating mic button', async () => {
     const onComplete = jest.fn();
-    const { getByText } = await render(
+    const { getByText, getByTestId, queryByTestId } = await render(
       <ReviewScreen verse={mockVerse} onComplete={onComplete} />
     );
 
@@ -51,7 +51,10 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
     expect(getByText('2. Cloze')).toBeTruthy();
     expect(getByText('3. Recite')).toBeTruthy();
     expect(getByText('Level 3: Blind Recitation (Active Recall)')).toBeTruthy();
-    expect(getByText('🎤 Start Reciting')).toBeTruthy();
+    expect(getByTestId('floating-mic-button')).toBeTruthy();
+    expect(getByText('🎙️')).toBeTruthy();
+    expect(getByText('Recite the full verse from memory into the mic.')).toBeTruthy();
+    expect(queryByTestId('floating-mic-cancel')).toBeNull();
   });
 
   it('switches to Level 1 (Echo Mode), auto-vocalizes, and toggles text reveal', async () => {
@@ -65,7 +68,7 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
       fireEvent.press(getByText('1. Echo'));
     });
 
-    expect(getByText('Level 1: Echo Mode (Ear Training)')).toBeTruthy();
+    expect(getByText('Level 1: Echo Mode (Listen & Read Aloud)')).toBeTruthy();
     expect(getByText('Reveal Text')).toBeTruthy();
     expect(queryByText('I can do all this through him who gives me strength.')).toBeNull();
 
@@ -123,7 +126,7 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
       defaultText: mockVerse.text,
     });
 
-    const { getByText, findAllByText, findByText } = await render(
+    const { getByText, findAllByText, findByText, getByTestId } = await render(
       <ReviewScreen
         verse={mockVerse}
         onComplete={onComplete}
@@ -143,16 +146,21 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
     // Lifeline banner is visible
     expect(getByText(/Word Peek Lifeline used/)).toBeTruthy();
 
-    // Start & stop voice recitation
+    // Start voice recitation via floating mic button
     await act(async () => {
-      fireEvent.press(getByText('🎤 Start Reciting'));
+      fireEvent.press(getByTestId('floating-mic-button'));
     });
 
-    const stopButton = await findByText('⏹ Stop & Verify');
-    expect(stopButton).toBeTruthy();
+    // In active reciting state, hint changes and stop icon renders
+    expect(
+      await findByText('Listening... Tap button to verify (or pause 3.5s)')
+    ).toBeTruthy();
+    expect(getByText('⏹')).toBeTruthy();
+    expect(getByText('Cancel')).toBeTruthy();
 
+    // Stop and verify via floating mic button
     await act(async () => {
-      fireEvent.press(stopButton);
+      fireEvent.press(getByTestId('floating-mic-button'));
     });
 
     // Verify assisted score is recorded and capped at 75%
@@ -200,25 +208,187 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
     setTimeoutSpy.mockRestore();
   });
 
-  it('shows paywall modal when quota is exhausted in Level 3', async () => {
+  it('displays devotional cooldown message on rate limit and never displays paywall modal', async () => {
     jest.spyOn(SubscriptionService, 'consumeRecitation').mockResolvedValueOnce({
       allowed: false,
+      reason: 'rate_limited',
+      retryAfterSeconds: 45,
       remaining: 0,
-      isSubscribed: false,
     });
 
     const onComplete = jest.fn();
-    const { findByText } = await render(
+    const { findByText, getByTestId, queryByText } = await render(
       <ReviewScreen verse={mockVerse} onComplete={onComplete} />
     );
 
-    const startButton = await findByText('🎤 Start Reciting');
     await act(async () => {
-      fireEvent.press(startButton);
+      fireEvent.press(getByTestId('floating-mic-button'));
     });
 
-    const paywallHeader = await findByText('Unlock Unlimited Voice AI');
-    expect(paywallHeader).toBeTruthy();
+    expect(
+      await findByText(
+        'Taking a quick breath... Please wait a few seconds before your next recitation.'
+      )
+    ).toBeTruthy();
+
+    // Never displays paywall modal
+    expect(queryByText('Unlock Unlimited Voice AI')).toBeNull();
+  });
+
+  it('bilingual support: detects Portuguese verse and renders localized hints and Cancelar link', async () => {
+    const ptVerse: Verse = {
+      id: 'pt-1',
+      reference: 'João 3:16',
+      text: 'Porque Deus amou o mundo de tal maneira que deu o seu Filho unigênito.',
+      translation: 'ARC',
+    };
+
+    const onComplete = jest.fn();
+    const { getByText, getByTestId, queryByTestId, findByText } = await render(
+      <ReviewScreen verse={ptVerse} onComplete={onComplete} />
+    );
+
+    // Portuguese idle hint
+    expect(getByText('Recite o versículo de memória no microfone.')).toBeTruthy();
+
+    // Start reciting
+    await act(async () => {
+      fireEvent.press(getByTestId('floating-mic-button'));
+    });
+
+    // Portuguese active reciting hint and Cancelar button
+    expect(
+      await findByText('Ouvindo... Toque no botão para verificar (ou pause 3.5s)')
+    ).toBeTruthy();
+    expect(getByText('Cancelar')).toBeTruthy();
+
+    // Tapping Cancelar aborts without verifying and returns to idle
+    await act(async () => {
+      fireEvent.press(getByTestId('floating-mic-cancel'));
+    });
+
+    expect(queryByTestId('floating-mic-cancel')).toBeNull();
+    expect(getByText('Recite o versículo de memória no microfone.')).toBeTruthy();
+  });
+
+  it('bilingual support: Portuguese verse renders localized devotional cooldown on rate limit', async () => {
+    const ptVerse: Verse = {
+      id: 'pt-2',
+      reference: 'Salmos 23:1',
+      text: 'O Senhor é o meu pastor, nada me faltará.',
+      translation: 'ARC',
+    };
+
+    jest.spyOn(SubscriptionService, 'consumeRecitation').mockResolvedValueOnce({
+      allowed: false,
+      reason: 'rate_limited',
+      retryAfterSeconds: 30,
+      remaining: 0,
+    });
+
+    const onComplete = jest.fn();
+    const { getByTestId, findByText } = await render(
+      <ReviewScreen verse={ptVerse} onComplete={onComplete} />
+    );
+
+    await act(async () => {
+      fireEvent.press(getByTestId('floating-mic-button'));
+    });
+
+    expect(
+      await findByText(
+        'Respirando fundo... Aguarde alguns segundos antes da próxima recitação.'
+      )
+    ).toBeTruthy();
+  });
+
+  it('displays localized initial silence prompt if 10s grace expires without speech (English & Portuguese)', async () => {
+    // 1. English
+    const onCompleteEn = jest.fn();
+    const { getByTestId: getByTestIdEn, findByText: findByTextEn } = await render(
+      <ReviewScreen verse={mockVerse} onComplete={onCompleteEn} />
+    );
+
+    jest.useFakeTimers();
+    try {
+      await act(async () => {
+        fireEvent.press(getByTestIdEn('floating-mic-button'));
+      });
+
+      await act(async () => {
+        jest.advanceTimersByTime(10500);
+      });
+
+      expect(
+        await findByTextEn('No speech detected. Tap the mic to try again.')
+      ).toBeTruthy();
+    } finally {
+      jest.useRealTimers();
+    }
+
+    // 2. Portuguese
+    const ptVerse: Verse = {
+      id: 'pt-3',
+      reference: 'Gênesis 1:1',
+      text: 'No princípio, criou Deus os céus e a terra.',
+      translation: 'ARC',
+    };
+
+    const onCompletePt = jest.fn();
+    const { getByTestId: getByTestIdPt, findByText: findByTextPt } = await render(
+      <ReviewScreen verse={ptVerse} onComplete={onCompletePt} />
+    );
+
+    jest.useFakeTimers();
+    try {
+      await act(async () => {
+        fireEvent.press(getByTestIdPt('floating-mic-button'));
+      });
+
+      await act(async () => {
+        jest.advanceTimersByTime(10500);
+      });
+
+      expect(
+        await findByTextPt(
+          'Nenhuma fala detectada. Toque no microfone para tentar novamente.'
+        )
+      ).toBeTruthy();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('hides floating mic button and renders review actions once results are displayed', async () => {
+    const onComplete = jest.fn();
+    const mockTranscriber = new SimulatedTranscriber({
+      defaultText: mockVerse.text,
+    });
+
+    const { getByTestId, queryByTestId, findByText } = await render(
+      <ReviewScreen
+        verse={mockVerse}
+        onComplete={onComplete}
+        transcriber={mockTranscriber}
+      />
+    );
+
+    // Start reciting
+    await act(async () => {
+      fireEvent.press(getByTestId('floating-mic-button'));
+    });
+
+    // Stop and verify
+    await act(async () => {
+      fireEvent.press(getByTestId('floating-mic-button'));
+    });
+
+    // Floating mic is hidden when results appear
+    expect(queryByTestId('floating-mic-button')).toBeNull();
+
+    // Action buttons are displayed
+    expect(await findByText('Practice Again')).toBeTruthy();
+    expect(await findByText('Done (Next Verse) →')).toBeTruthy();
   });
 
   describe('Sandbox Mode (Ticket 31)', () => {
@@ -239,7 +409,7 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
         defaultText: sandboxVerse.text,
       });
 
-      const { getByText, findByText, getByTestId, queryByTestId } = await render(
+      const { getByText, findByText, getByTestId } = await render(
         <ReviewScreen
           verse={sandboxVerse}
           onComplete={onComplete}
@@ -250,7 +420,7 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
       );
 
       // Verify Level 1 Echo Mode is initial
-      expect(getByText('Level 1: Echo Mode (Ear Training)')).toBeTruthy();
+      expect(getByText('Level 1: Echo Mode (Listen & Read Aloud)')).toBeTruthy();
 
       // Advance to Level 2
       await act(async () => {
@@ -265,17 +435,16 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
       expect(getByText('Level 3: Blind Recitation (Active Recall)')).toBeTruthy();
 
       // Recite at Level 3
-      const startButton = await findByText('🎤 Start Reciting');
       await act(async () => {
-        fireEvent.press(startButton);
+        fireEvent.press(getByTestId('floating-mic-button'));
       });
 
       // Does not consume quota
       expect(consumeSpy).not.toHaveBeenCalled();
 
-      const stopButton = await findByText('⏹ Stop & Verify');
+      // Stop & verify
       await act(async () => {
-        fireEvent.press(stopButton);
+        fireEvent.press(getByTestId('floating-mic-button'));
       });
 
       // Does not record to VerseEngine SRS
@@ -317,11 +486,11 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
       });
 
       await act(async () => {
-        fireEvent.press(await findByText('🎤 Start Reciting'));
+        fireEvent.press(getByTestId('floating-mic-button'));
       });
 
       await act(async () => {
-        fireEvent.press(await findByText('⏹ Stop & Verify'));
+        fireEvent.press(getByTestId('floating-mic-button'));
       });
 
       expect(await findByText('Add Acts 2:38 to your memory verses?')).toBeTruthy();

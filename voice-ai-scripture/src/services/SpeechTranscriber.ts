@@ -354,10 +354,8 @@ export class GroqTranscriber implements SpeechTranscriber {
   }
 }
 
-import { NativeSpeechTranscriber } from './NativeSpeechTranscriber';
-
 export interface DefaultTranscriberOptions {
-  engine?: 'auto' | 'groq' | 'whisper' | 'native' | 'simulated';
+  engine?: 'auto' | 'groq' | 'whisper' | 'simulated';
   fallbackToPrompt?: boolean;
   groqApiKey?: string;
   openaiApiKey?: string;
@@ -371,12 +369,6 @@ export function createDefaultTranscriber(
 
   if (engine === 'simulated') {
     return new SimulatedTranscriber();
-  }
-
-  if (engine === 'native') {
-    return new NativeSpeechTranscriber({
-      fallbackToPrompt: options?.fallbackToPrompt ?? false,
-    });
   }
 
   if (engine === 'groq') {
@@ -401,8 +393,17 @@ export function createDefaultTranscriber(
     return new WhisperTranscriber(openaiKey);
   }
 
-  console.info('[SpeechTranscriber] No OpenAI API key configured (or Groq API key). Using on-device NativeSpeechTranscriber for free offline practice.');
-  return new NativeSpeechTranscriber({
-    fallbackToPrompt: options?.fallbackToPrompt ?? false,
+  if (options?.fallbackToPrompt) {
+    return new SimulatedTranscriber();
+  }
+
+  console.info('[SpeechTranscriber] No OpenAI API key configured (or Groq API key). Speech recognition is not available for file transcription.');
+  return new SimulatedTranscriber({
+    handler: async () => {
+      throw new TranscriptionError(
+        'unavailable',
+        'Speech recognition is not available on this device without a configured cloud API key. For on-device offline practice, use VoiceInput with NativeStreamVoiceAdapter.'
+      );
+    },
   });
 }

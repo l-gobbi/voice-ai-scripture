@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 export interface StorageAdapter {
   getItem(key: string): Promise<string | null>;
   setItem(key: string, value: string): Promise<void>;
+  removeItem?(key: string): Promise<void>;
 }
 
 export class MapStorageAdapter implements StorageAdapter {
@@ -24,6 +25,10 @@ export class MapStorageAdapter implements StorageAdapter {
     this.data.set(key, value);
   }
 
+  async removeItem(key: string): Promise<void> {
+    this.data.delete(key);
+  }
+
   async clear(): Promise<void> {
     this.data.clear();
   }
@@ -36,5 +41,9 @@ export class AsyncStorageAdapter implements StorageAdapter {
 
   async setItem(key: string, value: string): Promise<void> {
     await AsyncStorage.setItem(key, value);
+  }
+
+  async removeItem(key: string): Promise<void> {
+    await AsyncStorage.removeItem(key);
   }
 }

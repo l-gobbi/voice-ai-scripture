@@ -1,6 +1,5 @@
 import { Verse, VerseEngine, verseEngine, SRSResult } from './VerseEngine';
 import { SubscriptionService, subscriptionService } from './SubscriptionService';
-import { audioRecorder, AudioRecorderService } from './AudioRecorderService';
 import {
   generateClozeTokens,
   revealWord,
@@ -11,11 +10,7 @@ import {
   evaluateRecitation,
   DiffToken,
 } from '../engines/recitationEvaluator';
-import {
-  SpeechTranscriber,
-  TranscriptionError,
-  createDefaultTranscriber,
-} from './SpeechTranscriber';
+import { TranscriptionError, SpeechTranscriber, SimulatedTranscriber } from './SpeechTranscriber';
 import {
   SpeechSynthesizer,
   getDefaultSpeechSynthesizer,
@@ -23,11 +18,38 @@ import {
 import { scriptureCatalog } from './ScriptureCatalog';
 import {
   VoiceInput,
+  SimulatedVoiceAdapter,
   createDefaultVoiceInput,
-  CloudAudioVoiceAdapter,
 } from './VoiceInput';
+import {
+  VoiceActivityDetector,
+  VADConfig,
+} from '../engines/VoiceActivityDetector';
 
-export { SpeechTranscriber, SpeechSynthesizer, ClozeToken, DiffToken, VoiceInput };
+export {
+  SpeechTranscriber,
+  SpeechSynthesizer,
+  ClozeToken,
+  DiffToken,
+  VoiceInput,
+  VoiceActivityDetector,
+  VADConfig,
+};
+
+/**
+ * Dynamic utterance ceiling (in seconds) to avoid runaway recordings and Whisper hallucinations.
+ * Minimum: 30 seconds.
+ * Maximum: 300 seconds (5 minutes) for full chapters.
+ * Scales based on word count (~1.5s per word + 15s buffer).
+ */
+export function calculateMaxRecitationDurationSeconds(verseText: string): number {
+  if (!verseText || typeof verseText !== 'string') {
+    return 30;
+  }
+  const words = verseText.trim().split(/\s+/).filter(Boolean).length;
+  const scaledSeconds = Math.round(words * 1.5) + 15;
+  return Math.min(300, Math.max(30, scaledSeconds));
+}
 
 export function inferVerseLanguage(verse: { translation?: string; reference: string; text?: string }): 'en' | 'pt' {
   return scriptureCatalog.detectLanguage(verse);
@@ -39,6 +61,7 @@ export type RecitationStatus =
   | 'verifying'
   | 'verified'
   | 'quota_exhausted'
+  | 'rate_limited'
   | 'error';
 
 export type RecitationLevel = 1 | 2 | 3;
@@ -55,6 +78,7 @@ export interface RecitationState {
   level: RecitationLevel;
   status: RecitationStatus;
   volumeLevel: number;
+  vadProgress: number;
   clozeTokens: ClozeToken[];
   isTextRevealed: boolean;
   assistanceUsed: boolean;
@@ -64,11 +88,11 @@ export interface RecitationState {
   rawTranscript?: string | null;
   errorMessage: string | null;
   errorDetails?: string | null;
+  rateLimitCooldownSeconds?: number;
 }
 
 export interface RecitationSessionOptions {
   voiceInput?: VoiceInput;
-  recorder?: AudioRecorderService;
   transcriber?: SpeechTranscriber;
   verseEngine?: VerseEngine;
   subscriptionService?: SubscriptionService;
@@ -77,6 +101,7 @@ export interface RecitationSessionOptions {
   autoVocalizeOnLevel1?: boolean;
   isSandbox?: boolean;
   isUnmetered?: boolean;
+  vadConfig?: VADConfig;
 }
 
 export class RecitationSession {
@@ -88,6 +113,9 @@ export class RecitationSession {
   private autoVocalizeOnLevel1: boolean;
   private isSandbox: boolean;
   private isUnmetered: boolean;
+  private vadConfig?: VADConfig;
+  private vad: VoiceActivityDetector | null = null;
+  private utteranceCeilingTimer: NodeJS.Timeout | null = null;
   private listeners: Set<(state: RecitationState) => void> = new Set();
   private peekTimers: Map<number, NodeJS.Timeout> = new Map();
 
@@ -101,13 +129,21 @@ export class RecitationSession {
     this.autoVocalizeOnLevel1 = options?.autoVocalizeOnLevel1 ?? true;
     this.isSandbox = options?.isSandbox ?? false;
     this.isUnmetered = options?.isUnmetered ?? false;
+    this.vadConfig = options?.vadConfig;
 
     if (options?.voiceInput) {
       this.voiceInput = options.voiceInput;
-    } else if (options?.recorder || options?.transcriber || process.env.NODE_ENV === 'test') {
-      this.voiceInput = new CloudAudioVoiceAdapter({
-        recorder: options?.recorder ?? audioRecorder,
-        transcriber: options?.transcriber ?? createDefaultTranscriber(),
+    } else if (options?.transcriber) {
+      const transcriber = options.transcriber;
+      this.voiceInput = new SimulatedVoiceAdapter({
+        handler: async (opts) => {
+          const res = await transcriber.transcribe('', {
+            language: (opts?.language as any) ?? 'en',
+            prompt: opts?.prompt,
+            simulatedText: opts?.simulatedText,
+          });
+          return res.text;
+        },
       });
     } else {
       this.voiceInput = createDefaultVoiceInput();
@@ -120,6 +156,7 @@ export class RecitationSession {
       level: initialLevel,
       status: 'idle',
       volumeLevel: 0,
+      vadProgress: 0,
       clozeTokens,
       isTextRevealed: false,
       assistanceUsed: false,
@@ -162,6 +199,13 @@ export class RecitationSession {
   private clearPeekTimers(): void {
     this.peekTimers.forEach((timer) => clearTimeout(timer));
     this.peekTimers.clear();
+  }
+
+  private clearUtteranceCeilingTimer(): void {
+    if (this.utteranceCeilingTimer) {
+      clearTimeout(this.utteranceCeilingTimer);
+      this.utteranceCeilingTimer = null;
+    }
   }
 
   private getClozeTokensForLevel(level: RecitationLevel): ClozeToken[] {
@@ -256,7 +300,14 @@ export class RecitationSession {
   async startReciting(options?: { unmetered?: boolean }): Promise<void> {
     await this.synthesizer.stop().catch(() => {});
 
-    this.setState({ errorMessage: null, errorDetails: null, currentResult: null, result: null, volumeLevel: 0 });
+    this.setState({
+      errorMessage: null,
+      errorDetails: null,
+      currentResult: null,
+      result: null,
+      volumeLevel: 0,
+      vadProgress: 0,
+    });
 
     try {
       // 1. Microphone Permissions
@@ -269,17 +320,62 @@ export class RecitationSession {
         return;
       }
 
-      // 2. Quota Gating Check (Levels 1 & 2 are unmetered practice; Level 3 is metered)
+      // 2. Quota & Rate Limit Gating Check
       const isUnmetered = this.isSandbox || this.isUnmetered || (options?.unmetered ?? (this.state.level !== 3));
       if (!isUnmetered) {
-        const quota = await this.subscriptionService.consumeRecitation();
-        if (!quota.allowed) {
-          this.setState({ status: 'quota_exhausted' });
+        const rateLimit = await this.subscriptionService.consumeRecitation();
+        if (!rateLimit.allowed) {
+          const isRateLimited = rateLimit.reason === 'rate_limited';
+          const isPt = inferVerseLanguage(this.verse) === 'pt';
+          this.setState({
+            status: isRateLimited ? 'rate_limited' : 'quota_exhausted',
+            rateLimitCooldownSeconds: rateLimit.retryAfterSeconds,
+            errorMessage: isRateLimited
+              ? isPt
+                ? 'Respirando fundo... Aguarde alguns segundos antes da próxima recitação.'
+                : 'Taking a quick breath... Please wait a few seconds before your next recitation.'
+              : 'Recitation quota exhausted.',
+          });
           return;
+        }
+
+        if (rateLimit.useNativeFallback) {
+          this.voiceInput = createDefaultVoiceInput({ engine: 'native' });
         }
       }
 
-      // 3. Start VoiceInput Streaming / Audio Capture
+      // 3. Initialize and Start VoiceActivityDetector before audio capture begins
+      this.vad?.cancel();
+      this.vad = new VoiceActivityDetector(
+        {
+          onProgress: (ratio) => {
+            this.setState({ vadProgress: ratio });
+          },
+          onSilenceTimeout: () => {
+            console.log('[DEBUG-vad] RecitationSession: onSilenceTimeout received! Calling stopAndVerify(). Current status:', this.state.status);
+            this.stopAndVerify().catch((err) => {
+              console.error('[DEBUG-vad] stopAndVerify rejected on silence timeout:', err);
+            });
+          },
+          onInitialTimeout: () => {
+            console.log('[DEBUG-vad] RecitationSession: onInitialTimeout received (10s no speech).');
+            this.clearUtteranceCeilingTimer();
+            this.voiceInput.cancel().catch(() => {});
+            const isPt = inferVerseLanguage(this.verse) === 'pt';
+            this.setState({
+              status: 'idle',
+              volumeLevel: 0,
+              vadProgress: 0,
+              errorMessage: isPt
+                ? 'Nenhuma fala detectada. Toque no microfone para tentar novamente.'
+                : 'No speech detected. Tap the mic to try again.',
+            });
+          },
+        },
+        this.vadConfig
+      );
+
+      // 4. Start VoiceInput Streaming / Audio Capture
       const language = inferVerseLanguage(this.verse);
       const prompt = `${this.verse.reference}: ${this.verse.text}`;
 
@@ -288,11 +384,29 @@ export class RecitationSession {
         prompt,
         onMeter: (level) => {
           this.setState({ volumeLevel: level });
+          this.vad?.feedMeter(level);
         },
       });
 
-      this.setState({ status: 'reciting' });
+      this.vad.start();
+
+      // Utterance ceiling backstop: auto-stop runaway recordings and prevent Whisper hallucinations
+      this.clearUtteranceCeilingTimer();
+      const maxDurationSeconds = calculateMaxRecitationDurationSeconds(this.verse.text);
+      this.utteranceCeilingTimer = setTimeout(() => {
+        console.log(`[DEBUG-vad] Utterance ceiling (${maxDurationSeconds}s) reached. Auto-stopping recitation.`);
+        if (this.state.status === 'reciting') {
+          this.stopAndVerify().catch((err) => {
+            console.error('[RecitationSession] Error auto-stopping at utterance ceiling:', err);
+          });
+        }
+      }, maxDurationSeconds * 1000);
+      this.utteranceCeilingTimer?.unref?.();
+
+      this.setState({ status: 'reciting', vadProgress: 0 });
     } catch (err: any) {
+      this.clearUtteranceCeilingTimer();
+      console.error('[DEBUG-vad] startReciting error:', err);
       this.setState({
         status: 'error',
         errorMessage: err.message || 'Failed to start recitation',
@@ -304,11 +418,15 @@ export class RecitationSession {
     unmetered?: boolean;
     assistanceUsed?: boolean;
   }): Promise<VoiceRecitationResult | null> {
+    console.log('[DEBUG-vad] RecitationSession: stopAndVerify called! Current status:', this.state.status);
     if (this.state.status !== 'reciting') {
+      console.warn('[DEBUG-vad] stopAndVerify aborted because status is not reciting:', this.state.status);
       return null;
     }
 
-    this.setState({ status: 'verifying', volumeLevel: 0 });
+    this.clearUtteranceCeilingTimer();
+    this.vad?.cancel();
+    this.setState({ status: 'verifying', volumeLevel: 0, vadProgress: 0 });
 
     try {
       const voiceResult = await this.voiceInput.stop();
@@ -370,7 +488,22 @@ export class RecitationSession {
     }
   }
 
+  async cancelRecitation(): Promise<void> {
+    this.clearUtteranceCeilingTimer();
+    this.vad?.cancel();
+    await this.voiceInput.cancel().catch(() => {});
+    this.setState({
+      status: 'idle',
+      volumeLevel: 0,
+      vadProgress: 0,
+      errorMessage: null,
+      errorDetails: null,
+    });
+  }
+
   async reset(): Promise<void> {
+    this.clearUtteranceCeilingTimer();
+    this.vad?.cancel();
     this.clearPeekTimers();
     await this.synthesizer.stop().catch(() => {});
     await this.voiceInput.cancel().catch(() => {});
@@ -378,6 +511,7 @@ export class RecitationSession {
     this.setState({
       status: 'idle',
       volumeLevel: 0,
+      vadProgress: 0,
       currentResult: null,
       result: null,
       rawTranscript: null,
@@ -386,6 +520,8 @@ export class RecitationSession {
   }
 
   async dispose(): Promise<void> {
+    this.clearUtteranceCeilingTimer();
+    this.vad?.cancel();
     this.clearPeekTimers();
     await this.synthesizer.stop().catch(() => {});
     await this.voiceInput.cancel().catch(() => {});

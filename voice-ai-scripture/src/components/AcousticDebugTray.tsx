@@ -7,6 +7,8 @@ export interface AcousticDebugTrayProps {
   rawTranscript?: string | null;
   isVerifying: boolean;
   isReciting: boolean;
+  volumeLevel?: number;
+  vadProgress?: number;
   errorDetails?: string | null;
   onClose: () => void;
 }
@@ -16,6 +18,8 @@ export default function AcousticDebugTray({
   rawTranscript,
   isVerifying,
   isReciting,
+  volumeLevel = 0,
+  vadProgress = 0,
   errorDetails,
   onClose,
 }: AcousticDebugTrayProps) {
@@ -58,6 +62,18 @@ export default function AcousticDebugTray({
             : process.env.EXPO_PUBLIC_OPENAI_API_KEY
             ? '☁️ OpenAI Cloud (gpt-transcribe)'
             : '📱 On-Device Native Speech Recognizer'}
+        </Text>
+      </Text>
+
+      <Text style={[styles.debugLabel, { color: theme.colors.textSecondary, marginTop: 4 }]}>
+        Live Mic Level:{' '}
+        <Text style={{ color: theme.colors.textPrimary, fontWeight: '600' }}>
+          {Math.round(volumeLevel * 100)}% {volumeLevel > 0.22 ? '🗣️ [Speech]' : '🤫 [Silence]'}
+        </Text>
+        {'  |  '}
+        Silence Timer:{' '}
+        <Text style={{ color: theme.colors.accentSacred, fontWeight: '600' }}>
+          {Math.round(vadProgress * 100)}%
         </Text>
       </Text>
 

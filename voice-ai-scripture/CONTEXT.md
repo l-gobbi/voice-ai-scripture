@@ -52,18 +52,14 @@ _Avoid_: Verse list payload, due stats, cards summary
 The domain operation of recording a completed study session (manual pass/fail or voice recitation score) against a verse, advancing its Spaced Repetition interval and streak.
 _Avoid_: SRS sync, score save, update progress
 
-### Monetization & Access
+### Monetization & Rate Limiting
 
-**Paywall**:
-The modal prompt that appears when an unsubscribed user attempts a Voice AI recitation after exhausting their free trial quota.
-_Avoid_: Upgrade screen, subscription gate, purchase popup
-
-**Quota**:
-The limited allowance of complimentary Voice AI recitations (default: 3) granted to free users before requiring a premium subscription.
-_Avoid_: Free credits, tokens, trial tries
+**Abuse-Prevention Rate Limit**:
+A hybrid two-tier protective guardrail consisting of: (1) a 10 recitations/minute burst throttle triggering a brief devotional breathing pause, and (2) a 500 recitations/day ceiling that seamlessly falls back to free on-device native speech recognition, protecting cloud resources while ensuring learners are never blocked or confronted with commercial quota anxiety.
+_Avoid_: Trial limit, credit system, paywall quota
 
 **Subscription Manager**:
-The domain module responsible for tracking user subscription tier and enforcing recitation quota allowances using an injectable storage adapter.
+The domain module responsible for tracking user subscription tier and enforcing abuse-prevention rate limit allowances using an injectable storage adapter.
 _Avoid_: Billing service, purchase controller, paywall state
 
 ### Sensory & Practice Experience
@@ -79,6 +75,18 @@ _Avoid_: Verse deck, category list, collection
 **Quiet-Time Reminder**:
 A daily scheduled local push notification sent at a user-specified hour reminding them of pending due verses.
 _Avoid_: Push alarm, streak alert, notification ping
+
+**Floating Microphone Button**:
+A circular interactive touch target centered at the bottom of the recitation screen that initiates voice capture, displays live acoustic state, and allows manual recitation completion.
+_Avoid_: Record button, mic toggle, start button
+
+**Silence Auto-Completion**:
+The automatic detection of sustained silence following active recitation that automatically triggers the transition to verification without requiring a manual tap.
+_Avoid_: Auto-stop, silence cutoff, speech ender
+
+**Thinking Grace Period**:
+The designated silence window permitted during active recitation to accommodate natural pauses while the user recalls scripture from memory before auto-completion is engaged.
+_Avoid_: Pause timer, delay cutoff, thinking countdown
 
 ### Audio & AI Infrastructure
 

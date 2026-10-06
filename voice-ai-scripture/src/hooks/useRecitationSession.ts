@@ -99,21 +99,12 @@ export function useRecitationSession(
     await sessionRef.current?.vocalize();
   }, []);
 
+  const cancelRecitation = useCallback(async () => {
+    await sessionRef.current?.cancelRecitation();
+  }, []);
+
   const isReciting = state.status === 'reciting';
   const isVerifying = state.status === 'verifying';
-
-  const toggleRecitation = useCallback(async () => {
-    if (sessionRef.current?.getState().status === 'reciting') {
-      return (await sessionRef.current?.stopAndVerify()) ?? null;
-    } else {
-      await sessionRef.current?.startReciting();
-      return null;
-    }
-  }, []);
-
-  const dispose = useCallback(() => {
-    sessionRef.current?.dispose();
-  }, []);
 
   return {
     ...state,
@@ -121,7 +112,7 @@ export function useRecitationSession(
     isVerifying,
     startReciting,
     stopAndVerify,
-    toggleRecitation,
+    cancelRecitation,
     reset,
     setLevel,
     nextLevel,
@@ -129,7 +120,5 @@ export function useRecitationSession(
     toggleTextReveal,
     tapWord,
     vocalize,
-    dispose,
   };
 }
-

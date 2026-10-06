@@ -5,7 +5,6 @@ import {
   TranscriptionError,
   createDefaultTranscriber,
 } from './SpeechTranscriber';
-import { NativeSpeechTranscriber } from './NativeSpeechTranscriber';
 
 describe('SpeechTranscriber Seam (Ticket 11)', () => {
   describe('Slice 1: SimulatedTranscriber & Fallback Default Factory', () => {
@@ -57,13 +56,13 @@ describe('SpeechTranscriber Seam (Ticket 11)', () => {
       expect(result).toEqual({ text: 'Custom handled recitation' });
     });
 
-    it('createDefaultTranscriber returns a NativeSpeechTranscriber when no API key is supplied', async () => {
+    it('createDefaultTranscriber returns a SimulatedTranscriber when no API key is supplied', async () => {
       const previousKey = process.env.EXPO_PUBLIC_OPENAI_API_KEY;
       delete process.env.EXPO_PUBLIC_OPENAI_API_KEY;
 
       try {
         const transcriber = createDefaultTranscriber('');
-        expect(transcriber).toBeInstanceOf(NativeSpeechTranscriber);
+        expect(transcriber).toBeInstanceOf(SimulatedTranscriber);
 
         await expect(
           transcriber.transcribe('file:///audio.m4a', {
@@ -81,8 +80,8 @@ describe('SpeechTranscriber Seam (Ticket 11)', () => {
       const simulated = createDefaultTranscriber('', { engine: 'simulated' });
       expect(simulated).toBeInstanceOf(SimulatedTranscriber);
 
-      const native = createDefaultTranscriber('', { engine: 'native' });
-      expect(native).toBeInstanceOf(NativeSpeechTranscriber);
+      const whisper = createDefaultTranscriber('sk-test', { engine: 'whisper' });
+      expect(whisper).toBeInstanceOf(WhisperTranscriber);
     });
   });
 

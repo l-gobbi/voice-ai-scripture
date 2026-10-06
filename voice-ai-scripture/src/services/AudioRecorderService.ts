@@ -1,6 +1,4 @@
 import { Platform } from 'react-native';
-import { normalizeSpeechLanguage } from '../utils/languageNormalizer';
-import { getExpoSpeechRecognitionModule } from './NativeSpeechRecognitionHelper';
 
 export interface AudioRecordingOptions {
   language?: string;
@@ -16,60 +14,12 @@ export interface AudioDriver {
   deleteAudioFile(uri: string): Promise<boolean>;
 }
 
-const webTranscriptStore = new Map<string, string>();
-let lastWebTranscript = '';
-
-export function getWebTranscript(uri?: string): string | undefined {
-  if (uri && webTranscriptStore.has(uri)) {
-    return webTranscriptStore.get(uri);
-  }
-  return lastWebTranscript;
-}
-
-export function setWebTranscript(uri: string, transcript: string): void {
-  webTranscriptStore.set(uri, transcript);
-  lastWebTranscript = transcript;
-}
-
-export function clearWebTranscript(uri?: string): void {
-  if (uri) {
-    webTranscriptStore.delete(uri);
-  }
-  if (!uri || webTranscriptStore.size === 0) {
-    lastWebTranscript = '';
-  }
-}
-
-const nativeTranscriptStore = new Map<string, string>();
-let lastNativeTranscript = '';
-
-export function getNativeTranscript(uri?: string): string | undefined {
-  if (uri && nativeTranscriptStore.has(uri)) {
-    return nativeTranscriptStore.get(uri);
-  }
-  return lastNativeTranscript;
-}
-
-export function setNativeTranscript(uri: string, transcript: string): void {
-  nativeTranscriptStore.set(uri, transcript);
-  lastNativeTranscript = transcript;
-}
-
-export function clearNativeTranscript(uri?: string): void {
-  if (uri) {
-    nativeTranscriptStore.delete(uri);
-  }
-  if (!uri || nativeTranscriptStore.size === 0) {
-    lastNativeTranscript = '';
-  }
-}
-
 export class WebAudioDriver implements AudioDriver {
   private mediaRecorder: any = null;
   private audioChunks: Blob[] = [];
   private webStream: any = null;
-  private webSpeechRecognition: any = null;
-  private liveTranscript: string = '';
+  private meterInterval: any = null;
+  private audioContext: any = null;
 
   async requestPermissions(): Promise<boolean> {
     try {
@@ -85,14 +35,13 @@ export class WebAudioDriver implements AudioDriver {
   }
 
   async startRecording(
-    _onMeter?: (level: number) => void,
-    options?: AudioRecordingOptions
+    onMeter?: (level: number) => void,
+    _options?: AudioRecordingOptions
   ): Promise<void> {
     if (!this.webStream) {
       this.webStream = await navigator.mediaDevices.getUserMedia({ audio: true });
     }
     this.audioChunks = [];
-    this.liveTranscript = '';
     this.mediaRecorder = new (window as any).MediaRecorder(this.webStream);
     this.mediaRecorder.ondataavailable = (event: any) => {
       if (event.data && event.data.size > 0) {
@@ -101,52 +50,50 @@ export class WebAudioDriver implements AudioDriver {
     };
     this.mediaRecorder.start();
 
-    // Start live browser speech recognition if supported
-    const SpeechRecognitionClass =
-      typeof window !== 'undefined'
-        ? (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
-        : null;
-
-    if (SpeechRecognitionClass) {
+    if (onMeter) {
       try {
-        const recognition = new SpeechRecognitionClass();
-        recognition.continuous = true;
-        recognition.interimResults = true;
-        recognition.lang = normalizeSpeechLanguage(options?.language);
-        this.webSpeechRecognition = recognition;
+        const AudioCtx =
+          typeof window !== 'undefined'
+            ? (window as any).AudioContext || (window as any).webkitAudioContext
+            : null;
+        if (AudioCtx && this.webStream) {
+          const ctx = new AudioCtx();
+          const source = ctx.createMediaStreamSource(this.webStream);
+          const analyser = ctx.createAnalyser();
+          analyser.fftSize = 256;
+          source.connect(analyser);
+          const dataArray = new Uint8Array(analyser.frequencyBinCount);
+          this.audioContext = ctx;
 
-        let accumulatedFinal = '';
-        recognition.onresult = (event: any) => {
-          let interim = '';
-          for (let i = event.resultIndex; i < event.results.length; ++i) {
-            const res = event.results[i];
-            if (res.isFinal) {
-              accumulatedFinal += res[0].transcript + ' ';
-            } else {
-              interim += res[0].transcript;
-            }
-          }
-          this.liveTranscript = (accumulatedFinal + interim).trim();
-          lastWebTranscript = this.liveTranscript;
-        };
-
-        recognition.onerror = (err: any) => {
-          console.warn('[WebSpeechRecognition] Error:', err?.error || err);
-        };
-
-        recognition.start();
+          this.meterInterval = setInterval(() => {
+            try {
+              analyser.getByteFrequencyData(dataArray);
+              let sum = 0;
+              for (let i = 0; i < dataArray.length; i++) {
+                sum += dataArray[i];
+              }
+              const avg = sum / dataArray.length;
+              const normalized = Math.min(1, Math.max(0, avg / 128));
+              onMeter(normalized);
+            } catch {}
+          }, 60);
+        }
       } catch (err) {
-        console.warn('[WebSpeechRecognition] Could not start speech recognition:', err);
+        console.warn('[WebAudioDriver] Failed to initialize AudioContext metering:', err);
       }
     }
   }
 
   async stopRecording(): Promise<string | null> {
-    if (this.webSpeechRecognition) {
+    if (this.meterInterval) {
+      clearInterval(this.meterInterval);
+      this.meterInterval = null;
+    }
+    if (this.audioContext) {
       try {
-        this.webSpeechRecognition.stop();
+        this.audioContext.close();
       } catch {}
-      this.webSpeechRecognition = null;
+      this.audioContext = null;
     }
 
     return new Promise((resolve) => {
@@ -159,9 +106,6 @@ export class WebAudioDriver implements AudioDriver {
           this.webStream.getTracks().forEach((track: any) => track.stop());
           this.webStream = null;
         }
-        if (this.liveTranscript) {
-          setWebTranscript(audioUrl, this.liveTranscript);
-        }
         resolve(audioUrl);
       };
       this.mediaRecorder.stop();
@@ -170,7 +114,6 @@ export class WebAudioDriver implements AudioDriver {
 
   async deleteAudioFile(uri: string): Promise<boolean> {
     if (!uri) return false;
-    clearWebTranscript(uri);
     try {
       if (typeof window !== 'undefined' && uri.startsWith('blob:')) {
         URL.revokeObjectURL(uri);
@@ -224,26 +167,33 @@ function resolvePlatformRecordingOptions(options: any): any {
   };
 }
 
+/**
+ * Normalizes raw decibel metering [-80 dBFS, 0 dBFS] to [0.0, 1.0] using an
+ * expanded quadratic curve.
+ *
+ * At quiet pauses with Android AGC pumping (-25 dBFS to -20 dBFS):
+ * linear = (55 to 60) / 80 ≈ 0.6875 to 0.75
+ * quadratic = linear^2 ≈ 0.47 to 0.56 (well below speech threshold).
+ *
+ * At recitation speech (-10 dBFS to -4 dBFS):
+ * linear = (70 to 76) / 80 ≈ 0.875 to 0.95
+ * quadratic = linear^2 ≈ 0.77 to 0.90 (clearly registered as speech).
+ */
+export function calculateNormalizedDbLevel(db: number): number {
+  const linear = Math.max(0, Math.min(1, (db + 80) / 80));
+  return Math.pow(linear, 2);
+}
+
 export class NativeAudioDriver implements AudioDriver {
   private recording: any = null;
   private meterInterval: any = null;
   private onMeterCallback: ((level: number) => void) | null = null;
-  private speechResultSubscription: any = null;
-  private speechErrorSubscription: any = null;
-  private liveTranscript: string = '';
-
   private startTime: number = 0;
 
   async requestPermissions(): Promise<boolean> {
     try {
       const { AudioModule } = require('expo-audio');
       const response = await AudioModule.requestRecordingPermissionsAsync();
-      try {
-        const SpeechRec = getExpoSpeechRecognitionModule();
-        if (typeof SpeechRec?.requestPermissionsAsync === 'function') {
-          await SpeechRec.requestPermissionsAsync();
-        }
-      } catch {}
       return response.granted;
     } catch (e) {
       console.warn('Native permission request error:', e);
@@ -253,33 +203,11 @@ export class NativeAudioDriver implements AudioDriver {
 
   async startRecording(
     onMeter?: (level: number) => void,
-    options?: AudioRecordingOptions
+    _options?: AudioRecordingOptions
   ): Promise<void> {
     this.onMeterCallback = onMeter || null;
-    this.liveTranscript = '';
     this.startTime = Date.now();
     const { AudioModule } = require('expo-audio');
-
-    // Attempt to start on-device speech recognition in background if available
-    try {
-      const SpeechRec = getExpoSpeechRecognitionModule();
-      if (SpeechRec && typeof SpeechRec.isRecognitionAvailable === 'function' && SpeechRec.isRecognitionAvailable()) {
-        this.speechResultSubscription = SpeechRec.addListener?.('result', (event: any) => {
-          if (event?.results?.[0]?.transcript) {
-            this.liveTranscript = event.results[0].transcript;
-            lastNativeTranscript = this.liveTranscript;
-          }
-        });
-        this.speechErrorSubscription = SpeechRec.addListener?.('error', (err: any) => {
-          console.warn('[ExpoSpeechRecognition] Error during live recording:', err);
-        });
-        SpeechRec.start?.({
-          lang: normalizeSpeechLanguage(options?.language),
-          interimResults: true,
-          continuous: true,
-        });
-      }
-    } catch {}
 
     await AudioModule.setAudioModeAsync({
       allowsRecording: true,
@@ -311,10 +239,12 @@ export class NativeAudioDriver implements AudioDriver {
       android: {
         extension: '.m4a',
         sampleRate: 44100,
-        numberOfChannels: 2,
+        numberOfChannels: 1,
         bitRate: 128000,
         outputFormat: 'mpeg4',
         audioEncoder: 'aac',
+        audioSource: 'voice_recognition',
+        isMeteringEnabled: true,
         ...(basePreset.android || {}),
       },
       ios: {
@@ -327,30 +257,64 @@ export class NativeAudioDriver implements AudioDriver {
         linearPCMBitDepth: 16,
         linearPCMIsBigEndian: false,
         linearPCMIsFloat: false,
+        isMeteringEnabled: true,
         ...(basePreset.ios || {}),
       },
     };
 
-    this.recording = new RecorderClass(recordingOptions);
+    const processedOptions = resolvePlatformRecordingOptions(recordingOptions);
+    this.recording = new RecorderClass(processedOptions);
 
     if (typeof this.recording.prepareToRecordAsync === 'function') {
-      await this.recording.prepareToRecordAsync(recordingOptions);
+      await this.recording.prepareToRecordAsync(processedOptions);
     }
 
     this.recording.record();
 
     if (this.onMeterCallback) {
+      let tick = 0;
+      let smoothedLevel = 0;
       this.meterInterval = setInterval(() => {
         if (!this.recording) return;
         try {
-          const status = this.recording.getStatus?.();
-          if (status && typeof status.metering === 'number') {
-            const db = status.metering;
-            const normalized = Math.max(0, Math.min(1, (db + 50) / 50));
-            this.onMeterCallback?.(normalized);
+          const rawStatus = this.recording.getStatus?.();
+          const handleStatus = (status: any) => {
+            tick++;
+            if (tick % 10 === 0) {
+              console.log('[DEBUG-vad] NativeAudioDriver status:', {
+                isRecording: status?.isRecording,
+                metering: status?.metering,
+                type: typeof status?.metering,
+              });
+            }
+
+            if (status && typeof status.metering === 'number') {
+              const db = status.metering;
+              const rawNormalized = calculateNormalizedDbLevel(db);
+              // Symmetric EMA smoothing (alpha = 0.35) prevents single-frame noise spikes or AGC surges from triggering speech onset
+              if (smoothedLevel === 0) {
+                smoothedLevel = rawNormalized;
+              } else {
+                smoothedLevel = smoothedLevel * 0.65 + rawNormalized * 0.35;
+              }
+              this.onMeterCallback?.(smoothedLevel);
+            } else if (tick % 10 === 0) {
+              console.warn('[DEBUG-vad] status.metering is not a number:', status);
+            }
+          };
+          if (rawStatus && typeof rawStatus.then === 'function') {
+            rawStatus.then(handleStatus).catch((e: any) => {
+              console.error('[DEBUG-vad] rawStatus promise error:', e);
+            });
+          } else if (rawStatus) {
+            handleStatus(rawStatus);
+          } else if (tick % 10 === 0) {
+            console.warn('[DEBUG-vad] rawStatus is null/falsy:', rawStatus);
           }
-        } catch {}
-      }, 60);
+        } catch (err) {
+          console.error('[DEBUG-vad] getStatus error:', err);
+        }
+      }, 100);
     }
   }
 
@@ -360,19 +324,6 @@ export class NativeAudioDriver implements AudioDriver {
       this.meterInterval = null;
     }
     this.onMeterCallback = null;
-
-    try {
-      const SpeechRec = getExpoSpeechRecognitionModule();
-      if (this.speechResultSubscription) {
-        this.speechResultSubscription.remove?.();
-        this.speechResultSubscription = null;
-      }
-      if (this.speechErrorSubscription) {
-        this.speechErrorSubscription.remove?.();
-        this.speechErrorSubscription = null;
-      }
-      SpeechRec?.stop?.();
-    } catch {}
 
     if (!this.recording) return null;
 
@@ -393,9 +344,6 @@ export class NativeAudioDriver implements AudioDriver {
       const rawUri = (stopResult as any)?.url || this.recording?.uri || uriBeforeStop;
       const uri = (typeof rawUri === 'string' && rawUri.trim().length > 0) ? rawUri.trim() : null;
       this.recording = null;
-      if (uri && this.liveTranscript) {
-        setNativeTranscript(uri, this.liveTranscript);
-      }
       return uri;
     } catch (e) {
       console.error('[AudioRecorderService] Failed to stop native recording:', e);
@@ -405,7 +353,6 @@ export class NativeAudioDriver implements AudioDriver {
 
   async deleteAudioFile(uri: string): Promise<boolean> {
     if (!uri) return false;
-    clearNativeTranscript(uri);
     try {
       const FileSystem = require('expo-file-system');
       if (typeof FileSystem?.File === 'function') {

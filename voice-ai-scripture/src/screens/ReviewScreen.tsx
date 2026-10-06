@@ -11,13 +11,13 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Verse } from '../services/VerseEngine';
 import { useRecitationSession, RecitationLevel } from '../hooks/useRecitationSession';
 import DiffView from '../components/DiffView';
-import PaywallModal from '../components/PaywallModal';
+import FloatingMicButton from '../components/FloatingMicButton';
 import WaveformVisualizer from '../components/WaveformVisualizer';
 import AcousticDebugTray from '../components/AcousticDebugTray';
 import SandboxOptInModal from '../components/SandboxOptInModal';
 import ScaffoldingLevelCard from '../components/ScaffoldingLevelCard';
-import { SubscriptionService } from '../services/SubscriptionService';
-import { SpeechTranscriber } from '../services/RecitationSession';
+import { SpeechTranscriber, VoiceInput } from '../services/RecitationSession';
+import { scriptureCatalog } from '../services/ScriptureCatalog';
 import { getTheme } from '../theme/tokens';
 import { styles } from './ReviewScreen.styles';
 
@@ -27,6 +27,7 @@ interface ReviewScreenProps {
   verse: Verse;
   onComplete: () => void;
   transcriber?: SpeechTranscriber;
+  voiceInput?: VoiceInput;
   isSandbox?: boolean;
   onSandboxComplete?: (verse: Verse, saveRequested: boolean) => void;
   isUnmetered?: boolean;
@@ -36,6 +37,7 @@ export default function ReviewScreen({
   verse,
   onComplete,
   transcriber,
+  voiceInput,
   isSandbox = false,
   onSandboxComplete,
   isUnmetered = false,
@@ -43,14 +45,15 @@ export default function ReviewScreen({
   const scheme = useColorScheme();
   const theme = getTheme(scheme);
 
-  const [showPaywall, setShowPaywall] = useState(false);
   const [showSandboxOptIn, setShowSandboxOptIn] = useState(false);
   const [showDebugTray, setShowDebugTray] = useState(false);
 
+  const language = scriptureCatalog.detectLanguage(verse);
+
   const {
     level,
-    status,
     volumeLevel,
+    vadProgress,
     clozeTokens,
     isTextRevealed,
     assistanceUsed,
@@ -60,7 +63,9 @@ export default function ReviewScreen({
     errorDetails,
     isReciting,
     isVerifying,
-    toggleRecitation,
+    startReciting,
+    stopAndVerify,
+    cancelRecitation,
     setLevel,
     nextLevel,
     practiceAgain,
@@ -69,16 +74,11 @@ export default function ReviewScreen({
     vocalize,
   } = useRecitationSession(verse, {
     transcriber,
+    voiceInput,
     isSandbox,
     isUnmetered,
     initialLevel: isSandbox ? 1 : 3,
   });
-
-  useEffect(() => {
-    if (status === 'quota_exhausted') {
-      setShowPaywall(true);
-    }
-  }, [status]);
 
   useEffect(() => {
     if (isSandbox && level === 3 && currentResult) {
@@ -218,6 +218,8 @@ export default function ReviewScreen({
             rawTranscript={rawTranscript}
             isVerifying={isVerifying}
             isReciting={isReciting}
+            volumeLevel={volumeLevel}
+            vadProgress={vadProgress}
             errorDetails={errorDetails}
             onClose={() => setShowDebugTray(false)}
           />
@@ -246,9 +248,15 @@ export default function ReviewScreen({
                 ]}
               >
                 {isReciting
-                  ? 'Listening... Recite the verse clearly and tap stop!'
+                  ? language === 'pt'
+                    ? 'Ouvindo... Toque no botão para verificar (ou pause 3.5s)'
+                    : 'Listening... Tap button to verify (or pause 3.5s)'
                   : level === 3
-                  ? 'Recite the full verse from memory into the mic.'
+                  ? language === 'pt'
+                    ? 'Recite o versículo de memória no microfone.'
+                    : 'Recite the full verse from memory into the mic.'
+                  : language === 'pt'
+                  ? 'Pratique recitando em voz alta no microfone para feedback instantâneo.'
                   : 'Practice reciting aloud into the mic for instant voice feedback.'}
               </Text>
             )}
@@ -322,24 +330,26 @@ export default function ReviewScreen({
 
         {/* Docked Floating Action Bar */}
         <View style={styles.voiceActions}>
-          {!currentResult ? (
-            <TouchableOpacity
-              style={[
-                styles.primaryHeroButton,
-                {
-                  backgroundColor: isReciting
-                    ? '#DC2626'
-                    : theme.colors.accentSacred,
-                },
-              ]}
-              onPress={toggleRecitation}
-              disabled={isVerifying}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.primaryHeroButtonText}>
-                {isReciting ? '⏹ Stop & Verify' : '🎤 Start Reciting'}
+          {typeof __DEV__ !== 'undefined' && __DEV__ && isReciting && (
+            <View style={{ marginHorizontal: 24, marginBottom: 8, padding: 6, backgroundColor: theme.colors.surfaceMuted, borderRadius: 8, alignItems: 'center', borderWidth: 1, borderColor: theme.colors.border }}>
+              <Text style={{ fontSize: 11, color: theme.colors.textSecondary }}>
+                🎙️ Mic Level: {Math.round(volumeLevel * 100)}% | Silence Timer: {Math.round(vadProgress * 100)}%
               </Text>
-            </TouchableOpacity>
+            </View>
+          )}
+
+          {!currentResult ? (
+            <FloatingMicButton
+              isReciting={isReciting}
+              isVerifying={isVerifying}
+              volumeLevel={volumeLevel}
+              vadProgress={vadProgress}
+              language={language}
+              onStart={() => startReciting({ unmetered: isUnmetered })}
+              onStop={() => stopAndVerify({ unmetered: isUnmetered })}
+              onCancel={cancelRecitation}
+              disabled={isVerifying}
+            />
           ) : (
             <View style={styles.doneActions}>
               <TouchableOpacity
@@ -406,16 +416,6 @@ export default function ReviewScreen({
         </View>
       </ScrollView>
 
-      {/* Paywall Modal */}
-      <PaywallModal
-        visible={showPaywall}
-        onClose={() => setShowPaywall(false)}
-        onSubscribe={async () => {
-          await SubscriptionService.subscribePremium();
-          setShowPaywall(false);
-        }}
-      />
-
       {/* Sandbox Opt-in Modal */}
       <SandboxOptInModal
         visible={showSandboxOptIn}
@@ -440,3 +440,4 @@ export default function ReviewScreen({
     </SafeAreaView>
   );
 }
+

@@ -1,8 +1,7 @@
 import { RecitationSession } from './RecitationSession';
 import { Verse, verseEngine } from './VerseEngine';
 import { audioRecorder } from './AudioRecorderService';
-
-import { SimulatedTranscriber } from './SpeechTranscriber';
+import { SimulatedVoiceAdapter } from './VoiceInput';
 
 describe('Regression: Recitation accuracy does not produce false 100% positive scores', () => {
   const mockVerse: Verse = {
@@ -43,8 +42,8 @@ describe('Regression: Recitation accuracy does not produce false 100% positive s
     const storedVerse = verses[0] || mockVerse;
 
     const session = new RecitationSession(storedVerse, {
-      transcriber: new SimulatedTranscriber({
-        defaultText: 'something completely random and incorrect',
+      voiceInput: new SimulatedVoiceAdapter({
+        defaultTranscript: 'something completely random and incorrect',
       }),
     });
 
@@ -62,8 +61,8 @@ describe('Regression: Recitation accuracy does not produce false 100% positive s
     const storedVerse = verses[0] || mockVerse;
 
     const session = new RecitationSession(storedVerse, {
-      transcriber: new SimulatedTranscriber({
-        defaultText: storedVerse.text,
+      voiceInput: new SimulatedVoiceAdapter({
+        defaultTranscript: storedVerse.text,
       }),
     });
 

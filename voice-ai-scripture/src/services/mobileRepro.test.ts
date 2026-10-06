@@ -2,6 +2,7 @@ import { RecitationSession } from './RecitationSession';
 import { Verse, verseEngine } from './VerseEngine';
 import { audioRecorder } from './AudioRecorderService';
 import { createDefaultTranscriber } from './SpeechTranscriber';
+import { CloudAudioVoiceAdapter } from './VoiceInput';
 
 describe('Reproduction: Mobile Expo Go Recitation without API Key', () => {
   const mockVerse: Verse = {
@@ -29,7 +30,8 @@ describe('Reproduction: Mobile Expo Go Recitation without API Key', () => {
 
   it('fails gracefully with informative message when no API key or speech driver is available by default', async () => {
     const transcriber = createDefaultTranscriber();
-    const session = new RecitationSession(mockVerse, { transcriber });
+    const voiceInput = new CloudAudioVoiceAdapter({ transcriber });
+    const session = new RecitationSession(mockVerse, { voiceInput });
 
     await session.startReciting();
     const result = await session.stopAndVerify();
@@ -41,7 +43,8 @@ describe('Reproduction: Mobile Expo Go Recitation without API Key', () => {
 
   it('verifies successfully when dev fallbackToPrompt option is enabled', async () => {
     const transcriber = createDefaultTranscriber(undefined, { fallbackToPrompt: true });
-    const session = new RecitationSession(mockVerse, { transcriber });
+    const voiceInput = new CloudAudioVoiceAdapter({ transcriber });
+    const session = new RecitationSession(mockVerse, { voiceInput });
 
     await session.startReciting();
     const result = await session.stopAndVerify();

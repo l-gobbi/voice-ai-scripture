@@ -35,6 +35,7 @@ export class NativeStreamVoiceAdapter implements VoiceInput {
   private speechModule: any;
   private isListening: boolean = false;
   private liveTranscript: string = '';
+  private lastSpokenTime: number = 0;
   private currentOptions?: VoiceInputOptions;
   private resultSub: any = null;
   private errorSub: any = null;
@@ -59,9 +60,11 @@ export class NativeStreamVoiceAdapter implements VoiceInput {
   async start(options?: VoiceInputOptions): Promise<void> {
     this.currentOptions = options;
     this.liveTranscript = '';
+    this.lastSpokenTime = 0;
     this.isListening = true;
 
-    if (this.speechModule && typeof this.speechModule.start === 'function') {
+    const hasExpo = this.speechModule && typeof this.speechModule.start === 'function';
+    if (hasExpo) {
       try {
         if (typeof this.speechModule.requestPermissionsAsync === 'function') {
           await this.speechModule.requestPermissionsAsync().catch(() => {});
@@ -71,6 +74,7 @@ export class NativeStreamVoiceAdapter implements VoiceInput {
       this.resultSub = this.speechModule.addListener?.('result', (event: any) => {
         if (event?.results?.[0]?.transcript) {
           this.liveTranscript = event.results[0].transcript;
+          this.lastSpokenTime = Date.now();
         }
       });
 
@@ -102,6 +106,7 @@ export class NativeStreamVoiceAdapter implements VoiceInput {
               res += event.results[i][0].transcript + ' ';
             }
             this.liveTranscript = res.trim();
+            this.lastSpokenTime = Date.now();
           };
           rec.start();
           this.speechModule = rec;
@@ -110,17 +115,32 @@ export class NativeStreamVoiceAdapter implements VoiceInput {
     }
 
     if (options?.onMeter) {
-      let tick = 0;
       this.meterInterval = setInterval(() => {
         if (!this.isListening) return;
-        tick = (tick + 0.1) % 1;
-        options.onMeter?.(0.2 + 0.3 * Math.sin(tick * Math.PI));
+        const timeSinceSpeech = Date.now() - this.lastSpokenTime;
+        if (this.lastSpokenTime > 0 && timeSinceSpeech < 800) {
+          const vol = 0.4 + 0.2 * Math.sin(Date.now() / 200);
+          options.onMeter?.(vol);
+        } else {
+          options.onMeter?.(0.02);
+        }
       }, 100);
     }
   }
 
   async stop(): Promise<VoiceInputResult> {
     this.cleanup();
+    const hasExpo = this.speechModule && typeof this.speechModule.start === 'function';
+    const hasWeb =
+      typeof window !== 'undefined' &&
+      Boolean((window as any).SpeechRecognition || (window as any).webkitSpeechRecognition);
+
+    if (!hasExpo && !hasWeb) {
+      throw new TranscriptionError(
+        'unavailable',
+        'Speech recognition is not available on this platform or device without a configured cloud API key.'
+      );
+    }
     return { transcript: this.liveTranscript.trim() };
   }
 
@@ -272,10 +292,13 @@ export class SimulatedVoiceAdapter implements VoiceInput {
     if (this.currentOptions?.simulatedText !== undefined) {
       return { transcript: this.currentOptions.simulatedText };
     }
+    if (this.config.defaultTranscript !== undefined) {
+      return { transcript: this.config.defaultTranscript };
+    }
     if (this.currentOptions?.prompt) {
       return { transcript: this.currentOptions.prompt };
     }
-    return { transcript: this.config.defaultTranscript ?? '' };
+    return { transcript: '' };
   }
 
   async cancel(): Promise<void> {

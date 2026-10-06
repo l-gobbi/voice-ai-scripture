@@ -20,5 +20,3 @@ jest.mock('expo-audio', () => ({
     })),
   },
 }));
-
-

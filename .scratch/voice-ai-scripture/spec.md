@@ -1,162 +1,171 @@
-# Specification: Architectural Deepening — HabitTracker Extraction, ScriptureCatalog Consolidation & Recitation Controller Refinement
+# Specification: Sacred Intent Turn-Taking, Physical Decibel Normalization & Dynamic Utterance Ceiling
 
 **Status:** ready-for-agent  
-**Domain:** Retention & Habit Tracking / Scripture Canon & Translation / Recitation Scaffolding & Presentation Controller / Spaced Repetition  
-**Governing Documents:** `CONTEXT.md`, `docs/adr/0005-deep-verse-engine-domain-architecture.md`, `docs/adr/0007-multi-translation-and-bible-provider.md`, `docs/adr/0008-guided-reference-picker-and-canon-matrix.md`, `docs/adr/0011-three-tier-scaffolded-recitation-and-speech-infrastructure.md`, `docs/adr/0012-deepen-recitationsession-with-scaffolding-and-lifelines.md`, `docs/adr/0013-impeccable-design-system-and-editorial-aesthetic.md`, `docs/adr/0014-canonical-projection-and-diacritic-lenient-verification.md`
+**Domain:** Voice AI Recitation Lifecycle / Acoustic Metering / Turn-Taking Architecture  
+**Governing Documents:** `CONTEXT.md`, `docs/adr/0015-floating-microphone-button-and-vad-silence-autocompletion.md`, `docs/adr/0016-hybrid-sacred-intent-voice-architecture.md`, `docs/research/voice-activity-detection-and-silence-detection.md`, `docs/research/ideal-voice-architecture-for-scripture-memorization.md`
 
 ---
 
 ## Problem Statement
 
-As the application expanded from initial text flashcards to multi-tier scaffolded recitation and hybrid speech recognition, three core modules accumulated architectural friction and broken locality:
+When memorizing scripture using voice recitation on mobile devices (particularly Android), users face three critical acoustic and psychological frictions:
 
-1. **Bloated Verse Repository & Leaking Habit Retention**:
-   The verse engine is responsible for verse persistence, collection summaries, and SuperMemo-2 spaced repetition scheduling. However, it also accumulated user retention telemetry: global streak counters, longest streaks, last active dates, daily completed verse IDs, and secondary persistence writes to a separate storage key. Changes to streak rules, calendar date boundaries, or retention policies force modifications to the verse repository. Callers such as the home screen must navigate verse retrieval methods just to obtain retention statistics.
+1. **Hardware AGC Pumping and Silence Failure**:
+   Mobile hardware employs aggressive hardware Automatic Gain Control (AGC). When a user pauses or stops speaking, the microphone pre-amp automatically increases gain by $+40\text{ dB}$ to $+50\text{ dB}$, amplifying room hiss, fan hum, or handling rustle up to $-25\text{ dBFS}$ to $-12\text{ dBFS}$. Under standard linear $[ -60, 0 ]\text{ dBFS}$ volume normalization, this noise floor registers as $80\%\text{--}90\%$ audio volume. Consequently, silence auto-completion never triggers, leaving the user stuck waiting in front of an unresponsive screen.
 
-2. **Shallow Scripture Facades & Fragmented Callers**:
-   Recent architectural consolidation introduced an authoritative scripture catalog. However, transition debt left shallow facades in place: a reference normalizer that acts as a 12-line passthrough, and a legacy Bible provider that simply delegates passage fetching. Presentation modals continue to coordinate three separate modules—normalizing a reference, checking if a translation is bundled, and then fetching the passage—instead of utilizing a single high-leverage catalog call. Biblical canon book navigation is similarly fragmented between static dataset helpers and the catalog.
+2. **Whisper Hallucinations on Runaway Recordings**:
+   Because silence detection fails to auto-complete, audio recordings can run indefinitely. When lengthy silent audio is passed to cloud Whisper speech models, the neural decoder hallucinates repetitive nonsense (such as endless loops of theological titles or city names) instead of transcribing the verse accurately. Furthermore, runaway recordings exhaust recitation quotas and battery.
 
-3. **Presentation Monolith & Leaky Scaffolding Orchestration**:
-   The recitation review screen grew into an 1,177-line monolith because it directly manages practice state machines: coordinating text-to-speech auto-vocalization in Echo Mode, tracking interactive cloze word taps, managing 3-second word peek lifeline timers in Blind Recitation, and branching between sandbox and official review paths. Meanwhile, the recitation session hook functions as a shallow proxy that forwards individual method calls without encapsulating UI lifecycle coordination. This tightly couples presentation rendering to temporal timers and state transitions, making headless verification difficult and fragile.
+3. **Psychological Tension Between Contemplative Pauses and Auto-Cutoffs**:
+   Scripture memorization is inherently meditative. Users often take 2-to-3 second contemplative pauses to recall the next phrase. Aggressive conversational voice activity detection (common in callbots with 700ms thresholds) cuts the user off mid-verse. Conversely, relying purely on hands-free silence creates ambiguity over when evaluation will happen. Users need clear intentional control to verify immediately without latency, backed by a safety backstop that takes over when hands are busy.
 
 ---
 
 ## Solution
 
-Deepen the three subsystems into cohesive, high-leverage modules following codebase design principles:
+Adopt the **"Sacred Intent" Hybrid Architecture** across the recitation lifecycle:
 
-1. **Authoritative HabitTracker Module (Candidate 1)**:
-   - Extract all streak calculation, daily completion tracking, calendar date arithmetic, and retention storage out of the verse engine into a deep, dedicated `HabitTracker` module.
-   - Inject the habit tracker into the verse engine so that recording a review automatically triggers retention activity recording across a clean internal seam.
-   - Expose a focused interface allowing callers to fetch habit statistics or record completions directly with zero verse repository coupling.
+1. **Sacred Intent Turn-Taking**:
+   - **Primary Action (Tap-to-Verify)**: The floating microphone button acts as a clear, intentional toggle. Tapping immediately halts recording and initiates verification with zero latency.
+   - **Hands-Free Backstop (3.5s Contemplative Silence)**: If the user stops reciting and does not tap, a 3.5-second silence countdown automatically finalizes and verifies the attempt. A delayed progress ring (first appearing after 1.5s of silence) informs the user of pending completion without causing visual anxiety during brief memory pauses.
 
-2. **Consolidated ScriptureCatalog & Facade Retirement (Candidate 2)**:
-   - Retire the shallow reference normalizer and Bible provider facades, migrating all presentation modals and services directly to the deep `ScriptureCatalog` seam.
-   - Provide a single-shot passage resolution interface that performs reference normalization, language detection, bundled verification, and passage retrieval in a single operation.
-   - Unify canon book browsing and verse boundary queries under `ScriptureCatalog`, eliminating redundant canon matrix imports.
+2. **Expanded Physical Decibel Normalization**:
+   - Expand the dynamic decibel metering range from $[-60, 0]\text{ dBFS}$ to $[-80, 0]\text{ dBFS}$ and apply an quadratic response curve.
+   - Compress ambient room hiss and AGC-boosted silence ($-25\text{ dBFS}$ to $-20\text{ dBFS}$) down to $\approx 47\%\text{--}56\%$, cleanly below the speech detection threshold.
+   - Amplify audible recitation speech ($-10\text{ dBFS}$ to $-4\text{ dBFS}$) into a solid $77\%\text{--}90\%$ range.
+   - Apply symmetric Exponential Moving Average (EMA) smoothing ($\alpha = 0.35$) to eliminate transient phone handling clicks and plosive drops.
 
-3. **Pure Declarative ReviewScreen via Deepened Recitation Controller (Candidate 3)**:
-   - Deepen the recitation session controller to absorb practice scaffolding progression, text-to-speech playback coordination, and word peek lifeline timers.
-   - Expose a consolidated UI state stream and high-level user action intents, relieving the review screen of imperative timer management and mode state machines.
-   - Reduce the review screen to a purely declarative presentation surface focused on layout, sacred typography, and editorial visual feedback.
+3. **Dynamic Utterance Ceiling**:
+   - Establish an automatic maximum duration ceiling scaled to passage length: a floor of 30 seconds for single short verses, scaling by $\approx 1.5\text{ s}$ per word, capped at a maximum of 300 seconds (5 minutes) for whole chapters.
+   - Automatically halt recording and trigger verification when the ceiling is reached, preventing runaway recordings, quota depletion, and Whisper hallucination loops.
+
+4. **Transparent Turn-Taking Guidance**:
+   - Display explicit bilingual guidance on screen during recitation: informing the user that tapping the button verifies instantly, while pausing for 3.5s provides hands-free verification.
 
 ---
 
 ## User Stories
 
-### Habit Tracking & Retention Locality
-1. As a learner completing daily scripture reviews, I want my active streak updated reliably when I pass a due verse, so that my habit progress reflects my true dedication.
-2. As a learner reviewing multiple verses on the same day, I want each review to contribute to my daily completion count without inflating my consecutive day streak, so that streak statistics remain mathematically accurate.
-3. As a learner practicing after midnight, I want calendar date calculations handled with local date consistency, so that my streak does not prematurely reset due to UTC offset shifts.
-4. As a learner who missed a day of review, I want my current streak reset to zero on my next review while preserving my longest streak record, so that historical achievement is preserved.
-5. As an automated test suite, I want to verify complex streak permutations and date boundary transitions using an in-memory storage adapter without constructing or mocking verse collections, so that habit tests run deterministically in milliseconds.
+### Turn-Taking & Recitation Flow
+1. As a scripture memorizer, I want to tap the microphone button when I finish reciting, so that verification begins instantly without having to wait in silence.
+2. As a scripture memorizer driving or holding a Bible with both hands, I want the app to automatically detect when I have finished speaking and submit my recitation after a 3.5s pause, so that I can practice completely hands-free.
+3. As a learner reciting a difficult passage, I want to be able to pause for 1 to 2 seconds to recall the next phrase, so that the app does not prematurely cut me off while I am thinking.
+4. As a learner looking at the screen during recitation, I want to see clear instructions explaining that I can either tap to verify immediately or pause for 3.5 seconds, so that I never wonder what the app is waiting for.
+5. As a Portuguese-speaking user, I want the recitation prompt to display in Portuguese ("Ouvindo... Toque no botão para verificar (ou pause 3.5s)"), so that the guidance feels native and welcoming.
+6. As an English-speaking user, I want the recitation prompt to display in English ("Listening... Tap button to verify (or pause 3.5s)"), so that the guidance is clear and accessible.
+7. As a learner whose recitation is interrupted, I want to tap Cancel at any moment, so that the attempt is discarded immediately without consuming quota or penalizing my streak.
 
-### Authoritative Scripture Catalog & High-Leverage Resolution
-6. As a learner adding a new verse, I want to input an unnormalized reference (e.g. *"1 Co 13:4"* or *"Sl 23:1"*) and have the canonical reference, translation, and passage text populated in one step, so that verse creation involves zero typing friction.
-7. As a learner browsing biblical books in the reference picker, I want the book list, testament grouping, and verse limits queried from a single authoritative catalog, so that picker navigation is fast and always consistent with text resolution.
-8. As a learner pasting scripture text from the clipboard, I want translation detection and passage normalization to validate against the authoritative catalog, so that malformed references are rejected gracefully with helpful guidance.
-9. As a developer maintaining the codebase, I want all biblical canon definitions, bilingual aliases, and translation datasets located in one module, so that adding a translation alias never requires synchronizing across multiple facade files.
-10. As an automated test suite, I want to test passage resolution across all supported translations through a single catalog interface, so that test setup is minimal and resilient to internal refactoring.
+### Acoustic Normalization & Silence Detection
+8. As a mobile user practicing in an ordinary room with background noise (air conditioning, computer fans), I want quiet room noise not to register as speech, so that the app correctly senses when I stop talking.
+9. As an Android user whose phone hardware boosts mic gain during quiet pauses (AGC), I want the audio metering to compress that boosted hiss below speech levels, so that the silence timer reliably triggers after recitation.
+10. As a learner speaking quietly or firmly, I want speech volumes between $-10\text{ dBFS}$ and $-4\text{ dBFS}$ to clearly register as active voice, so that the visual breathing aura and audio indicator pulse noticeably.
+11. As a user handling or adjusting my phone while reciting, I want momentary handling clicks or finger movements not to reset the silence timer, so that small physical adjustments don't delay verification.
+12. As a user tapping the microphone without speaking, I want the session to timeout after 10 seconds with a helpful prompt ("No speech detected. Tap the mic to try again"), so that the app doesn't stay open indefinitely.
 
-### Scaffolded Recitation & Declarative Presentation
-11. As a learner entering Level 1 (Echo Mode), I want scripture vocalization to begin automatically without manual button taps, so that my auditory memory is primed immediately upon opening the mode.
-12. As a learner in Level 1 (Echo Mode), I want the scripture text concealed by default with an instant toggle to reveal or hide the text, so that I can choose when to visually confirm my recall.
-13. As a learner in Level 2 (Cloze Practice), I want to tap any masked word to reveal it inline, so that I can self-scaffold difficult phrases without penalties.
-14. As a learner in Level 3 (Blind Recitation), I want tapping a blanked word to reveal it temporarily for exactly 3 seconds before re-masking, so that I receive an inline hint without permanently revealing the passage.
-15. As a learner who uses a word peek lifeline during Blind Recitation, I want my review score capped at 75% transparently, so that assisted attempts schedule reinforcement without resetting my streak.
-16. As a learner navigating between scaffolding levels, I want active word peek timers and audio playback cancelled immediately upon switching tabs, so that sensory feedback never bleeds across practice modes.
-17. As a learner completing an unmetered practice attempt, I want my practice score displayed clearly without consuming my daily recitation quota or updating my official spaced repetition schedule, so that practicing remains completely pressure-free.
-18. As a learner completing an official Blind Recitation review, I want the result immediately recorded to spaced repetition and habit tracking with a single celebration state, so that completing a review feels rewarding and seamless.
-19. As a developer modifying the review screen layout, I want the component to receive a single declarative state object and dispatch user action callbacks, so that visual design tweaks never break timer or state machine logic.
-20. As an automated test suite, I want to verify scaffolding level transitions, auto-vocalize triggers, and word peek timeout restorations headlessly through the controller seam without mounting React Native components, so that tests are 100% immune to native renderer missing dependencies.
+### Utterance Ceiling & Runaway Prevention
+13. As a learner reciting a single short verse (e.g. John 11:35), I want a safety recording ceiling of 30 seconds, so that if I forget to stop the recording, it never runs indefinitely.
+14. As a user memorizing an entire chapter (e.g. Psalm 23 or 1 Corinthians 13), I want the recording ceiling to scale up to 5 minutes (300 seconds), so that I have plenty of time to recite the full passage without being cut off.
+15. As a user whose recording reaches the duration ceiling, I want the app to automatically stop and verify what I have recited so far, so that my voice input is not lost.
+16. As a user practicing via cloud Whisper, I want runaway recordings to be prevented, so that Whisper never enters repetitive hallucination loops.
+17. As a subscriber with daily recitation allowances, I want runaway recordings prevented, so that unexpected audio duration does not exhaust API limits or consume unnecessary device bandwidth.
+
+### Visual Feedback & Diagnostics
+18. As a developer debugging audio performance on real devices, I want an in-app diagnostic tray showing real-time Mic Level percentage and Silence Timer progress, so that acoustic calibration can be validated in real room environments.
+19. As a learner in silence during the 3.5s backstop, I want the progress ring around the microphone to begin filling only after 1.5s of silence, so that brief natural pauses don't show distracting animations.
+20. As a learner who resumes speaking while the progress ring is filling, I want the progress ring to instantly reset to zero, so that the app indicates it is back to listening without penalizing my hesitation.
 
 ---
 
 ## Implementation Decisions
 
-### Seam 1: Authoritative HabitTracker Seam
-- **Module Concept**:
-  A dedicated domain module encapsulating habit streak calculations, longest streak tracking, daily completed verse registries, and calendar date boundaries.
-- **Interface Contract**:
-  - `getHabitStats(now?: Date): Promise<HabitStats>`: Returns current streak (evaluating whether yesterday was active), longest streak, last active date, completed today count, and total due today.
-  - `recordActivity(verseId: string, wasDue: boolean, now?: Date): Promise<HabitStats>`: Updates active date, increments streak if consecutive, records verse ID in daily completion set, and updates longest streak.
-  - `resetHabit(): Promise<void>`: Purges habit statistics for test or account reset scenarios.
-- **Storage Seam**:
-  Accepts an injectable `StorageAdapter` storing serialized habit data under a dedicated key (`global_habit_stats`). Defaults to `AsyncStorageAdapter`.
-- **Consumer Decoupling**:
-  `VerseEngine` delegates habit updates to `HabitTracker` via an injected dependency. All habit methods, calendar helper functions, and habit data interfaces are removed from `VerseEngine`. `HomeScreen` queries `HabitTracker` directly for habit banner rendering.
+### 1. Quadratic Decibel Normalization
+- **Dynamic Decibel Range**: Metering decibels are normalized across $[-80\text{ dBFS}, 0\text{ dBFS}]$ rather than $[-60, 0]\text{ dBFS}$.
+- **Quadratic Response Function**:
+  Linear scaling: $\text{linear} = \max\left(0, \min\left(1, \frac{\text{dB} + 80}{80}\right)\right)$  
+  Normalized power: $\text{rawNormalized} = \text{linear}^2$
+- **Acoustic Separation**:
+  - Background hiss and AGC-boosted quiet ($-25\text{ dBFS}$ to $-20\text{ dBFS}$) map to $0.47\text{--}0.56$.
+  - Recitation speech ($-10\text{ dBFS}$ to $-4\text{ dBFS}$) maps to $0.77\text{--}0.90$.
+- **Symmetric Exponential Moving Average (EMA)**:
+  - $\alpha = 0.35$ smoothing factor: $\text{smoothed} = \text{smoothed} \times 0.65 + \text{rawNormalized} \times 0.35$.
+  - First sample initializes immediately to avoid onset delay.
+  - Dampens transient noise spikes (clicks, taps) and prevents plosive dropouts.
 
-### Seam 2: Consolidated ScriptureCatalog Seam
-- **Module Concept**:
-  The authoritative single source of truth for all Protestant biblical canon definitions, chapter/verse boundaries, bilingual aliases (English and Portuguese), and bundled text datasets.
-- **Interface Contract**:
-  - `resolvePassage(query: string, translation?: string): ResolvedPassage | null`: Returns canonical reference, book code, chapter, start/end verse, language, translation, and bundled text in a single step.
-  - `resolveReference(query: string): NormalizedReference | null`: Normalizes freeform reference queries.
-  - `detectLanguage(verse: { text?: string; reference?: string; translation?: string }): 'en' | 'pt'`: Infers canonical language.
-  - `getBooks(testament?: 'OT' | 'NT', query?: string): CanonBook[]`: Returns canon books for guided selection.
-  - `getVerseCount(bookId: string, chapter: number): number`: Returns verse count boundaries.
-  - `isPortugueseTranslation(translation?: string | null): boolean`: Translation classification.
-  - `isBundledTranslation(raw: string): boolean`: Checks if offline text is bundled.
-- **Facade Retirement**:
-  `ReferenceNormalizer` and `BibleProvider` are retired. `AddVerseModal` calls `resolvePassage` directly. `ReferencePickerModal` queries books and verse counts directly from `ScriptureCatalog`.
+### 2. Turn-Taking State Machine & Silence Backstop
+- **Primary Action (Tap-to-Verify)**: Tapping the circular floating microphone button while in `reciting` state immediately transitions to `verifying`, cancelling all background VAD intervals and finalizing speech capture.
+- **VAD State Cycle**:
+  - `calibrating` (300ms baseline sampling; loud speech $\ge 75\%$ triggers immediate transition to `speaking`).
+  - `listening_initial` (waiting for speech onset; 10s timeout triggers idle return with user prompt).
+  - `speaking` (accumulates cumulative speech duration).
+  - `thinking_grace` (arms after $\ge 1.0\text{ s}$ of cumulative speech when volume drops below adaptive threshold).
+  - `auto_completed` (triggers verification callback after 3.5s elapsed in `thinking_grace`).
+- **Delayed Visual Progress**:
+  - Silence progress remains $0\%$ during the initial 1.5s contemplative window.
+  - Linearly fills from $0\%$ to $100\%$ across the remaining 2.0s of the 3.5s grace period.
+  - Resets immediately to $0\%$ if strong speech resumes.
 
-### Seam 3: Deepened Recitation Controller Seam
-- **Module Concept**:
-  A stateful lifecycle controller encapsulating the complete multi-tier scaffolding state machine, speech synthesis coordination, word peek lifeline timers, and quota/SRS gating.
-- **Interface Contract**:
-  - **State Snapshot**:
-    - `level`: Current tier (`1` Echo, `2` Cloze, `3` Blind)
-    - `status`: Recitation lifecycle status (`idle`, `reciting`, `verifying`, `verified`, `quota_exhausted`, `error`)
-    - `volumeLevel`: Real-time normalized microphone audio volume
-    - `clozeTokens`: Masked/revealed word tokens for visual rendering
-    - `isTextRevealed`: Text visibility toggle state (Level 1)
-    - `assistanceUsed`: Boolean flag indicating word peek lifeline usage (Level 3)
-    - `currentResult`: Verified recitation result with diff tokens and score
-    - `officialResult`: Official spaced repetition review result
-    - `errorMessage`: User-facing localized error description
-    - `errorDetails`: Technical diagnostic string for acoustic debug tray
-  - **Action Dispatches**:
-    - `startReciting(options?: { unmetered?: boolean }): Promise<void>`
-    - `stopAndVerify(options?: { unmetered?: boolean }): Promise<VoiceRecitationResult | null>`
-    - `setLevel(level: 1 | 2 | 3): void`
-    - `nextLevel(): void`
-    - `practiceAgain(): void`
-    - `toggleTextReveal(): void`
-    - `tapWord(index: number): void`
-    - `vocalize(): Promise<void>`
-    - `reset(): Promise<void>`
-- **Presentation Simplification**:
-  `ReviewScreen` is refactored into a purely declarative presentation surface consuming the controller's state snapshot and dispatching user intent callbacks. All `setTimeout` timers, lifeline reveal tracking, audio player stopping, and mode-switch cleanup are encapsulated inside the controller.
+### 3. Dynamic Utterance Ceiling
+- **Scaling Formula**:
+  $$\text{durationSeconds} = \min\left(300, \max\left(30, \text{round}(\text{wordCount} \times 1.5) + 15\right)\right)$$
+- **Boundary Clamping**:
+  - Minimum floor: 30 seconds for short verses (ensuring ample time for slow recitation).
+  - Maximum ceiling: 300 seconds (5 minutes) for long passages or full chapters.
+- **Timer Lifecycle**:
+  - Armed when audio recording starts.
+  - Automatically invokes verification if still in `reciting` state when expired.
+  - Guaranteed cleanup upon manual stop, cancellation, session reset, and session disposal.
+
+### 4. Bilingual Editorial Copy
+- **Active Recitation Hint**:
+  - Portuguese: `"Ouvindo... Toque no botão para verificar (ou pause 3.5s)"`
+  - English: `"Listening... Tap button to verify (or pause 3.5s)"`
+- **Initial Silence Timeout Prompt**:
+  - Portuguese: `"Nenhuma fala detectada. Toque no microfone para tentar novamente."`
+  - English: `"No speech detected. Tap the mic to try again."`
 
 ---
 
 ## Testing Decisions
 
-### Test Quality & Seam Discipline
-- Tests must verify external behavior through public module interfaces, avoiding assertions on private variables, internal timers, or transient intermediate states.
-- The three modules represent clean testing seams:
-  1. `HabitTracker`: Tested via fast, in-memory unit tests exercising streak incrementation, same-day multiple reviews, missed-day streak resets, longest streak preservation, and calendar date boundaries without verse dependencies.
-  2. `ScriptureCatalog`: Tested via in-process queries validating single-shot passage resolution, Portuguese/English alias handling, out-of-bounds chapter checks, and bundled dataset text retrieval.
-  3. `RecitationController`: Tested headlessly exercising scaffolding progression (Levels 1 → 2 → 3), auto-vocalization triggers, word peek lifeline 3-second auto-masking, assistance score capping (75%), and unmetered vs official SRS recording without mounting native UI components.
+### What Makes a Good Test
+- **Behavioral Assertions**: Tests assert on state transitions (`reciting` $\to$ `verifying` $\to$ `verified`), emitted volume ratios, and triggered callbacks, never internal timer handle pointers.
+- **Acoustic Mathematics Verification**: Pure functions for decibel normalization and duration calculation are tested against exact mathematical boundary values and physical audio levels.
+- **Timer Determinism**: Time-dependent behavior (300ms calibration, 10s initial silence, 3.5s thinking grace, and utterance ceiling) is verified using deterministic simulated clocks, validating both natural progression and early manual interruption.
 
-### Prior Art in Codebase
-- `StorageAdapter.test.ts`: Canonical adapter-seam testing pattern providing in-memory fake and platform implementations.
-- `recitationEvaluator.test.ts`: Pure functional DP alignment test suite verifying verbatim and diacritic-lenient scripture diffing.
-- `VoiceInput.test.ts`: Adapter testing pattern validating simulated, cloud, and native streaming voice seams.
+### Modules Tested
+1. **Audio Metering Normalization**:
+   - Boundary tests for $<-80\text{ dBFS}$ (clamps to 0) and $>0\text{ dBFS}$ (clamps to 1).
+   - AGC hiss levels ($-25\text{ dBFS}$ and $-20\text{ dBFS}$) confirm values below speech threshold.
+   - Speech levels ($-10\text{ dBFS}$ and $-4\text{ dBFS}$) confirm values in high speech range.
+2. **Voice Activity Detector Engine**:
+   - Initial calibration and noise floor adaptation.
+   - Hysteresis thresholds under varying noise floors.
+   - Speech onset, cumulative speech minimum (1.0s), and 3.5s auto-completion.
+   - Speech interruption resetting progress during the thinking grace period.
+3. **Recitation Session Controller**:
+   - Dynamic utterance ceiling calculation across short verses, medium verses, and chapters.
+   - Automatic stop and verify when utterance ceiling is reached.
+   - Timer cancellation when user manually taps stop or cancel before ceiling.
+4. **Review Screen Component**:
+   - Rendering of localized turn-taking hints in Portuguese and English.
+   - Interaction with floating mic button and cancellation links.
+
+### Prior Art
+- `src/services/AudioRecorderService.test.ts`: Quadratic dBFS mapping tests.
+- `src/engines/VoiceActivityDetector.test.ts`: Real-room acoustic noise repro tests.
+- `src/services/RecitationSession.test.ts`: Utterance ceiling lifecycle tests.
+- `src/screens/ReviewScreen.test.tsx`: Bilingual UI turn-taking hint assertions.
 
 ---
 
 ## Out of Scope
-
-- Modifying the visual editorial aesthetic, sacred color palette, or typography tokens defined in `docs/adr/0013-impeccable-design-system-and-editorial-aesthetic.md`.
-- Remote cloud synchronization or cross-device habit backup (retains offline-first `AsyncStorageAdapter`).
-- Commercial licensing of copyrighted modern translations (retains public domain KJV, WEB, Almeida, ONBV datasets).
-- Consolidating deck transfer utilities into `DeckTransfer` (deferred to Candidate 4).
+- Native C++ or ONNX neural VAD modules (e.g. Silero VAD) requiring custom native Expo prebuild dev clients.
+- Modifying the Myers diff evaluation engine or SRS scheduling algorithms.
+- Changing paywall or subscription entitlement policies.
+- Altering the Cloze practice or Echo Mode recitation mechanics.
 
 ---
 
 ## Further Notes
-
-- Retiring `ReferenceNormalizer` and `BibleProvider` removes 2 shallow pass-through modules, eliminating confusion for future agents navigating the codebase.
-- Extracting `HabitTracker` fulfills Candidate 4 from previous architectural notes and directly resolves the churn hotspot in `VerseEngine.ts`.
-- Encapsulating lifeline timers inside the recitation controller ensures timer cleanup is guaranteed on unmount or mode switch, preventing memory leaks and stale state updates.
+- This specification formalizes the architectural decisions captured in `docs/adr/0016-hybrid-sacred-intent-voice-architecture.md` and supersedes the pure silence-only assumptions in earlier VAD tickets.
+- Phase 1 implementation is verified with all unit tests passing and TypeScript strict type-checking green.

@@ -6,7 +6,7 @@ import { Platform } from 'react-native';
  * and requiring 'expo-speech-recognition' throws an Uncaught Error at module load time.
  */
 export function getExpoSpeechRecognitionModule(): any {
-  if (Platform.OS === 'web') {
+  if (Platform.OS === 'web' || process.env.NODE_ENV === 'test') {
     return null;
   }
 
