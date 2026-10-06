@@ -390,14 +390,16 @@ export class RecitationSession {
 
       this.vad.start();
 
-      // Utterance ceiling backstop: auto-stop runaway recordings and prevent Whisper hallucinations
+      // Utterance ceiling backstop: auto-complete runaway recordings and prevent Whisper hallucinations
       this.clearUtteranceCeilingTimer();
       const maxDurationSeconds = calculateMaxRecitationDurationSeconds(this.verse.text);
       this.utteranceCeilingTimer = setTimeout(() => {
-        console.log(`[DEBUG-vad] Utterance ceiling (${maxDurationSeconds}s) reached. Auto-stopping recitation.`);
+        if (typeof __DEV__ !== 'undefined' && __DEV__) {
+          console.log(`[RecitationSession] Utterance ceiling (${maxDurationSeconds}s) reached. Auto-completing recitation.`);
+        }
         if (this.state.status === 'reciting') {
           this.stopAndVerify().catch((err) => {
-            console.error('[RecitationSession] Error auto-stopping at utterance ceiling:', err);
+            console.error('[RecitationSession] Error auto-completing at utterance ceiling:', err);
           });
         }
       }, maxDurationSeconds * 1000);

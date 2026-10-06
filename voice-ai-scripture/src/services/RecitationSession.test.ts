@@ -2,6 +2,7 @@ import {
   RecitationSession,
   RecitationState,
   inferVerseLanguage,
+  calculateMaxRecitationDurationSeconds,
 } from './RecitationSession';
 import { Verse, verseEngine } from './VerseEngine';
 import { SubscriptionService } from './SubscriptionService';
@@ -1077,6 +1078,119 @@ describe('RecitationSession (Ticket 07)', () => {
       expect(session.getState().status).toBe('idle');
       expect(session.getState().errorMessage).toContain('No speech detected');
       session.dispose();
+    });
+  });
+
+  describe('Ticket 61: Dynamic Utterance Ceiling (ADR 0016)', () => {
+    describe('calculateMaxRecitationDurationSeconds', () => {
+      it('enforces a 30-second floor for short single verses', () => {
+        expect(calculateMaxRecitationDurationSeconds('Jesus wept.')).toBe(30);
+        expect(calculateMaxRecitationDurationSeconds('For God so loved the world')).toBe(30);
+      });
+
+      it('scales linearly based on word count (~1.5s/word + 15s buffer)', () => {
+        const mediumVerse = Array(40).fill('word').join(' ');
+        expect(calculateMaxRecitationDurationSeconds(mediumVerse)).toBe(75);
+
+        const longVerse = Array(100).fill('word').join(' ');
+        expect(calculateMaxRecitationDurationSeconds(longVerse)).toBe(165);
+      });
+
+      it('enforces a 300-second (5 minute) ceiling for entire chapters', () => {
+        const fullChapter = Array(250).fill('word').join(' ');
+        expect(calculateMaxRecitationDurationSeconds(fullChapter)).toBe(300);
+
+        const hugeChapter = Array(500).fill('word').join(' ');
+        expect(calculateMaxRecitationDurationSeconds(hugeChapter)).toBe(300);
+      });
+
+      it('safely handles empty or missing text', () => {
+        expect(calculateMaxRecitationDurationSeconds('')).toBe(30);
+        expect(calculateMaxRecitationDurationSeconds(null as any)).toBe(30);
+      });
+    });
+
+    describe('Utterance Ceiling Auto-Completion Lifecycle', () => {
+      beforeEach(() => {
+        jest.useFakeTimers();
+      });
+
+      afterEach(() => {
+        jest.clearAllTimers();
+        jest.useRealTimers();
+      });
+
+      it('automatically completes and verifies recitation when utterance ceiling is reached', async () => {
+        const verseWithCeiling: Verse = {
+          id: 'ceiling-test',
+          reference: 'Genesis 1:1',
+          text: 'In the beginning God created the heaven and the earth.',
+          srs: {
+            intervalDays: 1,
+            streak: 0,
+            easeFactor: 2.5,
+            nextReviewDate: new Date().toISOString(),
+          },
+        };
+
+        const expectedCeiling = calculateMaxRecitationDurationSeconds(verseWithCeiling.text); // 30s
+        let meterCallback: ((level: number) => void) | undefined;
+        const voiceInput = new SimulatedVoiceAdapter({
+          defaultTranscript: verseWithCeiling.text,
+        });
+        jest.spyOn(voiceInput, 'start').mockImplementation(async (options) => {
+          meterCallback = options?.onMeter;
+        });
+        const stopSpy = jest.spyOn(voiceInput, 'stop');
+
+        const session = new RecitationSession(verseWithCeiling, {
+          voiceInput,
+          subscriptionService: subscribedService,
+        });
+
+        await session.startReciting();
+        expect(session.getState().status).toBe('reciting');
+
+        // Calibrate (300ms) and enter speaking state (audible voice)
+        meterCallback?.(0.04);
+        jest.advanceTimersByTime(300);
+        meterCallback?.(0.70);
+        jest.advanceTimersByTime(1000);
+
+        // Advance timers right up to 1 second before ceiling
+        const remainingSeconds = expectedCeiling - 1.3;
+        jest.advanceTimersByTime((remainingSeconds - 1) * 1000);
+        expect(session.getState().status).toBe('reciting');
+        expect(stopSpy).not.toHaveBeenCalled();
+
+        // Cross the utterance ceiling boundary
+        jest.advanceTimersByTime(1500);
+        for (let i = 0; i < 10; i++) {
+          await Promise.resolve();
+        }
+
+        // Auto-completed and verified
+        expect(session.getState().status).toBe('verified');
+        expect(stopSpy).toHaveBeenCalled();
+        session.dispose();
+      });
+
+      it('clears utterance ceiling timer if user manually stops and verifies earlier', async () => {
+        const session = createTestSession();
+        await session.startReciting();
+        expect(session.getState().status).toBe('reciting');
+
+        // User taps stop after 3 seconds
+        jest.advanceTimersByTime(3000);
+        await session.stopAndVerify();
+        expect(session.getState().status).toBe('verified');
+
+        // Advancing past original ceiling does not trigger secondary verification
+        const stopSpy = jest.spyOn(session, 'stopAndVerify');
+        jest.advanceTimersByTime(300000);
+        expect(stopSpy).not.toHaveBeenCalled();
+        session.dispose();
+      });
     });
   });
 });

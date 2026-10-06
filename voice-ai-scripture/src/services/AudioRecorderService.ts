@@ -273,6 +273,7 @@ export class NativeAudioDriver implements AudioDriver {
 
     if (this.onMeterCallback) {
       let tick = 0;
+      let isInitialized = false;
       let smoothedLevel = 0;
       this.meterInterval = setInterval(() => {
         if (!this.recording) return;
@@ -280,11 +281,10 @@ export class NativeAudioDriver implements AudioDriver {
           const rawStatus = this.recording.getStatus?.();
           const handleStatus = (status: any) => {
             tick++;
-            if (tick % 10 === 0) {
-              console.log('[DEBUG-vad] NativeAudioDriver status:', {
+            if (tick % 10 === 0 && typeof __DEV__ !== 'undefined' && __DEV__) {
+              console.log('[NativeAudioDriver] Status:', {
                 isRecording: status?.isRecording,
                 metering: status?.metering,
-                type: typeof status?.metering,
               });
             }
 
@@ -292,8 +292,9 @@ export class NativeAudioDriver implements AudioDriver {
               const db = status.metering;
               const rawNormalized = calculateNormalizedDbLevel(db);
               // Symmetric EMA smoothing (alpha = 0.35) prevents single-frame noise spikes or AGC surges from triggering speech onset
-              if (smoothedLevel === 0) {
+              if (!isInitialized) {
                 smoothedLevel = rawNormalized;
+                isInitialized = true;
               } else {
                 smoothedLevel = smoothedLevel * 0.65 + rawNormalized * 0.35;
               }
