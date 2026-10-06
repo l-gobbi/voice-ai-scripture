@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { View, Text, StyleSheet, Button, ActivityIndicator, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { audioRecorder } from '../services/AudioRecorderService';
-import { createDefaultTranscriber, TranscriptionError } from '../services/SpeechTranscriber';
+import { createDefaultVoiceInput, VoiceInput } from '../services/VoiceInput';
+import { TranscriptionError } from '../services/SpeechTranscriber';
 
 interface VoiceSpikeScreenProps {
   onBack: () => void;
@@ -13,67 +13,29 @@ export default function VoiceSpikeScreen({ onBack }: VoiceSpikeScreenProps) {
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [transcription, setTranscription] = useState<string>('');
   const [errorMessage, setErrorMessage] = useState<string>('');
+  const voiceInputRef = useRef<VoiceInput | null>(null);
 
   const handleToggleRecord = async () => {
     setErrorMessage('');
 
-    // On Web, if browser supports native SpeechRecognition, use it for zero-latency seamless testing
-    if (Platform.OS === 'web' && (window as any).webkitSpeechRecognition) {
-      const SpeechRecognition = (window as any).webkitSpeechRecognition || (window as any).SpeechRecognition;
-      const recognition = new SpeechRecognition();
-      recognition.continuous = false;
-      recognition.interimResults = false;
-
-      if (!isRecording) {
-        try {
-          recognition.start();
-          setIsRecording(true);
-          recognition.onresult = (event: any) => {
-            const transcript = event.results[0][0].transcript;
-            setTranscription(transcript);
-            setIsRecording(false);
-          };
-          recognition.onerror = (e: any) => {
-            setErrorMessage(`Speech recognition error: ${e.error}`);
-            setIsRecording(false);
-          };
-          recognition.onend = () => {
-            setIsRecording(false);
-          };
-        } catch (e: any) {
-          setErrorMessage(e.message || 'Speech recognition failed to start');
-          setIsRecording(false);
-        }
-      } else {
-        recognition.stop();
-        setIsRecording(false);
-      }
-      return;
-    }
-
     try {
       if (!isRecording) {
-        const hasPermission = await audioRecorder.requestPermissions();
+        if (!voiceInputRef.current) {
+          voiceInputRef.current = createDefaultVoiceInput();
+        }
+        const hasPermission = await voiceInputRef.current.requestPermissions();
         if (!hasPermission) {
-          setErrorMessage('Microphone permission was denied by browser settings. Click the tune icon beside localhost in your address bar to Allow.');
+          setErrorMessage('Microphone permission was denied.');
           return;
         }
-        await audioRecorder.startRecording();
+        await voiceInputRef.current.start();
         setIsRecording(true);
       } else {
         setIsRecording(false);
         setIsTranscribing(true);
 
-        const uri = await audioRecorder.stopRecording();
-        if (!uri) {
-          setErrorMessage('No audio recorded.');
-          setIsTranscribing(false);
-          return;
-        }
-
-        const transcriber = createDefaultTranscriber();
-        const result = await transcriber.transcribe(uri);
-        setTranscription(result.text);
+        const result = await voiceInputRef.current?.stop();
+        setTranscription(result?.transcript || '');
         setIsTranscribing(false);
       }
     } catch (err: any) {

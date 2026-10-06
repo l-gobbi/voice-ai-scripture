@@ -6,7 +6,6 @@ import {
   RecitationState,
   RecitationLevel,
   VoiceRecitationResult,
-  SpeechTranscriber,
   SpeechSynthesizer,
   ClozeToken,
 } from '../services/RecitationSession';

@@ -3,51 +3,51 @@ import { Share } from 'react-native';
 import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
 import HomeScreen from './HomeScreen';
 import { verseEngine } from '../services/VerseEngine';
-import { habitTracker } from '../services/HabitTracker';
-import { audioRecorder } from '../services/AudioRecorderService';
-import { SimulatedTranscriber } from '../services/SpeechTranscriber';
+import { SimulatedVoiceAdapter } from '../services/VoiceInput';
 import * as Clipboard from 'expo-clipboard';
 import { encodeDeckPayload } from '../utils/deckSharing';
 
-// Mock HabitTracker
-jest.mock('../services/HabitTracker', () => ({
-  habitTracker: {
-    getHabitStats: jest.fn().mockResolvedValue({
-      currentStreak: 0,
-      longestStreak: 0,
-      lastActiveDate: null,
-      completedTodayCount: 0,
-      totalDueToday: 0,
-      dueCount: 0,
-    }),
-    recordActivity: jest.fn(),
-    resetHabit: jest.fn(),
-  },
-}));
-
 // Mock verseEngine
-jest.mock('../services/VerseEngine', () => ({
-  verseEngine: {
-    getVersesSummary: jest.fn().mockResolvedValue({
-      allVerses: [],
-      dueVerses: [],
-      dueCount: 0,
-    }),
-    addVerse: jest.fn().mockResolvedValue({
-      id: '1',
-      reference: 'John 3:16',
-      text: 'For God so loved the world...',
-      translation: 'WEB',
-    }),
-    deleteVerse: jest.fn().mockResolvedValue(true),
-    importDeck: jest.fn().mockResolvedValue([]),
-    isVerseMastered: jest.fn(
-      (verse: any, isDue: boolean) => !isDue && (verse.srs?.intervalDays ?? 0) >= 21
-    ),
-    getNextReviewMessage: jest.fn().mockReturnValue('Next review due tomorrow'),
-    updateVerse: jest.fn().mockResolvedValue({}),
-  },
-}));
+jest.mock('../services/VerseEngine', () => {
+  const getVersesSummary = jest.fn().mockResolvedValue({
+    allVerses: [],
+    dueVerses: [],
+    dueCount: 0,
+  });
+  const getHabitStats = jest.fn().mockResolvedValue({
+    currentStreak: 0,
+    longestStreak: 0,
+    lastActiveDate: null,
+    completedTodayCount: 0,
+    totalDueToday: 0,
+    dueCount: 0,
+  });
+  const getDashboard = jest.fn(async () => ({
+    summary: await getVersesSummary(),
+    habitStats: await getHabitStats(),
+  }));
+
+  return {
+    verseEngine: {
+      getDashboard,
+      getVersesSummary,
+      getHabitStats,
+      addVerse: jest.fn().mockResolvedValue({
+        id: '1',
+        reference: 'John 3:16',
+        text: 'For God so loved the world...',
+        translation: 'WEB',
+      }),
+      deleteVerse: jest.fn().mockResolvedValue(true),
+      importDeck: jest.fn().mockResolvedValue([]),
+      isVerseMastered: jest.fn(
+        (verse: any, isDue: boolean) => !isDue && (verse.srs?.intervalDays ?? 0) >= 21
+      ),
+      getNextReviewMessage: jest.fn().mockReturnValue('Next review due tomorrow'),
+      updateVerse: jest.fn().mockResolvedValue({}),
+    },
+  };
+});
 
 // Mock expo-clipboard
 jest.mock('expo-clipboard', () => ({
@@ -64,8 +64,8 @@ describe('HomeScreen Integration (Ticket 16)', () => {
       dueVerses: [],
       dueCount: 0,
     });
-    (habitTracker.getHabitStats as jest.Mock).mockReset();
-    (habitTracker.getHabitStats as jest.Mock).mockResolvedValue({
+    ((verseEngine as any).getHabitStats as jest.Mock).mockReset();
+    ((verseEngine as any).getHabitStats as jest.Mock).mockResolvedValue({
       currentStreak: 0,
       longestStreak: 0,
       lastActiveDate: null,
@@ -73,15 +73,16 @@ describe('HomeScreen Integration (Ticket 16)', () => {
       totalDueToday: 0,
       dueCount: 0,
     });
+    (verseEngine.getDashboard as jest.Mock).mockReset();
+    (verseEngine.getDashboard as jest.Mock).mockImplementation(async () => ({
+      summary: await verseEngine.getVersesSummary(),
+      habitStats: await (verseEngine as any).getHabitStats(),
+    }));
     (verseEngine.importDeck as jest.Mock).mockReset();
     (verseEngine.importDeck as jest.Mock).mockResolvedValue([]);
     (Clipboard.getStringAsync as jest.Mock).mockReset();
     (Clipboard.getStringAsync as jest.Mock).mockResolvedValue('');
     jest.spyOn(Share, 'share').mockResolvedValue({ action: 'sharedAction' } as any);
-    jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValue(true);
-    jest.spyOn(audioRecorder, 'startRecording').mockResolvedValue(undefined);
-    jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValue('file:///recording.m4a');
-    jest.spyOn(audioRecorder, 'deleteAudioFile').mockResolvedValue(true);
   });
 
   jest.setTimeout(15000);
@@ -457,7 +458,7 @@ describe('HomeScreen Integration (Ticket 16)', () => {
 
   describe('HomeScreen Habit Banner (Ticket 30)', () => {
     it('renders habit banner with streak and daily progress', async () => {
-      (habitTracker.getHabitStats as jest.Mock).mockResolvedValueOnce({
+      ((verseEngine as any).getHabitStats as jest.Mock).mockResolvedValueOnce({
         currentStreak: 4,
         longestStreak: 7,
         lastActiveDate: '2026-09-18',
@@ -520,13 +521,13 @@ describe('HomeScreen Integration (Ticket 16)', () => {
           dueCount: 1,
         });
 
-      const mockTranscriber = new SimulatedTranscriber({
-        defaultText:
+      const mockVoiceInput = new SimulatedVoiceAdapter({
+        defaultTranscript:
           'Peter said to them, “Repent, and be baptized, every one of you, in the name of Jesus Christ for the forgiveness of sins, and you will receive the gift of the Holy Spirit.”',
       });
 
       const { getByTestId, getByText, findByText } = await render(
-        <HomeScreen transcriber={mockTranscriber} />
+        <HomeScreen voiceInput={mockVoiceInput} />
       );
 
       await waitFor(() => {
@@ -592,13 +593,13 @@ describe('HomeScreen Integration (Ticket 16)', () => {
         dueCount: 0,
       });
 
-      const mockTranscriber = new SimulatedTranscriber({
-        defaultText:
+      const mockVoiceInput = new SimulatedVoiceAdapter({
+        defaultTranscript:
           'Peter said to them, “Repent, and be baptized, every one of you, in the name of Jesus Christ for the forgiveness of sins, and you will receive the gift of the Holy Spirit.”',
       });
 
       const { getByTestId, getByText, findByText } = await render(
-        <HomeScreen transcriber={mockTranscriber} />
+        <HomeScreen voiceInput={mockVoiceInput} />
       );
 
       await waitFor(() => {

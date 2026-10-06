@@ -1,12 +1,27 @@
 import { normalizeSpeechLanguage } from '../utils/languageNormalizer';
 import { getExpoSpeechRecognitionModule } from './NativeSpeechRecognitionHelper';
-import { AudioRecorderService, audioRecorder } from './AudioRecorderService';
+import {
+  AudioDriver,
+  AudioRecordingOptions,
+  NativeAudioDriver,
+  WebAudioDriver,
+  createDefaultAudioDriver,
+} from './AudioDriver';
 import {
   SpeechTranscriber,
   WhisperTranscriber,
   GroqTranscriber,
   TranscriptionError,
+  createDefaultTranscriber,
 } from './SpeechTranscriber';
+
+export {
+  AudioDriver,
+  AudioRecordingOptions,
+  NativeAudioDriver,
+  WebAudioDriver,
+  createDefaultAudioDriver,
+};
 
 export interface VoiceInputOptions {
   language?: string;
@@ -179,45 +194,50 @@ export class NativeStreamVoiceAdapter implements VoiceInput {
  * and atomically deletes transient audio upon completion or cancellation.
  */
 export interface CloudAudioVoiceAdapterOptions {
+  driver?: AudioDriver;
   transcriber?: SpeechTranscriber;
-  recorder?: AudioRecorderService;
   provider?: 'groq' | 'openai';
   apiKey?: string;
   model?: string;
+  fallbackToPrompt?: boolean;
 }
 
 export class CloudAudioVoiceAdapter implements VoiceInput {
   private transcriber: SpeechTranscriber;
-  private recorder: AudioRecorderService;
+  private driver: AudioDriver;
   private currentOptions?: VoiceInputOptions;
 
   constructor(options?: CloudAudioVoiceAdapterOptions) {
-    this.recorder = options?.recorder ?? audioRecorder;
+    this.driver = options?.driver ?? createDefaultAudioDriver();
     if (options?.transcriber) {
       this.transcriber = options.transcriber;
     } else if (options?.provider === 'openai') {
       this.transcriber = new WhisperTranscriber(
         options.apiKey ?? process.env.EXPO_PUBLIC_OPENAI_API_KEY ?? ''
       );
-    } else {
+    } else if (options?.provider === 'groq') {
       this.transcriber = new GroqTranscriber(
         options?.apiKey ?? process.env.EXPO_PUBLIC_GROQ_API_KEY ?? '',
         options?.model ?? 'whisper-large-v3-turbo'
       );
+    } else {
+      this.transcriber = createDefaultTranscriber(options?.apiKey, {
+        fallbackToPrompt: options?.fallbackToPrompt,
+      });
     }
   }
 
   async requestPermissions(): Promise<boolean> {
-    return this.recorder.requestPermissions();
+    return this.driver.requestPermissions();
   }
 
   async start(options?: VoiceInputOptions): Promise<void> {
     this.currentOptions = options;
-    await this.recorder.startRecording(options?.onMeter, { language: options?.language });
+    await this.driver.startRecording(options?.onMeter, { language: options?.language });
   }
 
   async stop(): Promise<VoiceInputResult> {
-    const uri = await this.recorder.stopRecording();
+    const uri = await this.driver.stopRecording();
     if (!uri) {
       throw new TranscriptionError('unintelligible', 'No audio recorded');
     }
@@ -231,16 +251,16 @@ export class CloudAudioVoiceAdapter implements VoiceInput {
       return { transcript: res.text };
     } finally {
       // Auto-purge transient audio file from disk
-      await this.recorder.deleteAudioFile(uri).catch(() => {});
+      await this.driver.deleteAudioFile(uri).catch(() => {});
       this.currentOptions = undefined;
     }
   }
 
   async cancel(): Promise<void> {
     try {
-      const uri = await this.recorder.stopRecording();
+      const uri = await this.driver.stopRecording();
       if (uri) {
-        await this.recorder.deleteAudioFile(uri).catch(() => {});
+        await this.driver.deleteAudioFile(uri).catch(() => {});
       }
     } catch {}
     this.currentOptions = undefined;

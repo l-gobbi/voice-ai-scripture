@@ -13,8 +13,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
-import { verseEngine, Verse, VerseSummary } from '../services/VerseEngine';
-import { habitTracker, HabitStats } from '../services/HabitTracker';
+import { verseEngine, Verse, VerseSummary, HabitStats } from '../services/VerseEngine';
 import ReviewScreen from './ReviewScreen';
 import PackBrowserModal from '../components/PackBrowserModal';
 import ReminderSettingsModal from '../components/ReminderSettingsModal';
@@ -30,7 +29,7 @@ import {
   SharedDeckPayload,
   SharedDeckVerse,
 } from '../utils/deckSharing';
-import { SpeechTranscriber } from '../services/SpeechTranscriber';
+import { VoiceInput } from '../services/VoiceInput';
 import { getTheme, touchTarget } from '../theme/tokens';
 
 export function getNextReviewText(allVerses: Verse[], now: Date = new Date()): string {
@@ -38,10 +37,10 @@ export function getNextReviewText(allVerses: Verse[], now: Date = new Date()): s
 }
 
 interface HomeScreenProps {
-  transcriber?: SpeechTranscriber;
+  voiceInput?: VoiceInput;
 }
 
-export default function HomeScreen({ transcriber }: HomeScreenProps = {}) {
+export default function HomeScreen({ voiceInput }: HomeScreenProps = {}) {
   const scheme = useColorScheme();
   const theme = getTheme(scheme);
 
@@ -70,10 +69,10 @@ export default function HomeScreen({ transcriber }: HomeScreenProps = {}) {
   const [detectedSharedDeck, setDetectedSharedDeck] = useState<SharedDeckPayload | null>(null);
 
   const loadVerses = async () => {
-    const data = await verseEngine.getVersesSummary();
-    const stats = await habitTracker.getHabitStats(new Date(), data.dueCount);
-    setSummary(data);
-    setHabitStats(stats);
+    const { summary: dashboardSummary, habitStats: dashboardStats } =
+      await verseEngine.getDashboard();
+    setSummary(dashboardSummary);
+    setHabitStats(dashboardStats);
   };
 
   const handleConfirmDelete = async () => {
@@ -148,7 +147,7 @@ export default function HomeScreen({ transcriber }: HomeScreenProps = {}) {
       <ReviewScreen
         verse={sandboxVerse}
         isSandbox={true}
-        transcriber={transcriber}
+        voiceInput={voiceInput}
         onComplete={() => {
           setSandboxVerse(null);
           loadVerses();
@@ -185,7 +184,7 @@ export default function HomeScreen({ transcriber }: HomeScreenProps = {}) {
     return (
       <ReviewScreen
         verse={activeReviewVerse}
-        transcriber={transcriber}
+        voiceInput={voiceInput}
         isUnmetered={!isDue}
         onComplete={() => {
           setActiveReviewVerse(null);

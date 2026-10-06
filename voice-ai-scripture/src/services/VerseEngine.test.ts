@@ -418,43 +418,24 @@ describe('VerseEngine (Ticket 09)', () => {
     });
   });
 
-  describe('Slice 8: HabitTracker Delegation Seam (Ticket 47)', () => {
-    it('delegates review activity to injected HabitTracker', async () => {
+  describe('Slice 8: Habit Retention Tracking in VerseEngine (Tickets 47 & 65)', () => {
+    it('records review activity and updates daily streak in storage', async () => {
       const storage = new MapStorageAdapter();
-      const mockRecordActivity = jest.fn().mockResolvedValue({
-        currentStreak: 1,
-        longestStreak: 1,
-        lastActiveDate: '2026-09-18',
-        completedTodayCount: 1,
-        totalDueToday: 1,
-        dueCount: 0,
-      });
-      const fakeHabitTracker: any = {
-        recordActivity: mockRecordActivity,
-      };
-      const engine = new VerseEngine(storage, fakeHabitTracker);
+      const engine = new VerseEngine(storage);
       const v1 = await engine.addVerse({ reference: 'John 3:16', text: 'For God so loved...' });
 
       const day1 = new Date('2026-09-18T10:00:00Z');
       await engine.recordReview(v1.id, 100, day1);
 
-      expect(mockRecordActivity).toHaveBeenCalledWith(v1.id, true, day1);
+      const dashboard = await engine.getDashboard(day1);
+      expect(dashboard.habitStats.currentStreak).toBe(1);
+      expect(dashboard.habitStats.completedTodayCount).toBe(1);
+      expect(dashboard.habitStats.lastActiveDate).toBe('2026-09-18');
     });
 
     it('passes wasDue = false when reviewing a non-due verse ahead of schedule', async () => {
       const storage = new MapStorageAdapter();
-      const mockRecordActivity = jest.fn().mockResolvedValue({
-        currentStreak: 1,
-        longestStreak: 1,
-        lastActiveDate: '2026-09-18',
-        completedTodayCount: 0,
-        totalDueToday: 0,
-        dueCount: 0,
-      });
-      const fakeHabitTracker: any = {
-        recordActivity: mockRecordActivity,
-      };
-      const engine = new VerseEngine(storage, fakeHabitTracker);
+      const engine = new VerseEngine(storage);
 
       const now = new Date('2026-09-18T10:00:00Z');
       const tomorrow = new Date('2026-09-19T10:00:00Z');
@@ -471,7 +452,9 @@ describe('VerseEngine (Ticket 09)', () => {
       });
 
       await engine.recordReview(verse.id, 100, now);
-      expect(mockRecordActivity).toHaveBeenCalledWith(verse.id, false, now);
+      const dashboard = await engine.getDashboard(now);
+      expect(dashboard.habitStats.currentStreak).toBe(1);
+      expect(dashboard.habitStats.completedTodayCount).toBe(0);
     });
   });
 
@@ -560,6 +543,108 @@ describe('VerseEngine (Ticket 09)', () => {
         srs: { streak: 2, intervalDays: 6, easeFactor: 2.5, nextReviewDate: '' },
       };
       expect(engine.isVerseMastered(learningVerse as any, false)).toBe(false);
+    });
+  });
+
+  describe('Slice 11: Deep VerseEngine Dashboard & Atomic Habit Retention (Ticket 65)', () => {
+    it('returns combined verse summary and habit statistics via getDashboard()', async () => {
+      const storage = new MapStorageAdapter();
+      const engine = new VerseEngine(storage);
+      const now = new Date(Date.now() + 1000);
+
+      await engine.addVerse({
+        reference: 'John 3:16',
+        text: 'For God so loved the world...',
+      });
+
+      const dashboard = await engine.getDashboard(now);
+
+      expect(dashboard.summary.allVerses).toHaveLength(1);
+      expect(dashboard.summary.dueCount).toBe(1);
+      expect(dashboard.habitStats.currentStreak).toBe(0);
+      expect(dashboard.habitStats.longestStreak).toBe(0);
+      expect(dashboard.habitStats.completedTodayCount).toBe(0);
+      expect(dashboard.habitStats.dueCount).toBe(1);
+      expect(dashboard.habitStats.totalDueToday).toBe(1);
+    });
+
+    it('recordReview() atomically updates SRS schedule and daily habit streak', async () => {
+      const storage = new MapStorageAdapter();
+      const engine = new VerseEngine(storage);
+      const day1 = new Date('2026-10-06T10:00:00Z');
+
+      const verse = await engine.addVerse({
+        reference: 'Romans 8:28',
+        text: 'And we know that in all things God works for the good...',
+      });
+
+      // Review verse on day 1 with perfect score
+      const srsResult = await engine.recordReview(verse.id, 100, day1);
+      expect(srsResult.passed).toBe(true);
+      expect(srsResult.streak).toBe(1);
+
+      // Verify dashboard immediately reflects both updated verse SRS and active streak
+      const dashboard = await engine.getDashboard(day1);
+      expect(dashboard.summary.dueCount).toBe(0);
+      expect(dashboard.habitStats.currentStreak).toBe(1);
+      expect(dashboard.habitStats.longestStreak).toBe(1);
+      expect(dashboard.habitStats.completedTodayCount).toBe(1);
+      expect(dashboard.habitStats.totalDueToday).toBe(1);
+    });
+
+    it('tracks streaks across date boundaries (same day, consecutive day, skipped day)', async () => {
+      const storage = new MapStorageAdapter();
+      const engine = new VerseEngine(storage);
+
+      const day1 = new Date('2026-10-06T10:00:00Z');
+      const day2 = new Date('2026-10-07T10:00:00Z');
+      const day4 = new Date('2026-10-09T10:00:00Z');
+
+      const v1 = await engine.addVerse({ reference: 'Verse 1', text: 'Text 1' });
+      const v2 = await engine.addVerse({ reference: 'Verse 2', text: 'Text 2' });
+      const v3 = await engine.addVerse({ reference: 'Verse 3', text: 'Text 3' });
+
+      // Day 1: review v1 and v2 on same day
+      await engine.recordReview(v1.id, 100, day1);
+      const statsSameDay = (await engine.getDashboard(day1)).habitStats;
+      expect(statsSameDay.currentStreak).toBe(1);
+      expect(statsSameDay.completedTodayCount).toBe(1);
+
+      await engine.recordReview(v2.id, 100, day1);
+      const statsSameDay2 = (await engine.getDashboard(day1)).habitStats;
+      expect(statsSameDay2.currentStreak).toBe(1); // Same day maintains streak
+      expect(statsSameDay2.completedTodayCount).toBe(2);
+
+      // Day 2: consecutive day review increments streak
+      await engine.recordReview(v3.id, 100, day2);
+      const statsDay2 = (await engine.getDashboard(day2)).habitStats;
+      expect(statsDay2.currentStreak).toBe(2);
+      expect(statsDay2.longestStreak).toBe(2);
+      expect(statsDay2.completedTodayCount).toBe(1);
+
+      // Day 4: skipped day 3, query shows broken streak (0) while preserving longest (2)
+      const statsDay4 = (await engine.getDashboard(day4)).habitStats;
+      expect(statsDay4.currentStreak).toBe(0);
+      expect(statsDay4.longestStreak).toBe(2);
+    });
+
+    it('resetHabit() clears streak data while preserving verses', async () => {
+      const storage = new MapStorageAdapter();
+      const engine = new VerseEngine(storage);
+      const today = new Date('2026-10-06T10:00:00Z');
+
+      const v = await engine.addVerse({ reference: 'Verse 1', text: 'Text 1' });
+      await engine.recordReview(v.id, 100, today);
+
+      expect((await engine.getDashboard(today)).habitStats.currentStreak).toBe(1);
+
+      await engine.resetHabit();
+
+      const dashboard = await engine.getDashboard(today);
+      expect(dashboard.summary.allVerses).toHaveLength(1);
+      expect(dashboard.habitStats.currentStreak).toBe(0);
+      expect(dashboard.habitStats.longestStreak).toBe(0);
+      expect(dashboard.habitStats.lastActiveDate).toBeNull();
     });
   });
 });

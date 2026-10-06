@@ -1,8 +1,6 @@
 import { RecitationSession } from './RecitationSession';
 import { Verse, verseEngine } from './VerseEngine';
-import { audioRecorder } from './AudioRecorderService';
-import { createDefaultTranscriber } from './SpeechTranscriber';
-import { CloudAudioVoiceAdapter } from './VoiceInput';
+import { AudioDriver, CloudAudioVoiceAdapter } from './VoiceInput';
 
 describe('Reproduction: Mobile Expo Go Recitation without API Key', () => {
   const mockVerse: Verse = {
@@ -11,13 +9,17 @@ describe('Reproduction: Mobile Expo Go Recitation without API Key', () => {
     text: 'For God so loved the world that he gave his only begotten Son',
   };
 
+  let mockDriver: AudioDriver;
+
   beforeEach(() => {
     delete (global as any).window;
     delete process.env.EXPO_PUBLIC_OPENAI_API_KEY;
-    jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValue(true);
-    jest.spyOn(audioRecorder, 'startRecording').mockResolvedValue(undefined);
-    jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValue('file:///audio/recording.m4a');
-    jest.spyOn(audioRecorder, 'deleteAudioFile').mockResolvedValue(true);
+    mockDriver = {
+      requestPermissions: jest.fn().mockResolvedValue(true),
+      startRecording: jest.fn().mockResolvedValue(undefined),
+      stopRecording: jest.fn().mockResolvedValue('file:///audio/recording.m4a'),
+      deleteAudioFile: jest.fn().mockResolvedValue(true),
+    };
     jest.spyOn(verseEngine, 'recordReview').mockResolvedValue({
       streak: 1,
       repetitions: 1,
@@ -29,8 +31,7 @@ describe('Reproduction: Mobile Expo Go Recitation without API Key', () => {
   });
 
   it('fails gracefully with informative message when no API key or speech driver is available by default', async () => {
-    const transcriber = createDefaultTranscriber();
-    const voiceInput = new CloudAudioVoiceAdapter({ transcriber });
+    const voiceInput = new CloudAudioVoiceAdapter({ driver: mockDriver });
     const session = new RecitationSession(mockVerse, { voiceInput });
 
     await session.startReciting();
@@ -42,8 +43,7 @@ describe('Reproduction: Mobile Expo Go Recitation without API Key', () => {
   });
 
   it('verifies successfully when dev fallbackToPrompt option is enabled', async () => {
-    const transcriber = createDefaultTranscriber(undefined, { fallbackToPrompt: true });
-    const voiceInput = new CloudAudioVoiceAdapter({ transcriber });
+    const voiceInput = new CloudAudioVoiceAdapter({ driver: mockDriver, fallbackToPrompt: true });
     const session = new RecitationSession(mockVerse, { voiceInput });
 
     await session.startReciting();

@@ -1,6 +1,5 @@
 import { RecitationSession } from './RecitationSession';
 import { Verse, verseEngine } from './VerseEngine';
-import { audioRecorder } from './AudioRecorderService';
 import { SimulatedVoiceAdapter } from './VoiceInput';
 
 describe('Regression: Recitation accuracy does not produce false 100% positive scores', () => {
@@ -9,13 +8,6 @@ describe('Regression: Recitation accuracy does not produce false 100% positive s
     reference: 'John 3:16',
     text: 'For God so loved the world that he gave his only begotten Son',
   };
-
-  beforeEach(() => {
-    jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValue(true);
-    jest.spyOn(audioRecorder, 'startRecording').mockResolvedValue(undefined);
-    jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValue('file:///audio/spoken_garbage.m4a');
-    jest.spyOn(audioRecorder, 'deleteAudioFile').mockResolvedValue(true);
-  });
 
   it('fails gracefully with error when transcription driver is unavailable instead of blindly awarding 100%', async () => {
     await verseEngine.addVerse({

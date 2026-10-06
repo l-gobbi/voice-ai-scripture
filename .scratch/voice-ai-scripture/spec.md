@@ -1,171 +1,128 @@
-# Specification: Sacred Intent Turn-Taking, Physical Decibel Normalization & Dynamic Utterance Ceiling
+# Specification: Architectural Deepening of Voice Input & Scripture Retention
 
-**Status:** ready-for-agent  
-**Domain:** Voice AI Recitation Lifecycle / Acoustic Metering / Turn-Taking Architecture  
-**Governing Documents:** `CONTEXT.md`, `docs/adr/0015-floating-microphone-button-and-vad-silence-autocompletion.md`, `docs/adr/0016-hybrid-sacred-intent-voice-architecture.md`, `docs/research/voice-activity-detection-and-silence-detection.md`, `docs/research/ideal-voice-architecture-for-scripture-memorization.md`
+**Status:** implemented  
+**Domain:** Codebase Architecture / Seam Discipline / Voice AI & Verse Retention Subsystems  
+**Governing Documents:** `CONTEXT.md`, `docs/adr/0005-deep-verse-engine-domain-architecture.md`, `docs/adr/0006-speech-transcriber-seam.md`, `docs/adr/0010-injectable-storage-adapter-and-subscription-service-deepening.md`
 
 ---
 
 ## Problem Statement
 
-When memorizing scripture using voice recitation on mobile devices (particularly Android), users face three critical acoustic and psychological frictions:
+As the Voice-AI Scripture application grows, developers and automated coding agents face friction navigating and extending the codebase due to two architectural anti-patterns:
 
-1. **Hardware AGC Pumping and Silence Failure**:
-   Mobile hardware employs aggressive hardware Automatic Gain Control (AGC). When a user pauses or stops speaking, the microphone pre-amp automatically increases gain by $+40\text{ dB}$ to $+50\text{ dB}$, amplifying room hiss, fan hum, or handling rustle up to $-25\text{ dBFS}$ to $-12\text{ dBFS}$. Under standard linear $[ -60, 0 ]\text{ dBFS}$ volume normalization, this noise floor registers as $80\%\text{--}90\%$ audio volume. Consequently, silence auto-completion never triggers, leaving the user stuck waiting in front of an unresponsive screen.
+1. **Leaky Audio Seams and Shallow Audio Wrappers (Candidate 1)**:
+   - When introducing voice features or writing tests, developers must juggle three separate audio concepts: `AudioRecorderService`, `SpeechTranscriber`, and `VoiceInput`.
+   - `AudioRecorderService` is a shallow 28-line pass-through module that merely forwards calls 1:1 to an underlying audio driver without adding behavior or leverage.
+   - The retired `SpeechTranscriber` seam continues to leak across four application layers (from `HomeScreen` and `ReviewScreen` down through hooks to `RecitationSession`), requiring ad-hoc bridging adapters and creating confusion over which parameter to pass.
+   - Transient audio files and their deletion logic leak outside the adapter boundary, increasing the risk of disk leaks on mobile devices.
 
-2. **Whisper Hallucinations on Runaway Recordings**:
-   Because silence detection fails to auto-complete, audio recordings can run indefinitely. When lengthy silent audio is passed to cloud Whisper speech models, the neural decoder hallucinates repetitive nonsense (such as endless loops of theological titles or city names) instead of transcribing the verse accurately. Furthermore, runaway recordings exhaust recitation quotas and battery.
-
-3. **Psychological Tension Between Contemplative Pauses and Auto-Cutoffs**:
-   Scripture memorization is inherently meditative. Users often take 2-to-3 second contemplative pauses to recall the next phrase. Aggressive conversational voice activity detection (common in callbots with 700ms thresholds) cuts the user off mid-verse. Conversely, relying purely on hands-free silence creates ambiguity over when evaluation will happen. Users need clear intentional control to verify immediately without latency, backed by a safety backstop that takes over when hands are busy.
+2. **Circular Coupling and Manual UI Coordination in Verse Retention (Candidate 2)**:
+   - When displaying the home dashboard or recording completed reviews, developers must coordinate two separate modules: `VerseEngine` and `HabitTracker`.
+   - `HabitTracker` was extracted across an artificial seam with only a single implementation, creating a circular coupling where `VerseEngine` must inject a `dueCountFn` closure into `HabitTracker`, while `HabitTracker` exposes a `setDueCountFn` back-reference.
+   - Because the modules are severed, presentation callers like `HomeScreen` are forced to orchestrate dual asynchronous queries manually—fetching verse summaries first, extracting the due count, and then passing `overrideDueCount` into the habit tracker to avoid redundant storage parsing.
+   - This mutual dependency complicates test setup and creates subtle risks of streak desynchronization.
 
 ---
 
 ## Solution
 
-Adopt the **"Sacred Intent" Hybrid Architecture** across the recitation lifecycle:
+Deepen the architecture by eliminating shallow pass-throughs, collapsing artificial seams, and establishing single, authoritative interfaces for audio capture and scripture retention:
 
-1. **Sacred Intent Turn-Taking**:
-   - **Primary Action (Tap-to-Verify)**: The floating microphone button acts as a clear, intentional toggle. Tapping immediately halts recording and initiates verification with zero latency.
-   - **Hands-Free Backstop (3.5s Contemplative Silence)**: If the user stops reciting and does not tap, a 3.5-second silence countdown automatically finalizes and verifies the attempt. A delayed progress ring (first appearing after 1.5s of silence) informs the user of pending completion without causing visual anxiety during brief memory pauses.
+1. **Deep Voice Input Module (Candidate 1)**:
+   - Consolidate all audio recording, cloud HTTP multipart transport, and atomic temporary file cleanup behind a single deep `VoiceInput` interface.
+   - Delete `AudioRecorderService` as an independent public module, making platform recording drivers internal to cloud audio capture.
+   - Encapsulate speech transcription inside the cloud audio adapter, retiring `SpeechTranscriber` from all screen and hook props.
+   - Present a uniform `VoiceInput` seam to `RecitationSession` and user interface layers, backed by three concrete adapters: on-device native streaming, cloud audio recording with transcription, and offline simulated testing.
 
-2. **Expanded Physical Decibel Normalization**:
-   - Expand the dynamic decibel metering range from $[-60, 0]\text{ dBFS}$ to $[-80, 0]\text{ dBFS}$ and apply an quadratic response curve.
-   - Compress ambient room hiss and AGC-boosted silence ($-25\text{ dBFS}$ to $-20\text{ dBFS}$) down to $\approx 47\%\text{--}56\%$, cleanly below the speech detection threshold.
-   - Amplify audible recitation speech ($-10\text{ dBFS}$ to $-4\text{ dBFS}$) into a solid $77\%\text{--}90\%$ range.
-   - Apply symmetric Exponential Moving Average (EMA) smoothing ($\alpha = 0.35$) to eliminate transient phone handling clicks and plosive drops.
-
-3. **Dynamic Utterance Ceiling**:
-   - Establish an automatic maximum duration ceiling scaled to passage length: a floor of 30 seconds for single short verses, scaling by $\approx 1.5\text{ s}$ per word, capped at a maximum of 300 seconds (5 minutes) for whole chapters.
-   - Automatically halt recording and trigger verification when the ceiling is reached, preventing runaway recordings, quota depletion, and Whisper hallucination loops.
-
-4. **Transparent Turn-Taking Guidance**:
-   - Display explicit bilingual guidance on screen during recitation: informing the user that tapping the button verifies instantly, while pausing for 3.5s provides hands-free verification.
+2. **Deep Verse Retention Module (Candidate 2)**:
+   - Reabsorb habit tracking and daily streak calculations directly into `VerseEngine` as private internal capabilities.
+   - Eliminate circular closure injection (`dueCountFn` and `setDueCountFn`). When a verse review is recorded, `VerseEngine` atomically updates both the Spaced Repetition schedule and the user's habit streaks in a single cohesive operation.
+   - Expose a unified dashboard query (`getDashboard`) that computes verse summaries and habit statistics in a single pass.
+   - Simplify user interface callers to consume the single dashboard query without manual coordination or parameter passing.
 
 ---
 
 ## User Stories
 
-### Turn-Taking & Recitation Flow
-1. As a scripture memorizer, I want to tap the microphone button when I finish reciting, so that verification begins instantly without having to wait in silence.
-2. As a scripture memorizer driving or holding a Bible with both hands, I want the app to automatically detect when I have finished speaking and submit my recitation after a 3.5s pause, so that I can practice completely hands-free.
-3. As a learner reciting a difficult passage, I want to be able to pause for 1 to 2 seconds to recall the next phrase, so that the app does not prematurely cut me off while I am thinking.
-4. As a learner looking at the screen during recitation, I want to see clear instructions explaining that I can either tap to verify immediately or pause for 3.5 seconds, so that I never wonder what the app is waiting for.
-5. As a Portuguese-speaking user, I want the recitation prompt to display in Portuguese ("Ouvindo... Toque no botão para verificar (ou pause 3.5s)"), so that the guidance feels native and welcoming.
-6. As an English-speaking user, I want the recitation prompt to display in English ("Listening... Tap button to verify (or pause 3.5s)"), so that the guidance is clear and accessible.
-7. As a learner whose recitation is interrupted, I want to tap Cancel at any moment, so that the attempt is discarded immediately without consuming quota or penalizing my streak.
+### Voice Input & Acoustic Navigation
+1. As an application developer, I want all voice recording and speech transcription to live behind a single `VoiceInput` interface, so that I only have to learn and mock one module when building voice features.
+2. As a mobile learner, I want temporary audio files created during cloud transcription to be atomically deleted directly by the voice adapter, so that unneeded audio data never accumulates on my phone storage.
+3. As a developer writing tests for recitation flows, I want to inject a single `SimulatedVoiceAdapter` into the recitation session, so that I do not have to configure both a recorder mock and a transcriber mock.
+4. As a UI engineer modifying the review screen, I want the screen to accept a single optional `voiceInput` prop, so that I never have to decide whether to pass a transcriber or an audio recorder.
+5. As an automated coding agent navigating the repository, I want clear separation between audio capture and session evaluation, so that I can modify audio recording mechanics without triggering shotgun surgery across screen components.
+6. As a privacy-conscious user, I want on-device native speech recognition to produce zero disk files while sharing the exact same interface as cloud transcription, so that my recitation privacy is guaranteed by design.
 
-### Acoustic Normalization & Silence Detection
-8. As a mobile user practicing in an ordinary room with background noise (air conditioning, computer fans), I want quiet room noise not to register as speech, so that the app correctly senses when I stop talking.
-9. As an Android user whose phone hardware boosts mic gain during quiet pauses (AGC), I want the audio metering to compress that boosted hiss below speech levels, so that the silence timer reliably triggers after recitation.
-10. As a learner speaking quietly or firmly, I want speech volumes between $-10\text{ dBFS}$ and $-4\text{ dBFS}$ to clearly register as active voice, so that the visual breathing aura and audio indicator pulse noticeably.
-11. As a user handling or adjusting my phone while reciting, I want momentary handling clicks or finger movements not to reset the silence timer, so that small physical adjustments don't delay verification.
-12. As a user tapping the microphone without speaking, I want the session to timeout after 10 seconds with a helpful prompt ("No speech detected. Tap the mic to try again"), so that the app doesn't stay open indefinitely.
-
-### Utterance Ceiling & Runaway Prevention
-13. As a learner reciting a single short verse (e.g. John 11:35), I want a safety recording ceiling of 30 seconds, so that if I forget to stop the recording, it never runs indefinitely.
-14. As a user memorizing an entire chapter (e.g. Psalm 23 or 1 Corinthians 13), I want the recording ceiling to scale up to 5 minutes (300 seconds), so that I have plenty of time to recite the full passage without being cut off.
-15. As a user whose recording reaches the duration ceiling, I want the app to automatically stop and verify what I have recited so far, so that my voice input is not lost.
-16. As a user practicing via cloud Whisper, I want runaway recordings to be prevented, so that Whisper never enters repetitive hallucination loops.
-17. As a subscriber with daily recitation allowances, I want runaway recordings prevented, so that unexpected audio duration does not exhaust API limits or consume unnecessary device bandwidth.
-
-### Visual Feedback & Diagnostics
-18. As a developer debugging audio performance on real devices, I want an in-app diagnostic tray showing real-time Mic Level percentage and Silence Timer progress, so that acoustic calibration can be validated in real room environments.
-19. As a learner in silence during the 3.5s backstop, I want the progress ring around the microphone to begin filling only after 1.5s of silence, so that brief natural pauses don't show distracting animations.
-20. As a learner who resumes speaking while the progress ring is filling, I want the progress ring to instantly reset to zero, so that the app indicates it is back to listening without penalizing my hesitation.
+### Verse Retention & Dashboard Performance
+7. As a scripture memorizer opening the app, I want the home dashboard to load my verses and habit streaks in a single fast query, so that my study screen appears instantly without layout shifts.
+8. As a learner completing a recitation review, I want my streak and review schedule to update together atomically, so that my practice habit always stays in perfect sync with my verse progress.
+9. As a developer maintaining the habit system, I want habit streak calculation to live in the same module as review recording, so that I do not need circular callback functions to calculate due counts.
+10. As a UI engineer modifying the home screen, I want a single `getDashboard` method on the verse engine, so that I do not have to write coordinating logic or manually pass due counts between services.
+11. As a developer writing tests for habit streaks, I want to verify streak increments through the verse engine using an in-memory storage adapter, so that test setup is simple, isolated, and fast.
+12. As a user reviewing multiple verses in quick succession, I want habit statistics to remain consistent without redundant JSON parsing on every action, so that the app remains responsive and battery-efficient.
 
 ---
 
 ## Implementation Decisions
 
-### 1. Quadratic Decibel Normalization
-- **Dynamic Decibel Range**: Metering decibels are normalized across $[-80\text{ dBFS}, 0\text{ dBFS}]$ rather than $[-60, 0]\text{ dBFS}$.
-- **Quadratic Response Function**:
-  Linear scaling: $\text{linear} = \max\left(0, \min\left(1, \frac{\text{dB} + 80}{80}\right)\right)$  
-  Normalized power: $\text{rawNormalized} = \text{linear}^2$
-- **Acoustic Separation**:
-  - Background hiss and AGC-boosted quiet ($-25\text{ dBFS}$ to $-20\text{ dBFS}$) map to $0.47\text{--}0.56$.
-  - Recitation speech ($-10\text{ dBFS}$ to $-4\text{ dBFS}$) maps to $0.77\text{--}0.90$.
-- **Symmetric Exponential Moving Average (EMA)**:
-  - $\alpha = 0.35$ smoothing factor: $\text{smoothed} = \text{smoothed} \times 0.65 + \text{rawNormalized} \times 0.35$.
-  - First sample initializes immediately to avoid onset delay.
-  - Dampens transient noise spikes (clicks, taps) and prevents plosive dropouts.
+### Seam 1: Unified VoiceInput Seam
+- **Interface Simplification**: The `VoiceInput` interface remains the sole external seam for audio interaction:
+  - `requestPermissions(): Promise<boolean>`
+  - `start(options?: VoiceInputOptions): Promise<void>`
+  - `stop(): Promise<VoiceInputResult>`
+  - `cancel(): Promise<void>`
+- **Module Retirement**: The `AudioRecorderService` class is deleted. Its platform audio drivers (`NativeAudioDriver` and `WebAudioDriver`) become private implementation details inside `CloudAudioVoiceAdapter`.
+- **Transcriber Encapsulation**: The `SpeechTranscriber` interface and its concrete classes (`WhisperTranscriber`, `GroqTranscriber`) become internal implementation details within the cloud voice adapter. Callers outside the voice input module will no longer import or inject `SpeechTranscriber`.
+- **Caller Decoupling**: All occurrences of `transcriber?: SpeechTranscriber` are removed from the props and options of `HomeScreen`, `ReviewScreen`, `useRecitationSession`, and `RecitationSession`. Callers interact exclusively through `VoiceInput`.
+- **Atomic Audio Lifecycle**: Audio file generation, multipart HTTP assembly, and file deletion via `finally` blocks are fully contained within `CloudAudioVoiceAdapter`, ensuring temporary audio URIs never escape the module.
 
-### 2. Turn-Taking State Machine & Silence Backstop
-- **Primary Action (Tap-to-Verify)**: Tapping the circular floating microphone button while in `reciting` state immediately transitions to `verifying`, cancelling all background VAD intervals and finalizing speech capture.
-- **VAD State Cycle**:
-  - `calibrating` (300ms baseline sampling; loud speech $\ge 75\%$ triggers immediate transition to `speaking`).
-  - `listening_initial` (waiting for speech onset; 10s timeout triggers idle return with user prompt).
-  - `speaking` (accumulates cumulative speech duration).
-  - `thinking_grace` (arms after $\ge 1.0\text{ s}$ of cumulative speech when volume drops below adaptive threshold).
-  - `auto_completed` (triggers verification callback after 3.5s elapsed in `thinking_grace`).
-- **Delayed Visual Progress**:
-  - Silence progress remains $0\%$ during the initial 1.5s contemplative window.
-  - Linearly fills from $0\%$ to $100\%$ across the remaining 2.0s of the 3.5s grace period.
-  - Resets immediately to $0\%$ if strong speech resumes.
-
-### 3. Dynamic Utterance Ceiling
-- **Scaling Formula**:
-  $$\text{durationSeconds} = \min\left(300, \max\left(30, \text{round}(\text{wordCount} \times 1.5) + 15\right)\right)$$
-- **Boundary Clamping**:
-  - Minimum floor: 30 seconds for short verses (ensuring ample time for slow recitation).
-  - Maximum ceiling: 300 seconds (5 minutes) for long passages or full chapters.
-- **Timer Lifecycle**:
-  - Armed when audio recording starts.
-  - Automatically invokes verification if still in `reciting` state when expired.
-  - Guaranteed cleanup upon manual stop, cancellation, session reset, and session disposal.
-
-### 4. Bilingual Editorial Copy
-- **Active Recitation Hint**:
-  - Portuguese: `"Ouvindo... Toque no botão para verificar (ou pause 3.5s)"`
-  - English: `"Listening... Tap button to verify (or pause 3.5s)"`
-- **Initial Silence Timeout Prompt**:
-  - Portuguese: `"Nenhuma fala detectada. Toque no microfone para tentar novamente."`
-  - English: `"No speech detected. Tap the mic to try again."`
+### Seam 2: Deep VerseEngine Dashboard & Retention Seam
+- **Module Absorption**: The standalone `HabitTracker` class is retired as an external module; its retention streak calculation algorithms, calendar day normalizations, and storage keys are absorbed into `VerseEngine`.
+- **Elimination of Circular Closures**: The `dueCountFn` parameter in constructor options and the `setDueCountFn` mutation method are deleted. Because `VerseEngine` owns all verses, it directly determines due counts without closures.
+- **Unified Query Interface**: `VerseEngine` introduces a unified `getDashboard(now?: Date)` method that returns both `VerseSummary` and `HabitStats` in a single pass.
+- **Atomic Review Lifecycle**: `VerseEngine.recordReview()` directly updates the verse record and the habit streak data in storage, eliminating cross-module notification calls.
+- **Presentation Streamlining**: `HomeScreen` replaces its dual sequential calls with a single invocation of `verseEngine.getDashboard()`, removing the `overrideDueCount` parameter entirely.
 
 ---
 
 ## Testing Decisions
 
-### What Makes a Good Test
-- **Behavioral Assertions**: Tests assert on state transitions (`reciting` $\to$ `verifying` $\to$ `verified`), emitted volume ratios, and triggered callbacks, never internal timer handle pointers.
-- **Acoustic Mathematics Verification**: Pure functions for decibel normalization and duration calculation are tested against exact mathematical boundary values and physical audio levels.
-- **Timer Determinism**: Time-dependent behavior (300ms calibration, 10s initial silence, 3.5s thinking grace, and utterance ceiling) is verified using deterministic simulated clocks, validating both natural progression and early manual interruption.
+### Testing Principles
+- Tests must verify external behavior through public module interfaces, never asserting on private internal delegation or pass-through calls.
+- Seams should be tested with realistic in-memory test doubles (`SimulatedVoiceAdapter` for voice, `MapStorageAdapter` for persistence).
+- Trivial tests that merely verify that wrapper methods call underlying driver methods (such as those in the retired `AudioRecorderService.test.ts`) are eliminated in favor of behavior-driven tests.
 
-### Modules Tested
-1. **Audio Metering Normalization**:
-   - Boundary tests for $<-80\text{ dBFS}$ (clamps to 0) and $>0\text{ dBFS}$ (clamps to 1).
-   - AGC hiss levels ($-25\text{ dBFS}$ and $-20\text{ dBFS}$) confirm values below speech threshold.
-   - Speech levels ($-10\text{ dBFS}$ and $-4\text{ dBFS}$) confirm values in high speech range.
-2. **Voice Activity Detector Engine**:
-   - Initial calibration and noise floor adaptation.
-   - Hysteresis thresholds under varying noise floors.
-   - Speech onset, cumulative speech minimum (1.0s), and 3.5s auto-completion.
-   - Speech interruption resetting progress during the thinking grace period.
-3. **Recitation Session Controller**:
-   - Dynamic utterance ceiling calculation across short verses, medium verses, and chapters.
-   - Automatic stop and verify when utterance ceiling is reached.
-   - Timer cancellation when user manually taps stop or cancel before ceiling.
-4. **Review Screen Component**:
-   - Rendering of localized turn-taking hints in Portuguese and English.
-   - Interaction with floating mic button and cancellation links.
+### Target Module Coverage
+1. **VoiceInput Tests**:
+   - Verify `SimulatedVoiceAdapter` correctly returns configured simulated transcripts and handles cancellation.
+   - Verify `CloudAudioVoiceAdapter` coordinates recording and transcription with atomic temporary file deletion upon success, failure, or cancellation.
+   - Verify `NativeStreamVoiceAdapter` provides streaming speech transcripts without disk file interaction.
+2. **RecitationSession Tests**:
+   - Verify all recitation workflows (Levels 1, 2, and 3, diffing, scoring, and VAD auto-completion) operate cleanly through the single `VoiceInput` seam.
+   - Verify that no tests require passing `transcriber` mocks or configuring secondary audio services.
+3. **VerseEngine Tests**:
+   - Verify `getDashboard()` returns accurate verse summaries and habit streak statistics simultaneously using `MapStorageAdapter`.
+   - Verify `recordReview()` advances verse SRS intervals and increments daily streaks atomically.
+   - Verify streak calculations across date boundaries (consecutive days, skipped days, same-day multiple reviews).
+4. **HomeScreen Tests**:
+   - Verify the dashboard displays verse summaries and habit badges using the unified `getDashboard` method without dual fetching.
 
 ### Prior Art
-- `src/services/AudioRecorderService.test.ts`: Quadratic dBFS mapping tests.
-- `src/engines/VoiceActivityDetector.test.ts`: Real-room acoustic noise repro tests.
-- `src/services/RecitationSession.test.ts`: Utterance ceiling lifecycle tests.
-- `src/screens/ReviewScreen.test.tsx`: Bilingual UI turn-taking hint assertions.
+- Existing `VoiceInput.test.ts` provides the pattern for testing voice adapters.
+- Existing `VerseEngine.test.ts` provides the pattern for evaluating persistence and Spaced Repetition using `MapStorageAdapter`.
 
 ---
 
 ## Out of Scope
-- Native C++ or ONNX neural VAD modules (e.g. Silero VAD) requiring custom native Expo prebuild dev clients.
-- Modifying the Myers diff evaluation engine or SRS scheduling algorithms.
-- Changing paywall or subscription entitlement policies.
-- Altering the Cloze practice or Echo Mode recitation mechanics.
+
+- Modifying the underlying SuperMemo-2 Spaced Repetition mathematical formulas (intervals, ease factors).
+- Altering the visual design tokens, colors, or typography of the home screen or review screen.
+- Changing the VAD quadratic decibel thresholds or silence auto-completion timings established in recent bug fixes.
+- Refactoring `ScriptureCatalog` or `BibleProvider` (already consolidated in Ticket 48).
 
 ---
 
 ## Further Notes
-- This specification formalizes the architectural decisions captured in `docs/adr/0016-hybrid-sacred-intent-voice-architecture.md` and supersedes the pure silence-only assumptions in earlier VAD tickets.
-- Phase 1 implementation is verified with all unit tests passing and TypeScript strict type-checking green.
+
+- These changes align the codebase with the deep-module architecture defined in `/codebase-design`.
+- ADR 0006 (`SpeechTranscriber` seam) is formally superseded by the unified `VoiceInput` seam.
+- ADR 0005 (`VerseEngine` domain architecture) is deepened to encompass habit retention.

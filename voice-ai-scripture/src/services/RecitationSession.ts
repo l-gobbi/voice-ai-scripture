@@ -10,7 +10,7 @@ import {
   evaluateRecitation,
   DiffToken,
 } from '../engines/recitationEvaluator';
-import { TranscriptionError, SpeechTranscriber, SimulatedTranscriber } from './SpeechTranscriber';
+import { TranscriptionError } from './SpeechTranscriber';
 import {
   SpeechSynthesizer,
   getDefaultSpeechSynthesizer,
@@ -28,7 +28,6 @@ import {
 } from '../engines/VoiceActivityDetector';
 
 export {
-  SpeechTranscriber,
   SpeechSynthesizer,
   ClozeToken,
   DiffToken,
@@ -97,7 +96,6 @@ export interface RecitationState {
 
 export interface RecitationSessionOptions {
   voiceInput?: VoiceInput;
-  transcriber?: SpeechTranscriber;
   verseEngine?: VerseEngine;
   subscriptionService?: SubscriptionService;
   synthesizer?: SpeechSynthesizer;
@@ -134,24 +132,7 @@ export class RecitationSession {
     this.isSandbox = options?.isSandbox ?? false;
     this.isUnmetered = options?.isUnmetered ?? false;
     this.vadConfig = options?.vadConfig;
-
-    if (options?.voiceInput) {
-      this.voiceInput = options.voiceInput;
-    } else if (options?.transcriber) {
-      const transcriber = options.transcriber;
-      this.voiceInput = new SimulatedVoiceAdapter({
-        handler: async (opts) => {
-          const res = await transcriber.transcribe('', {
-            language: (opts?.language as any) ?? 'en',
-            prompt: opts?.prompt,
-            simulatedText: opts?.simulatedText,
-          });
-          return res.text;
-        },
-      });
-    } else {
-      this.voiceInput = createDefaultVoiceInput();
-    }
+    this.voiceInput = options?.voiceInput ?? createDefaultVoiceInput();
 
     const initialLevel = options?.initialLevel ?? (this.isSandbox ? 1 : 3);
     const clozeTokens = this.getClozeTokensForLevel(initialLevel);

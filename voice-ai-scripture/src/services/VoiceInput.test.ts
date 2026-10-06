@@ -4,8 +4,8 @@ import {
   CloudAudioVoiceAdapter,
   NativeStreamVoiceAdapter,
   createDefaultVoiceInput,
+  AudioDriver,
 } from './VoiceInput';
-import { AudioDriver, AudioRecorderService } from './AudioRecorderService';
 import { SpeechTranscriber, TranscriptionError } from './SpeechTranscriber';
 
 describe('VoiceInput Seam (Ticket 45)', () => {
@@ -96,7 +96,6 @@ describe('VoiceInput Seam (Ticket 45)', () => {
 
   describe('Slice 2: CloudAudioVoiceAdapter (Auto-Purging Transient Audio)', () => {
     let mockDriver: AudioDriver;
-    let mockRecorder: AudioRecorderService;
     let mockTranscriber: SpeechTranscriber;
 
     beforeEach(() => {
@@ -106,7 +105,6 @@ describe('VoiceInput Seam (Ticket 45)', () => {
         stopRecording: jest.fn().mockResolvedValue('file:///cache/transient-123.m4a'),
         deleteAudioFile: jest.fn().mockResolvedValue(true),
       };
-      mockRecorder = new AudioRecorderService(mockDriver);
       mockTranscriber = {
         transcribe: jest.fn().mockResolvedValue({ text: 'O Senhor é o meu pastor' }),
       };
@@ -114,7 +112,7 @@ describe('VoiceInput Seam (Ticket 45)', () => {
 
     it('starts recorder with onMeter callback and language option', async () => {
       const adapter = new CloudAudioVoiceAdapter({
-        recorder: mockRecorder,
+        driver: mockDriver,
         transcriber: mockTranscriber,
       });
 
@@ -126,7 +124,7 @@ describe('VoiceInput Seam (Ticket 45)', () => {
 
     it('transcribes transient audio and atomically purges file upon completion', async () => {
       const adapter = new CloudAudioVoiceAdapter({
-        recorder: mockRecorder,
+        driver: mockDriver,
         transcriber: mockTranscriber,
       });
 
@@ -151,7 +149,7 @@ describe('VoiceInput Seam (Ticket 45)', () => {
       };
 
       const adapter = new CloudAudioVoiceAdapter({
-        recorder: mockRecorder,
+        driver: mockDriver,
         transcriber: failingTranscriber,
       });
 
@@ -165,7 +163,7 @@ describe('VoiceInput Seam (Ticket 45)', () => {
       (mockDriver.stopRecording as jest.Mock).mockResolvedValueOnce(null);
 
       const adapter = new CloudAudioVoiceAdapter({
-        recorder: mockRecorder,
+        driver: mockDriver,
         transcriber: mockTranscriber,
       });
 
@@ -175,7 +173,7 @@ describe('VoiceInput Seam (Ticket 45)', () => {
 
     it('stops recorder and purges transient file on cancel', async () => {
       const adapter = new CloudAudioVoiceAdapter({
-        recorder: mockRecorder,
+        driver: mockDriver,
         transcriber: mockTranscriber,
       });
 

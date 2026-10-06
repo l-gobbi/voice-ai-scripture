@@ -3,12 +3,11 @@ import { render, fireEvent, act } from '@testing-library/react-native';
 import ReviewScreen from './ReviewScreen';
 import { Verse, verseEngine } from '../services/VerseEngine';
 import { SubscriptionService } from '../services/SubscriptionService';
-import { audioRecorder } from '../services/AudioRecorderService';
 import {
   setDefaultSpeechSynthesizer,
   MockSpeechSynthesizer,
 } from '../services/SpeechSynthesizer';
-import { SimulatedTranscriber } from '../services/SpeechTranscriber';
+import { SimulatedVoiceAdapter } from '../services/VoiceInput';
 
 jest.mock('@react-native-async-storage/async-storage', () =>
   require('@react-native-async-storage/async-storage/jest/async-storage-mock')
@@ -27,12 +26,6 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
     jest.clearAllMocks();
     mockSynthesizer = new MockSpeechSynthesizer();
     setDefaultSpeechSynthesizer(mockSynthesizer);
-
-    // Mock AudioRecorderService methods for unit testing environment
-    jest.spyOn(audioRecorder, 'requestPermissions').mockResolvedValue(true);
-    jest.spyOn(audioRecorder, 'startRecording').mockResolvedValue(undefined);
-    jest.spyOn(audioRecorder, 'stopRecording').mockResolvedValue('file:///recording.m4a');
-    jest.spyOn(audioRecorder, 'deleteAudioFile').mockResolvedValue(true);
   });
 
   afterEach(() => {
@@ -122,15 +115,15 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
       passed: true,
     });
 
-    const mockTranscriber = new SimulatedTranscriber({
-      defaultText: mockVerse.text,
+    const mockVoiceInput = new SimulatedVoiceAdapter({
+      defaultTranscript: mockVerse.text,
     });
 
     const { getByText, findAllByText, findByText, getByTestId } = await render(
       <ReviewScreen
         verse={mockVerse}
         onComplete={onComplete}
-        transcriber={mockTranscriber}
+        voiceInput={mockVoiceInput}
       />
     );
 
@@ -361,15 +354,15 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
 
   it('hides floating mic button and renders review actions once results are displayed', async () => {
     const onComplete = jest.fn();
-    const mockTranscriber = new SimulatedTranscriber({
-      defaultText: mockVerse.text,
+    const mockVoiceInput = new SimulatedVoiceAdapter({
+      defaultTranscript: mockVerse.text,
     });
 
     const { getByTestId, queryByTestId, findByText } = await render(
       <ReviewScreen
         verse={mockVerse}
         onComplete={onComplete}
-        transcriber={mockTranscriber}
+        voiceInput={mockVoiceInput}
       />
     );
 
@@ -405,8 +398,8 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
       const recordSpy = jest.spyOn(verseEngine, 'recordReview');
       const consumeSpy = jest.spyOn(SubscriptionService, 'consumeRecitation');
 
-      const mockTranscriber = new SimulatedTranscriber({
-        defaultText: sandboxVerse.text,
+      const mockVoiceInput = new SimulatedVoiceAdapter({
+        defaultTranscript: sandboxVerse.text,
       });
 
       const { getByText, findByText, getByTestId } = await render(
@@ -414,7 +407,7 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
           verse={sandboxVerse}
           onComplete={onComplete}
           onSandboxComplete={onSandboxComplete}
-          transcriber={mockTranscriber}
+          voiceInput={mockVoiceInput}
           isSandbox={true}
         />
       );
@@ -466,8 +459,8 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
     it('allows choosing Explore App without Saving in opt-in modal', async () => {
       const onComplete = jest.fn();
       const onSandboxComplete = jest.fn();
-      const mockTranscriber = new SimulatedTranscriber({
-        defaultText: sandboxVerse.text,
+      const mockVoiceInput = new SimulatedVoiceAdapter({
+        defaultTranscript: sandboxVerse.text,
       });
 
       const { findByText, getByTestId } = await render(
@@ -475,7 +468,7 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
           verse={sandboxVerse}
           onComplete={onComplete}
           onSandboxComplete={onSandboxComplete}
-          transcriber={mockTranscriber}
+          voiceInput={mockVoiceInput}
           isSandbox={true}
         />
       );

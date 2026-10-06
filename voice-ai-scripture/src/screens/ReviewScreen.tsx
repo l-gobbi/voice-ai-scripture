@@ -16,7 +16,7 @@ import WaveformVisualizer from '../components/WaveformVisualizer';
 import AcousticDebugTray from '../components/AcousticDebugTray';
 import SandboxOptInModal from '../components/SandboxOptInModal';
 import ScaffoldingLevelCard from '../components/ScaffoldingLevelCard';
-import { SpeechTranscriber, VoiceInput } from '../services/RecitationSession';
+import { VoiceInput } from '../services/RecitationSession';
 import { scriptureCatalog } from '../services/ScriptureCatalog';
 import { getTheme } from '../theme/tokens';
 import { styles } from './ReviewScreen.styles';
@@ -26,7 +26,6 @@ export type { RecitationLevel };
 interface ReviewScreenProps {
   verse: Verse;
   onComplete: () => void;
-  transcriber?: SpeechTranscriber;
   voiceInput?: VoiceInput;
   isSandbox?: boolean;
   onSandboxComplete?: (verse: Verse, saveRequested: boolean) => void;
@@ -36,7 +35,6 @@ interface ReviewScreenProps {
 export default function ReviewScreen({
   verse,
   onComplete,
-  transcriber,
   voiceInput,
   isSandbox = false,
   onSandboxComplete,
@@ -75,7 +73,6 @@ export default function ReviewScreen({
     tapWord,
     vocalize,
   } = useRecitationSession(verse, {
-    transcriber,
     voiceInput,
     isSandbox,
     isUnmetered,
