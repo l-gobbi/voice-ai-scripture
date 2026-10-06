@@ -299,21 +299,21 @@ export class NativeAudioDriver implements AudioDriver {
                 smoothedLevel = smoothedLevel * 0.65 + rawNormalized * 0.35;
               }
               this.onMeterCallback?.(smoothedLevel);
-            } else if (tick % 10 === 0) {
-              console.warn('[DEBUG-vad] status.metering is not a number:', status);
             }
           };
           if (rawStatus && typeof rawStatus.then === 'function') {
             rawStatus.then(handleStatus).catch((e: any) => {
-              console.error('[DEBUG-vad] rawStatus promise error:', e);
+              if (typeof __DEV__ !== 'undefined' && __DEV__) {
+                console.warn('[NativeAudioDriver] rawStatus promise error:', e);
+              }
             });
           } else if (rawStatus) {
             handleStatus(rawStatus);
-          } else if (tick % 10 === 0) {
-            console.warn('[DEBUG-vad] rawStatus is null/falsy:', rawStatus);
           }
         } catch (err) {
-          console.error('[DEBUG-vad] getStatus error:', err);
+          if (typeof __DEV__ !== 'undefined' && __DEV__) {
+            console.warn('[NativeAudioDriver] getStatus error:', err);
+          }
         }
       }, 100);
     }

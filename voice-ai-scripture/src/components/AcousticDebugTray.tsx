@@ -9,6 +9,8 @@ export interface AcousticDebugTrayProps {
   isReciting: boolean;
   volumeLevel?: number;
   vadProgress?: number;
+  vadState?: string;
+  vadThreshold?: number;
   errorDetails?: string | null;
   onClose: () => void;
 }
@@ -20,6 +22,8 @@ export default function AcousticDebugTray({
   isReciting,
   volumeLevel = 0,
   vadProgress = 0,
+  vadState,
+  vadThreshold = 0.58,
   errorDetails,
   onClose,
 }: AcousticDebugTrayProps) {
@@ -68,7 +72,17 @@ export default function AcousticDebugTray({
       <Text style={[styles.debugLabel, { color: theme.colors.textSecondary, marginTop: 4 }]}>
         Live Mic Level:{' '}
         <Text style={{ color: theme.colors.textPrimary, fontWeight: '600' }}>
-          {Math.round(volumeLevel * 100)}% {volumeLevel > 0.22 ? '🗣️ [Speech]' : '🤫 [Silence]'}
+          {Math.round(volumeLevel * 100)}% {volumeLevel >= vadThreshold ? '🗣️ [Speech]' : '🤫 [Silence]'}
+        </Text>
+        {'  |  '}
+        Thresh:{' '}
+        <Text style={{ color: theme.colors.textPrimary, fontWeight: '600' }}>
+          {Math.round(vadThreshold * 100)}%
+        </Text>
+        {'  |  '}
+        State:{' '}
+        <Text style={{ color: theme.colors.accentSacred, fontWeight: '600' }}>
+          {vadState ?? (isReciting ? 'reciting' : 'idle')}
         </Text>
         {'  |  '}
         Silence Timer:{' '}

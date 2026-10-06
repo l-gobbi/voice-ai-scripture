@@ -58,8 +58,8 @@ describe('VoiceActivityDetector (Ticket 51)', () => {
     vad.start();
     jest.advanceTimersByTime(300);
 
-    // Feed audible speech (volume 0.40)
-    vad.feedMeter(0.40);
+    // Feed audible speech (volume 0.70 in quadratic domain)
+    vad.feedMeter(0.70);
     expect(vad.getState()).toBe('speaking');
     expect(onSpeechStart).toHaveBeenCalledTimes(1);
   });
@@ -71,7 +71,7 @@ describe('VoiceActivityDetector (Ticket 51)', () => {
     jest.advanceTimersByTime(300);
 
     // Speak for only 400ms (e.g. short cough)
-    vad.feedMeter(0.45);
+    vad.feedMeter(0.70);
     jest.advanceTimersByTime(400);
 
     // Silence begins
@@ -92,7 +92,7 @@ describe('VoiceActivityDetector (Ticket 51)', () => {
     jest.advanceTimersByTime(300);
 
     // Speak for 1200ms (1.2s > 1.0s min speech)
-    vad.feedMeter(0.40);
+    vad.feedMeter(0.70);
     jest.advanceTimersByTime(1200);
 
     // Silence begins
@@ -123,7 +123,7 @@ describe('VoiceActivityDetector (Ticket 51)', () => {
     jest.advanceTimersByTime(300);
 
     // Speak for 1000ms
-    vad.feedMeter(0.50);
+    vad.feedMeter(0.70);
     jest.advanceTimersByTime(1000);
 
     // Pause for 2.5s (progress should be ~0.5)
@@ -132,7 +132,7 @@ describe('VoiceActivityDetector (Ticket 51)', () => {
     expect(vad.getProgress()).toBeGreaterThan(0.4);
 
     // User resumes speaking!
-    vad.feedMeter(0.55);
+    vad.feedMeter(0.75);
     expect(vad.getState()).toBe('speaking');
     expect(vad.getProgress()).toBe(0);
   });
@@ -143,7 +143,7 @@ describe('VoiceActivityDetector (Ticket 51)', () => {
     vad.start();
     jest.advanceTimersByTime(300);
 
-    vad.feedMeter(0.50);
+    vad.feedMeter(0.70);
     jest.advanceTimersByTime(1000);
 
     vad.cancel();
@@ -274,6 +274,117 @@ describe('VoiceActivityDetector (Ticket 51)', () => {
         jest.advanceTimersByTime(100);
       }
 
+      expect(onSilenceTimeout).toHaveBeenCalledTimes(1);
+    });
+
+    it('reproduces street noise failure: ambient 0.40 with 0.50 spikes prevents auto-completion', () => {
+      const onSilenceTimeout = jest.fn();
+      const onProgress = jest.fn();
+      const vad = new VoiceActivityDetector({ onSilenceTimeout, onProgress });
+
+      vad.start();
+      // Calibrate at 0.38
+      for (let t = 0; t < 300; t += 100) {
+        vad.feedMeter(0.38);
+        jest.advanceTimersByTime(100);
+      }
+
+      // User recites for 2000ms at 0.65
+      for (let t = 0; t < 2000; t += 100) {
+        vad.feedMeter(0.65);
+        jest.advanceTimersByTime(100);
+      }
+
+      // User stops reciting. Now user is quiet, but street noise hovers at 0.40 with spikes to 0.50 every 400ms
+      for (let t = 0; t < 5000; t += 100) {
+        const spike = (t % 400 === 0) ? 0.50 : 0.40;
+        vad.feedMeter(spike);
+        jest.advanceTimersByTime(100);
+      }
+
+      // In real life, after 5 seconds of the user stopping speech, silence timeout MUST trigger!
+      expect(onSilenceTimeout).toHaveBeenCalledTimes(1);
+    });
+
+    it('triggers silence timeout when calibration receives 0 samples (native delay) and room noise is 0.40', () => {
+      const onSilenceTimeout = jest.fn();
+      const vad = new VoiceActivityDetector({ onSilenceTimeout });
+
+      vad.start();
+      // Native audio hardware initialization delay: 0 samples during calibration window
+      jest.advanceTimersByTime(300);
+
+      // Microphone wakes up with ambient room noise 0.40
+      vad.feedMeter(0.40);
+
+      // User recites for 2500ms at 0.75
+      for (let t = 0; t < 2500; t += 100) {
+        vad.feedMeter(0.75);
+        jest.advanceTimersByTime(100);
+      }
+
+      // User finishes recitation. Ambient room noise remains at 0.40 for 4500ms
+      for (let t = 0; t < 4500; t += 100) {
+        vad.feedMeter(0.40);
+        jest.advanceTimersByTime(100);
+      }
+
+      expect(onSilenceTimeout).toHaveBeenCalledTimes(1);
+    });
+
+    it('triggers silence timeout despite sustained street noise rumble (400ms at 0.50) during silence', () => {
+      const onSilenceTimeout = jest.fn();
+      const vad = new VoiceActivityDetector({ onSilenceTimeout });
+
+      vad.start();
+      // Calibration at 0.40
+      for (let t = 0; t < 300; t += 100) {
+        vad.feedMeter(0.40);
+        jest.advanceTimersByTime(100);
+      }
+
+      // User recites for 2000ms at 0.72
+      for (let t = 0; t < 2000; t += 100) {
+        vad.feedMeter(0.72);
+        jest.advanceTimersByTime(100);
+      }
+
+      // User stops speaking. Street noise rumbles at 0.50 for 400ms (4 frames), then returns to 0.40
+      for (let t = 0; t < 4500; t += 100) {
+        const level = (t >= 1000 && t < 1400) ? 0.50 : 0.40;
+        vad.feedMeter(level);
+        jest.advanceTimersByTime(100);
+      }
+
+      expect(onSilenceTimeout).toHaveBeenCalledTimes(1);
+    });
+
+    it('triggers silence timeout despite street noise rumble (400ms at 0.55) during thinking_grace', () => {
+      const onSilenceTimeout = jest.fn();
+      const onProgress = jest.fn();
+      const vad = new VoiceActivityDetector({ onSilenceTimeout, onProgress });
+
+      vad.start();
+      // Calibrate at 0.38
+      for (let t = 0; t < 300; t += 100) {
+        vad.feedMeter(0.38);
+        jest.advanceTimersByTime(100);
+      }
+
+      // User recites for 2000ms at 0.75
+      for (let t = 0; t < 2000; t += 100) {
+        vad.feedMeter(0.75);
+        jest.advanceTimersByTime(100);
+      }
+
+      // User stops speaking. At t=1800ms of silence, car rumbles at 0.55 for 400ms (4 frames)
+      for (let t = 0; t < 4500; t += 100) {
+        const level = (t >= 1800 && t < 2200) ? 0.55 : 0.38;
+        vad.feedMeter(level);
+        jest.advanceTimersByTime(100);
+      }
+
+      // Silence countdown must still complete without getting reset by street rumble
       expect(onSilenceTimeout).toHaveBeenCalledTimes(1);
     });
   });

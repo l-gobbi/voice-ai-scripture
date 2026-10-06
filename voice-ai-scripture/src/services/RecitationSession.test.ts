@@ -996,8 +996,8 @@ describe('RecitationSession (Ticket 07)', () => {
       meterCallback?.(0.04);
       jest.advanceTimersByTime(300);
 
-      // Audible speech for 1200ms
-      meterCallback?.(0.50);
+      // Audible speech for 1200ms (quadratic domain speech >= 0.65)
+      meterCallback?.(0.70);
       jest.advanceTimersByTime(1200);
 
       // Silence begins

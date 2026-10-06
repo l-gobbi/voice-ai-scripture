@@ -5,7 +5,7 @@ export interface VADConfig {
   thinkingGracePeriodMs?: number; // default: 3500ms (3.5s)
   delayedArcThresholdMs?: number; // default: 1500ms (1.5s)
   volumeThresholdDelta?: number; // default: 0.10
-  minSpeechVolume?: number; // default: 0.22
+  minSpeechVolume?: number; // default: 0.58 (approx -19 dBFS in quadratic domain)
 }
 
 export type VADState =
@@ -28,7 +28,7 @@ export class VoiceActivityDetector {
   private callbacks: VADCallbacks;
   private state: VADState = 'idle';
   private noiseFloorSamples: number[] = [];
-  private noiseFloor: number = 0.08;
+  private noiseFloor: number = 0.38;
   private calibrationTimer: NodeJS.Timeout | null = null;
   private initialSilenceTimer: NodeJS.Timeout | null = null;
   private progressInterval: NodeJS.Timeout | null = null;
@@ -49,7 +49,7 @@ export class VoiceActivityDetector {
       thinkingGracePeriodMs: config?.thinkingGracePeriodMs ?? 3500,
       delayedArcThresholdMs: config?.delayedArcThresholdMs ?? 1500,
       volumeThresholdDelta: config?.volumeThresholdDelta ?? 0.10,
-      minSpeechVolume: config?.minSpeechVolume ?? 0.22,
+      minSpeechVolume: config?.minSpeechVolume ?? 0.58,
     };
   }
 
@@ -84,13 +84,14 @@ export class VoiceActivityDetector {
     if (this.state !== 'calibrating') return;
     if (this.noiseFloorSamples.length > 0) {
       const sorted = [...this.noiseFloorSamples].sort((a, b) => a - b);
-      // Discard top 25% if at least 4 samples exist to eliminate any onset spike
+      // Discard top 25% if at least 4 samples exist to eliminate any onset spike or button tap
       const count = sorted.length >= 4 ? Math.ceil(sorted.length * 0.75) : sorted.length;
       const baselineSamples = sorted.slice(0, count);
       const avg = baselineSamples.reduce((a, b) => a + b, 0) / baselineSamples.length;
       this.noiseFloor = Math.min(0.70, Math.max(0.04, avg));
     } else {
-      this.noiseFloor = 0.08;
+      // In quadratic domain, normal ambient room noise with Android AGC settles around 0.35-0.42
+      this.noiseFloor = 0.38;
     }
 
     this.state = 'listening_initial';
@@ -129,12 +130,12 @@ export class VoiceActivityDetector {
 
     if (this.state === 'calibrating') {
       if (volume >= 0.75) {
-        // Immediate loud speech (>= 75% in quadratic curve ≈ >= -10 dBFS) detected during calibration window!
+        // Immediate loud recitation speech (>= 75% in quadratic curve ≈ >= -10 dBFS) detected during calibration!
         this.clearTimers();
         const quiet = this.noiseFloorSamples.filter((v) => v < 0.65);
         this.noiseFloor = quiet.length > 0
-          ? Math.min(0.70, Math.max(0.04, quiet.reduce((a, b) => a + b, 0) / quiet.length))
-          : 0.15;
+          ? Math.min(0.70, Math.max(0.10, quiet.reduce((a, b) => a + b, 0) / quiet.length))
+          : 0.38;
         this.state = 'speaking';
         this.speechStartTimestamp = now;
         this.callbacks.onSpeechStart?.();
@@ -155,9 +156,11 @@ export class VoiceActivityDetector {
 
     if (audible) {
       if (this.state === 'thinking_grace') {
-        const strongSpeechDelta = Math.max(0.15, (1 - this.noiseFloor) * 0.35);
-        const isStrongSpeech = volume >= Math.min(0.95, this.noiseFloor + strongSpeechDelta);
-        if (!isStrongSpeech && this.consecutiveAudibleFrames < 3) {
+        // Human speech during recitation is >= 0.65 (quadratic). Street noise / rumble is <= 0.58.
+        const strongSpeechFloor = Math.max(0.65, this.noiseFloor + 0.18);
+        const isStrongSpeech = volume >= strongSpeechFloor;
+        // Non-strong audible sounds (e.g. intermediate street rumbles) require at least 5 frames (500ms) to interrupt
+        if (!isStrongSpeech && this.consecutiveAudibleFrames < 5) {
           this.consecutiveAudibleFrames++;
           return;
         }
@@ -172,7 +175,6 @@ export class VoiceActivityDetector {
         const wasThinkingGrace = this.state === 'thinking_grace';
         this.state = 'speaking';
         this.speechStartTimestamp = now;
-        console.log('[DEBUG-vad] State -> speaking:', { volume, threshold: this.getThreshold(), wasThinkingGrace });
         if (!wasThinkingGrace && this.cumulativeSpeechMs === 0) {
           this.callbacks.onSpeechStart?.();
         }
@@ -190,7 +192,6 @@ export class VoiceActivityDetector {
         if (this.cumulativeSpeechMs >= this.config.minSpeechDurationMs) {
           this.state = 'thinking_grace';
           this.silenceStartTimestamp = now;
-          console.log('[DEBUG-vad] Speaking -> thinking_grace! Cumulative speech:', this.cumulativeSpeechMs, 'ms. Silence countdown armed.');
           this.startProgressInterval();
         } else {
           // Insufficient cumulative speech (< 1.0s) -> return to listening_initial
@@ -218,7 +219,6 @@ export class VoiceActivityDetector {
         this.callbacks.onProgress?.(1);
         this.clearProgressInterval();
         this.state = 'auto_completed';
-        console.log('[DEBUG-vad] Thinking grace complete (3.5s). Triggering onSilenceTimeout!');
         this.callbacks.onSilenceTimeout?.();
         return;
       }

@@ -54,6 +54,8 @@ export default function ReviewScreen({
     level,
     volumeLevel,
     vadProgress,
+    vadState,
+    vadThreshold,
     clozeTokens,
     isTextRevealed,
     assistanceUsed,
@@ -220,6 +222,8 @@ export default function ReviewScreen({
             isReciting={isReciting}
             volumeLevel={volumeLevel}
             vadProgress={vadProgress}
+            vadState={vadState}
+            vadThreshold={vadThreshold}
             errorDetails={errorDetails}
             onClose={() => setShowDebugTray(false)}
           />
@@ -333,7 +337,7 @@ export default function ReviewScreen({
           {typeof __DEV__ !== 'undefined' && __DEV__ && isReciting && (
             <View style={{ marginHorizontal: 24, marginBottom: 8, padding: 6, backgroundColor: theme.colors.surfaceMuted, borderRadius: 8, alignItems: 'center', borderWidth: 1, borderColor: theme.colors.border }}>
               <Text style={{ fontSize: 11, color: theme.colors.textSecondary }}>
-                🎙️ Mic Level: {Math.round(volumeLevel * 100)}% | Silence Timer: {Math.round(vadProgress * 100)}%
+                🎙️ Mic: {Math.round(volumeLevel * 100)}% | Thresh: {Math.round((vadThreshold ?? 0.58) * 100)}% | State: {vadState ?? 'reciting'} | Silence: {Math.round(vadProgress * 100)}%
               </Text>
             </View>
           )}

@@ -24,6 +24,7 @@ import {
 import {
   VoiceActivityDetector,
   VADConfig,
+  VADState,
 } from '../engines/VoiceActivityDetector';
 
 export {
@@ -34,6 +35,7 @@ export {
   VoiceInput,
   VoiceActivityDetector,
   VADConfig,
+  VADState,
 };
 
 /**
@@ -79,6 +81,8 @@ export interface RecitationState {
   status: RecitationStatus;
   volumeLevel: number;
   vadProgress: number;
+  vadState?: VADState;
+  vadThreshold?: number;
   clozeTokens: ClozeToken[];
   isTextRevealed: boolean;
   assistanceUsed: boolean;
@@ -157,6 +161,8 @@ export class RecitationSession {
       status: 'idle',
       volumeLevel: 0,
       vadProgress: 0,
+      vadState: 'idle',
+      vadThreshold: 0.58,
       clozeTokens,
       isTextRevealed: false,
       assistanceUsed: false,
@@ -349,16 +355,24 @@ export class RecitationSession {
       this.vad = new VoiceActivityDetector(
         {
           onProgress: (ratio) => {
-            this.setState({ vadProgress: ratio });
+            this.setState({
+              vadProgress: ratio,
+              vadState: this.vad?.getState() ?? 'thinking_grace',
+              vadThreshold: this.vad?.getThreshold() ?? 0.58,
+            });
           },
           onSilenceTimeout: () => {
-            console.log('[DEBUG-vad] RecitationSession: onSilenceTimeout received! Calling stopAndVerify(). Current status:', this.state.status);
+            if (typeof __DEV__ !== 'undefined' && __DEV__) {
+              console.log('[RecitationSession] VAD silence timeout reached (3.5s). Auto-completing recitation.');
+            }
             this.stopAndVerify().catch((err) => {
-              console.error('[DEBUG-vad] stopAndVerify rejected on silence timeout:', err);
+              console.error('[RecitationSession] stopAndVerify error on silence timeout:', err);
             });
           },
           onInitialTimeout: () => {
-            console.log('[DEBUG-vad] RecitationSession: onInitialTimeout received (10s no speech).');
+            if (typeof __DEV__ !== 'undefined' && __DEV__) {
+              console.log('[RecitationSession] VAD initial silence timeout (10s no speech).');
+            }
             this.clearUtteranceCeilingTimer();
             this.voiceInput.cancel().catch(() => {});
             const isPt = inferVerseLanguage(this.verse) === 'pt';
@@ -366,6 +380,8 @@ export class RecitationSession {
               status: 'idle',
               volumeLevel: 0,
               vadProgress: 0,
+              vadState: 'idle',
+              vadThreshold: 0.58,
               errorMessage: isPt
                 ? 'Nenhuma fala detectada. Toque no microfone para tentar novamente.'
                 : 'No speech detected. Tap the mic to try again.',
@@ -383,8 +399,12 @@ export class RecitationSession {
         language,
         prompt,
         onMeter: (level) => {
-          this.setState({ volumeLevel: level });
           this.vad?.feedMeter(level);
+          this.setState({
+            volumeLevel: level,
+            vadState: this.vad?.getState() ?? 'idle',
+            vadThreshold: this.vad?.getThreshold() ?? 0.58,
+          });
         },
       });
 
@@ -405,10 +425,15 @@ export class RecitationSession {
       }, maxDurationSeconds * 1000);
       this.utteranceCeilingTimer?.unref?.();
 
-      this.setState({ status: 'reciting', vadProgress: 0 });
+      this.setState({
+        status: 'reciting',
+        vadProgress: 0,
+        vadState: this.vad?.getState() ?? 'calibrating',
+        vadThreshold: this.vad?.getThreshold() ?? 0.58,
+      });
     } catch (err: any) {
       this.clearUtteranceCeilingTimer();
-      console.error('[DEBUG-vad] startReciting error:', err);
+      console.error('[RecitationSession] startReciting error:', err);
       this.setState({
         status: 'error',
         errorMessage: err.message || 'Failed to start recitation',
@@ -420,15 +445,18 @@ export class RecitationSession {
     unmetered?: boolean;
     assistanceUsed?: boolean;
   }): Promise<VoiceRecitationResult | null> {
-    console.log('[DEBUG-vad] RecitationSession: stopAndVerify called! Current status:', this.state.status);
     if (this.state.status !== 'reciting') {
-      console.warn('[DEBUG-vad] stopAndVerify aborted because status is not reciting:', this.state.status);
       return null;
     }
 
     this.clearUtteranceCeilingTimer();
     this.vad?.cancel();
-    this.setState({ status: 'verifying', volumeLevel: 0, vadProgress: 0 });
+    this.setState({
+      status: 'verifying',
+      volumeLevel: 0,
+      vadProgress: 0,
+      vadState: 'idle',
+    });
 
     try {
       const voiceResult = await this.voiceInput.stop();
@@ -498,6 +526,8 @@ export class RecitationSession {
       status: 'idle',
       volumeLevel: 0,
       vadProgress: 0,
+      vadState: 'idle',
+      vadThreshold: 0.58,
       errorMessage: null,
       errorDetails: null,
     });
@@ -514,6 +544,8 @@ export class RecitationSession {
       status: 'idle',
       volumeLevel: 0,
       vadProgress: 0,
+      vadState: 'idle',
+      vadThreshold: 0.58,
       currentResult: null,
       result: null,
       rawTranscript: null,
