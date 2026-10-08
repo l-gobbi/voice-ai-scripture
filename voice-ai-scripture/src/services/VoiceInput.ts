@@ -36,6 +36,7 @@ export interface VoiceInputResult {
 
 export interface VoiceInput {
   requestPermissions(): Promise<boolean>;
+  warmUp?(): Promise<void>;
   start(options?: VoiceInputOptions): Promise<void>;
   stop(): Promise<VoiceInputResult>;
   cancel(): Promise<void>;
@@ -70,6 +71,10 @@ export class NativeStreamVoiceAdapter implements VoiceInput {
       }
     }
     return true;
+  }
+
+  async warmUp(): Promise<void> {
+    await this.requestPermissions().catch(() => false);
   }
 
   async start(options?: VoiceInputOptions): Promise<void> {
@@ -231,6 +236,10 @@ export class CloudAudioVoiceAdapter implements VoiceInput {
     return this.driver.requestPermissions();
   }
 
+  async warmUp(): Promise<void> {
+    await this.driver.warmUp?.();
+  }
+
   async start(options?: VoiceInputOptions): Promise<void> {
     this.currentOptions = options;
     await this.driver.startRecording(options?.onMeter, { language: options?.language });
@@ -289,6 +298,10 @@ export class SimulatedVoiceAdapter implements VoiceInput {
 
   async requestPermissions(): Promise<boolean> {
     return true;
+  }
+
+  async warmUp(): Promise<void> {
+    // no-op for fast hermetic unit testing
   }
 
   async start(options?: VoiceInputOptions): Promise<void> {

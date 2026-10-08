@@ -6,6 +6,7 @@ export interface AudioRecordingOptions {
 
 export interface AudioDriver {
   requestPermissions(): Promise<boolean>;
+  warmUp?(options?: AudioRecordingOptions): Promise<void>;
   startRecording(
     onMeter?: (level: number) => void,
     options?: AudioRecordingOptions
@@ -20,6 +21,14 @@ export class WebAudioDriver implements AudioDriver {
   private webStream: any = null;
   private meterInterval: any = null;
   private audioContext: any = null;
+
+  async warmUp(_options?: AudioRecordingOptions): Promise<void> {
+    try {
+      if (!this.webStream && typeof navigator !== 'undefined' && navigator.mediaDevices?.getUserMedia) {
+        this.webStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      }
+    } catch {}
+  }
 
   async requestPermissions(): Promise<boolean> {
     try {
@@ -186,6 +195,7 @@ export function calculateNormalizedDbLevel(db: number): number {
 
 export class NativeAudioDriver implements AudioDriver {
   private recording: any = null;
+  private isPrepared: boolean = false;
   private meterInterval: any = null;
   private onMeterCallback: ((level: number) => void) | null = null;
   private startTime: number = 0;
@@ -201,75 +211,95 @@ export class NativeAudioDriver implements AudioDriver {
     }
   }
 
-  async startRecording(
-    onMeter?: (level: number) => void,
-    _options?: AudioRecordingOptions
-  ): Promise<void> {
-    this.onMeterCallback = onMeter || null;
-    this.startTime = Date.now();
-    const { AudioModule } = require('expo-audio');
-
-    await AudioModule.setAudioModeAsync({
-      allowsRecording: true,
-      playsInSilentMode: true,
-    });
-
-    const RecorderClass = AudioModule.AudioRecorder;
-    if (!RecorderClass) {
-      throw new Error('AudioRecorder is not available on AudioModule');
+  async warmUp(_options?: AudioRecordingOptions): Promise<void> {
+    if (this.recording && this.isPrepared) {
+      return;
     }
 
-    const { RecordingPresets } = require('expo-audio');
-    const basePreset = RecordingPresets?.HIGH_QUALITY || {
-      extension: '.m4a',
-      sampleRate: 44100,
-      numberOfChannels: 2,
-      bitRate: 128000,
-    };
+    try {
+      const { AudioModule, RecordingPresets } = require('expo-audio');
 
-    const recordingOptions = {
-      ...basePreset,
-      extension: '.m4a',
-      sampleRate: 44100,
-      numberOfChannels: 2,
-      bitRate: 128000,
-      isMeteringEnabled: true,
-      outputFormat: 'mpeg4',
-      audioEncoder: 'aac',
-      android: {
-        extension: '.m4a',
-        sampleRate: 44100,
-        numberOfChannels: 1,
-        bitRate: 128000,
-        outputFormat: 'mpeg4',
-        audioEncoder: 'aac',
-        audioSource: 'voice_recognition',
-        isMeteringEnabled: true,
-        ...(basePreset.android || {}),
-      },
-      ios: {
+      await AudioModule.setAudioModeAsync({
+        allowsRecording: true,
+        playsInSilentMode: true,
+      });
+
+      const RecorderClass = AudioModule.AudioRecorder;
+      if (!RecorderClass) {
+        throw new Error('AudioRecorder is not available on AudioModule');
+      }
+
+      const basePreset = RecordingPresets?.HIGH_QUALITY || {
         extension: '.m4a',
         sampleRate: 44100,
         numberOfChannels: 2,
         bitRate: 128000,
-        outputFormat: 'aac ',
-        audioQuality: 0x7f,
-        linearPCMBitDepth: 16,
-        linearPCMIsBigEndian: false,
-        linearPCMIsFloat: false,
+      };
+
+      const recordingOptions = {
+        ...basePreset,
+        extension: '.m4a',
+        sampleRate: 44100,
+        numberOfChannels: 2,
+        bitRate: 128000,
         isMeteringEnabled: true,
-        ...(basePreset.ios || {}),
-      },
-    };
+        outputFormat: 'mpeg4',
+        audioEncoder: 'aac',
+        android: {
+          extension: '.m4a',
+          sampleRate: 44100,
+          numberOfChannels: 1,
+          bitRate: 128000,
+          outputFormat: 'mpeg4',
+          audioEncoder: 'aac',
+          audioSource: 'voice_recognition',
+          isMeteringEnabled: true,
+          ...(basePreset.android || {}),
+        },
+        ios: {
+          extension: '.m4a',
+          sampleRate: 44100,
+          numberOfChannels: 2,
+          bitRate: 128000,
+          outputFormat: 'aac ',
+          audioQuality: 0x7f,
+          linearPCMBitDepth: 16,
+          linearPCMIsBigEndian: false,
+          linearPCMIsFloat: false,
+          isMeteringEnabled: true,
+          ...(basePreset.ios || {}),
+        },
+      };
 
-    const processedOptions = resolvePlatformRecordingOptions(recordingOptions);
-    this.recording = new RecorderClass(processedOptions);
+      const processedOptions = resolvePlatformRecordingOptions(recordingOptions);
+      this.recording = new RecorderClass(processedOptions);
 
-    if (typeof this.recording.prepareToRecordAsync === 'function') {
-      await this.recording.prepareToRecordAsync(processedOptions);
+      if (typeof this.recording.prepareToRecordAsync === 'function') {
+        await this.recording.prepareToRecordAsync(processedOptions);
+      }
+      this.isPrepared = true;
+    } catch (err) {
+      console.warn('[NativeAudioDriver] warmUp error:', err);
+      this.recording = null;
+      this.isPrepared = false;
+    }
+  }
+
+  async startRecording(
+    onMeter?: (level: number) => void,
+    options?: AudioRecordingOptions
+  ): Promise<void> {
+    this.onMeterCallback = onMeter || null;
+    this.startTime = Date.now();
+
+    if (!this.recording || !this.isPrepared) {
+      await this.warmUp(options);
     }
 
-    this.recording.record();
+    if (this.recording) {
+      this.recording.record();
+      this.isPrepared = false;
+    }
 
     if (this.onMeterCallback) {
       let tick = 0;
@@ -345,6 +375,7 @@ export class NativeAudioDriver implements AudioDriver {
       const rawUri = (stopResult as any)?.url || this.recording?.uri || uriBeforeStop;
       const uri = (typeof rawUri === 'string' && rawUri.trim().length > 0) ? rawUri.trim() : null;
       this.recording = null;
+      this.isPrepared = false;
       return uri;
     } catch (e) {
       console.error('[NativeAudioDriver] Failed to stop native recording:', e);

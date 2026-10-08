@@ -496,5 +496,54 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
       expect(onSandboxComplete).toHaveBeenCalledWith(sandboxVerse, false);
     });
   });
+
+  describe('Ticket 69: Instant Recitation Turn-Taking & Pre-Warming', () => {
+    it('automatically triggers warmUp on mount when review screen displays', async () => {
+      const onComplete = jest.fn();
+      const mockVoiceInput = {
+        requestPermissions: jest.fn().mockResolvedValue(true),
+        warmUp: jest.fn().mockResolvedValue(undefined),
+        start: jest.fn().mockResolvedValue(undefined),
+        stop: jest.fn().mockResolvedValue({ transcript: 'test' }),
+        cancel: jest.fn().mockResolvedValue(undefined),
+      };
+
+      await render(
+        <ReviewScreen
+          verse={mockVerse}
+          onComplete={onComplete}
+          voiceInput={mockVoiceInput as any}
+        />
+      );
+
+      expect(mockVoiceInput.warmUp).toHaveBeenCalledTimes(1);
+    });
+
+    it('instantly transitions to recording state on mic press without delay', async () => {
+      const onComplete = jest.fn();
+      const mockVoiceInput = new SimulatedVoiceAdapter({
+        defaultTranscript: mockVerse.text,
+      });
+
+      const { getByTestId, findByText } = await render(
+        <ReviewScreen
+          verse={mockVerse}
+          onComplete={onComplete}
+          voiceInput={mockVoiceInput}
+        />
+      );
+
+      const micButton = getByTestId('floating-mic-button');
+
+      await act(async () => {
+        fireEvent(micButton, 'pressIn');
+        fireEvent.press(micButton);
+      });
+
+      // Instantly shows Stop icon and Listening prompt
+      expect(await findByText('⏹')).toBeTruthy();
+      expect(await findByText(/Listening... Tap button to verify/)).toBeTruthy();
+    });
+  });
 });
 

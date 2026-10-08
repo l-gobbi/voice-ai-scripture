@@ -1,128 +1,135 @@
-# Specification: Architectural Deepening of Voice Input & Scripture Retention
+# Specification: Instant Voice Capture & Acoustic Translation Metadata Prompting
 
-**Status:** implemented  
-**Domain:** Codebase Architecture / Seam Discipline / Voice AI & Verse Retention Subsystems  
-**Governing Documents:** `CONTEXT.md`, `docs/adr/0005-deep-verse-engine-domain-architecture.md`, `docs/adr/0006-speech-transcriber-seam.md`, `docs/adr/0010-injectable-storage-adapter-and-subscription-service-deepening.md`
+**Status:** ready-for-agent  
+**Domain:** Voice AI Infrastructure / Recitation Lifecycle / Acoustic Prompt Conditioning  
+**Governing Documents:** `CONTEXT.md`, `docs/adr/0015-floating-microphone-button-and-vad-silence-autocompletion.md`, `docs/adr/0016-hybrid-sacred-intent-voice-architecture.md`
 
 ---
 
 ## Problem Statement
 
-As the Voice-AI Scripture application grows, developers and automated coding agents face friction navigating and extending the codebase due to two architectural anti-patterns:
+When reciting scripture out loud from memory, learners experience two critical voice recitation frictions:
 
-1. **Leaky Audio Seams and Shallow Audio Wrappers (Candidate 1)**:
-   - When introducing voice features or writing tests, developers must juggle three separate audio concepts: `AudioRecorderService`, `SpeechTranscriber`, and `VoiceInput`.
-   - `AudioRecorderService` is a shallow 28-line pass-through module that merely forwards calls 1:1 to an underlying audio driver without adding behavior or leverage.
-   - The retired `SpeechTranscriber` seam continues to leak across four application layers (from `HomeScreen` and `ReviewScreen` down through hooks to `RecitationSession`), requiring ad-hoc bridging adapters and creating confusion over which parameter to pass.
-   - Transient audio files and their deletion logic leak outside the adapter boundary, increasing the risk of disk leaks on mobile devices.
+1. **Acoustic Hallucination & Phantom Stutter Recognition**:
+   - When reciting passages (such as Psalm 23:1, *"O Senhor é o meu pastor, nada me faltará"*), learners occasionally receive bizarre, repetitive recognized transcripts such as `"O Sra. O Sra. O Senhor é o meu pastor, nada me faltará."`, despite reciting the passage cleanly without stuttering.
+   - Because the previous prompt implementation injected the entire verbatim passage text into the Whisper transcription prompt, the autoregressive decoder treated the scripture as preceding dialogue context.
+   - When encountering slight initial microphone noise, room ambiance, or acoustic onset ambiguity, Whisper's greedy decoding loop at `temperature: 0` hallucinated repetitions of common Portuguese honorific abbreviations (`"O Sra."` / `"O Sr."`) before synchronizing with the clear audio.
+   - Furthermore, passing the verbatim verse text to the speech model biases the transcriber toward the expected answer, creating a risk that speech recognition "corrects" the learner's actual memory slips.
 
-2. **Circular Coupling and Manual UI Coordination in Verse Retention (Candidate 2)**:
-   - When displaying the home dashboard or recording completed reviews, developers must coordinate two separate modules: `VerseEngine` and `HabitTracker`.
-   - `HabitTracker` was extracted across an artificial seam with only a single implementation, creating a circular coupling where `VerseEngine` must inject a `dueCountFn` closure into `HabitTracker`, while `HabitTracker` exposes a `setDueCountFn` back-reference.
-   - Because the modules are severed, presentation callers like `HomeScreen` are forced to orchestrate dual asynchronous queries manually—fetching verse summaries first, extracting the due count, and then passing `overrideDueCount` into the habit tracker to avoid redundant storage parsing.
-   - This mutual dependency complicates test setup and creates subtle risks of streak desynchronization.
+2. **Cold-Start Recording Latency (Audio Inception Delay)**:
+   - When learners press the floating microphone button and begin speaking naturally without waiting, their opening syllables (e.g. *"O Sen..."*) are clipped and lost before the recording stream opens.
+   - In popular voice applications (such as Duolingo or WhatsApp), speech capture is instantaneous upon touch. In contrast, the application executed asynchronous permission verification, storage quota transactions, native audio session mode switching, and encoder preparation *after* the button touch event.
+   - This 300–500ms initialization window forces learners into an unnatural, anxious pause before speaking, conflicting with the contemplative, fluid experience of scripture recitation.
 
 ---
 
 ## Solution
 
-Deepen the architecture by eliminating shallow pass-throughs, collapsing artificial seams, and establishing single, authoritative interfaces for audio capture and scripture retention:
+Eliminate recording startup latency and transcription prompt hallucination through two architectural solutions:
 
-1. **Deep Voice Input Module (Candidate 1)**:
-   - Consolidate all audio recording, cloud HTTP multipart transport, and atomic temporary file cleanup behind a single deep `VoiceInput` interface.
-   - Delete `AudioRecorderService` as an independent public module, making platform recording drivers internal to cloud audio capture.
-   - Encapsulate speech transcription inside the cloud audio adapter, retiring `SpeechTranscriber` from all screen and hook props.
-   - Present a uniform `VoiceInput` seam to `RecitationSession` and user interface layers, backed by three concrete adapters: on-device native streaming, cloud audio recording with transcription, and offline simulated testing.
+1. **Warm Standby Audio Driver (Zero-Wait Pre-Warming)**:
+   - Introduce a `warmUp()` lifecycle method across the audio driver and voice input seams.
+   - When the recitation review screen mounts, the system pre-configures native audio session routing and pre-allocates the native recorder in a warm standby state in the background.
+   - When the learner taps the floating microphone button, audio capture begins immediately (<15ms) with synchronous execution and instant haptic feedback, allowing the learner to speak in the exact millisecond of touch without onset clipping.
 
-2. **Deep Verse Retention Module (Candidate 2)**:
-   - Reabsorb habit tracking and daily streak calculations directly into `VerseEngine` as private internal capabilities.
-   - Eliminate circular closure injection (`dueCountFn` and `setDueCountFn`). When a verse review is recorded, `VerseEngine` atomically updates both the Spaced Repetition schedule and the user's habit streaks in a single cohesive operation.
-   - Expose a unified dashboard query (`getDashboard`) that computes verse summaries and habit statistics in a single pass.
-   - Simplify user interface callers to consume the single dashboard query without manual coordination or parameter passing.
+2. **Acoustic Translation Metadata Prompting**:
+   - Completely eliminate verbatim verse text from the cloud transcription prompt.
+   - Replace the prompt with canonical scripture metadata (Holy Bible identifier, translation edition, and canonical reference), omitting the text itself (e.g. `"Bíblia Sagrada. Tradução: ALMEIDA. Referência: Salmos 23:1."`).
+   - Guide Whisper's acoustic vocabulary toward the specific historical and grammatical register of the translation (e.g., archaic conjugations in Almeida vs modern English in WEB) without providing candidate text for the decoder to loop or hallucinate upon.
+   - Preserve `temperature: 0` (greedy argmax decoding) to maximize phonetic discrimination between phonetically close words (e.g., *"dar"* vs *"dá"*, *"glória"* vs *"graça"*).
+   - Preserve strict, mathematical word-by-word evaluation inside the deterministic `RecitationEvaluator` pipeline against stored canonical verse text.
 
 ---
 
 ## User Stories
 
-### Voice Input & Acoustic Navigation
-1. As an application developer, I want all voice recording and speech transcription to live behind a single `VoiceInput` interface, so that I only have to learn and mock one module when building voice features.
-2. As a mobile learner, I want temporary audio files created during cloud transcription to be atomically deleted directly by the voice adapter, so that unneeded audio data never accumulates on my phone storage.
-3. As a developer writing tests for recitation flows, I want to inject a single `SimulatedVoiceAdapter` into the recitation session, so that I do not have to configure both a recorder mock and a transcriber mock.
-4. As a UI engineer modifying the review screen, I want the screen to accept a single optional `voiceInput` prop, so that I never have to decide whether to pass a transcriber or an audio recorder.
-5. As an automated coding agent navigating the repository, I want clear separation between audio capture and session evaluation, so that I can modify audio recording mechanics without triggering shotgun surgery across screen components.
-6. As a privacy-conscious user, I want on-device native speech recognition to produce zero disk files while sharing the exact same interface as cloud transcription, so that my recitation privacy is guaranteed by design.
+### Instant Audio Capture & Warm Standby
+1. As a scripture learner, I want voice recording to begin instantly the moment I press the microphone button, so that I never have to wait or pause before speaking.
+2. As a scripture learner reciting immediately after tapping the button, I want my opening words to be captured fully, so that my first syllables are never clipped or lost.
+3. As a learner entering the review screen, I want the audio hardware to prepare in the background without freezing the UI, so that the screen opens smoothly and remains responsive.
+4. As a learner tapping the microphone button, I want subtle haptic feedback at the instant of touch, so that I have physical confirmation that the device is listening.
+5. As an acoustic engine, I want the audio driver to pre-configure audio mode permissions and native recording objects upon component mount, so that button presses execute in under 15 milliseconds.
+6. As a developer writing tests for recitation flows, I want the `warmUp()` method to be optional and safely no-op in simulated adapters, so that unit tests remain fast and in-memory.
+7. As an application running on the web, I want `WebAudioDriver` to pre-request or warm up media streams smoothly, so that web browser recitation experiences minimal initialization delay.
 
-### Verse Retention & Dashboard Performance
-7. As a scripture memorizer opening the app, I want the home dashboard to load my verses and habit streaks in a single fast query, so that my study screen appears instantly without layout shifts.
-8. As a learner completing a recitation review, I want my streak and review schedule to update together atomically, so that my practice habit always stays in perfect sync with my verse progress.
-9. As a developer maintaining the habit system, I want habit streak calculation to live in the same module as review recording, so that I do not need circular callback functions to calculate due counts.
-10. As a UI engineer modifying the home screen, I want a single `getDashboard` method on the verse engine, so that I do not have to write coordinating logic or manually pass due counts between services.
-11. As a developer writing tests for habit streaks, I want to verify streak increments through the verse engine using an in-memory storage adapter, so that test setup is simple, isolated, and fast.
-12. As a user reviewing multiple verses in quick succession, I want habit statistics to remain consistent without redundant JSON parsing on every action, so that the app remains responsive and battery-efficient.
+### Acoustic Prompting & Model Fidelity
+8. As a scripture learner reciting in Portuguese, I want speech recognition to recognize my actual spoken words without hallucinating phantom abbreviations like `"O Sra. O Sra."`, so that my recitation diff accurately reflects what I spoke.
+9. As a learner testing my scripture memory, I want the speech model not to know the expected verse text in advance, so that if I make a mistake or use a wrong word, the model does not "auto-correct" me to the canonical passage.
+10. As a learner reciting an archaic Bible translation (like Almeida Revista e Corrigida), I want the speech model to know which translation is being recited, so that it accurately transcribes formal biblical vocabulary without replacing it with colloquial slang.
+11. As a learner reciting similar-sounding words, I want transcription to run with deterministic greedy decoding (temperature 0), so that the model accurately distinguishes between *"dar"* and *"dá"*, or *"glória"* and *"graça"*.
+12. As an automated evaluation pipeline, I want verification scoring to remain completely independent of the transcription prompt, so that accuracy grading is always computed mathematically against the stored translation text.
+13. As an English learner reciting King James or World English Bible, I want the acoustic metadata prompt to reflect the English biblical edition without verse text, so that English recitations enjoy the same hallucination-free experience.
+
+### Session Lifecycle & Resilience
+14. As a learner practicing multiple times in a row, I want the audio driver to automatically re-warm after completing or canceling a recitation, so that subsequent recitation attempts remain instantaneous.
+15. As a learner leaving the review screen without reciting, I want unrecorded warm-standby audio resources to dispose cleanly, so that microphone hardware is released and battery is preserved.
+16. As a learner whose microphone permission is not yet granted, I want pre-warming to handle permission denial gracefully without throwing unhandled exceptions, so that the user can grant permission via standard flows.
 
 ---
 
 ## Implementation Decisions
 
-### Seam 1: Unified VoiceInput Seam
-- **Interface Simplification**: The `VoiceInput` interface remains the sole external seam for audio interaction:
-  - `requestPermissions(): Promise<boolean>`
-  - `start(options?: VoiceInputOptions): Promise<void>`
-  - `stop(): Promise<VoiceInputResult>`
-  - `cancel(): Promise<void>`
-- **Module Retirement**: The `AudioRecorderService` class is deleted. Its platform audio drivers (`NativeAudioDriver` and `WebAudioDriver`) become private implementation details inside `CloudAudioVoiceAdapter`.
-- **Transcriber Encapsulation**: The `SpeechTranscriber` interface and its concrete classes (`WhisperTranscriber`, `GroqTranscriber`) become internal implementation details within the cloud voice adapter. Callers outside the voice input module will no longer import or inject `SpeechTranscriber`.
-- **Caller Decoupling**: All occurrences of `transcriber?: SpeechTranscriber` are removed from the props and options of `HomeScreen`, `ReviewScreen`, `useRecitationSession`, and `RecitationSession`. Callers interact exclusively through `VoiceInput`.
-- **Atomic Audio Lifecycle**: Audio file generation, multipart HTTP assembly, and file deletion via `finally` blocks are fully contained within `CloudAudioVoiceAdapter`, ensuring temporary audio URIs never escape the module.
+### Decision 1: Warm Standby Audio Driver Interface
+- The `AudioDriver` interface is deepened with an optional `warmUp(options?: AudioRecordingOptions): Promise<void>` method.
+- `NativeAudioDriver` implements `warmUp`:
+  - Asynchronously configures `AudioModule.setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true })`.
+  - Instantiates the platform audio recorder and calls `prepareToRecordAsync()` in advance, setting an internal `isPrepared` flag.
+- When `startRecording()` is invoked:
+  - If `isPrepared` is true, it synchronously or immediately calls `this.recording.record()`, initiating audio capture in <15ms.
+  - If `isPrepared` is false (fallback for cold starts or edge cases), it awaits `warmUp()` before calling `record()`.
+- After `stopRecording()` or `deleteAudioFile()`, the driver resets `isPrepared = false`.
 
-### Seam 2: Deep VerseEngine Dashboard & Retention Seam
-- **Module Absorption**: The standalone `HabitTracker` class is retired as an external module; its retention streak calculation algorithms, calendar day normalizations, and storage keys are absorbed into `VerseEngine`.
-- **Elimination of Circular Closures**: The `dueCountFn` parameter in constructor options and the `setDueCountFn` mutation method are deleted. Because `VerseEngine` owns all verses, it directly determines due counts without closures.
-- **Unified Query Interface**: `VerseEngine` introduces a unified `getDashboard(now?: Date)` method that returns both `VerseSummary` and `HabitStats` in a single pass.
-- **Atomic Review Lifecycle**: `VerseEngine.recordReview()` directly updates the verse record and the habit streak data in storage, eliminating cross-module notification calls.
-- **Presentation Streamlining**: `HomeScreen` replaces its dual sequential calls with a single invocation of `verseEngine.getDashboard()`, removing the `overrideDueCount` parameter entirely.
+### Decision 2: Unified VoiceInput Seam Delegation
+- The `VoiceInput` interface is extended with an optional `warmUp(): Promise<void>` lifecycle method.
+- `CloudAudioVoiceAdapter` delegates `warmUp()` directly to `this.driver.warmUp?.()`.
+- `NativeStreamVoiceAdapter` pre-checks native permissions and warms up on-device speech recognizer instances.
+- `SimulatedVoiceAdapter` provides an empty asynchronous no-op for hermetic testing.
+
+### Decision 3: RecitationSession Prompt Formatting
+- In `RecitationSession`, prompt construction inside `startReciting()` is updated:
+  - The verbatim verse text (`${this.verse.text}`) is strictly removed.
+  - The prompt is formatted as pure canonical metadata:
+    - Portuguese: `Bíblia Sagrada. Tradução: ${translation}. Referência: ${reference}.`
+    - English: `Holy Bible. Translation: ${translation}. Reference: ${reference}.`
+  - Where `${translation}` defaults to the verse's explicit translation code (e.g. `ALMEIDA`, `WEB`, `KJV`) or the inferred canonical default.
+- The decoding parameter `temperature: '0'` is maintained across all Whisper API requests to ensure deterministic acoustic argmax decoding.
+
+### Decision 4: Lifecycle Pre-Warming in Presentation Surface
+- `useRecitationSession` exposes a `warmUp()` callback and invokes `session.warmUp().catch(() => {})` inside an initial mount effect.
+- `ReviewScreen` triggers `warmUp()` when mounting the active verse card.
+- `FloatingMicButton` or `ReviewScreen` triggers light haptic feedback upon touch down, providing immediate physical confirmation to the learner.
 
 ---
 
 ## Testing Decisions
 
-### Testing Principles
-- Tests must verify external behavior through public module interfaces, never asserting on private internal delegation or pass-through calls.
-- Seams should be tested with realistic in-memory test doubles (`SimulatedVoiceAdapter` for voice, `MapStorageAdapter` for persistence).
-- Trivial tests that merely verify that wrapper methods call underlying driver methods (such as those in the retired `AudioRecorderService.test.ts`) are eliminated in favor of behavior-driven tests.
-
-### Target Module Coverage
-1. **VoiceInput Tests**:
-   - Verify `SimulatedVoiceAdapter` correctly returns configured simulated transcripts and handles cancellation.
-   - Verify `CloudAudioVoiceAdapter` coordinates recording and transcription with atomic temporary file deletion upon success, failure, or cancellation.
-   - Verify `NativeStreamVoiceAdapter` provides streaming speech transcripts without disk file interaction.
-2. **RecitationSession Tests**:
-   - Verify all recitation workflows (Levels 1, 2, and 3, diffing, scoring, and VAD auto-completion) operate cleanly through the single `VoiceInput` seam.
-   - Verify that no tests require passing `transcriber` mocks or configuring secondary audio services.
-3. **VerseEngine Tests**:
-   - Verify `getDashboard()` returns accurate verse summaries and habit streak statistics simultaneously using `MapStorageAdapter`.
-   - Verify `recordReview()` advances verse SRS intervals and increments daily streaks atomically.
-   - Verify streak calculations across date boundaries (consecutive days, skipped days, same-day multiple reviews).
-4. **HomeScreen Tests**:
-   - Verify the dashboard displays verse summaries and habit badges using the unified `getDashboard` method without dual fetching.
+### Seam Testing Strategy
+- Tests must verify external behavior through public module interfaces, avoiding assertions on private variables or internal timer loops.
+- **Seam 1: `AudioDriver`**:
+  - Test that `NativeAudioDriver.warmUp()` pre-configures audio mode and prepares the native recorder.
+  - Test that calling `startRecording()` when already warmed executes `record()` without calling `setAudioModeAsync` again.
+  - Test that calling `startRecording()` without `warmUp()` gracefully prepares and starts recording (defensive backward compatibility).
+- **Seam 2: `VoiceInput` & `RecitationSession`**:
+  - Test that `RecitationSession.warmUp()` delegates to `voiceInput.warmUp()`.
+  - Test that `startReciting()` generates the metadata prompt without verse text, including translation and reference.
+  - Test that evaluation accuracy continues to match verbatim canonical text independently of prompt content.
 
 ### Prior Art
-- Existing `VoiceInput.test.ts` provides the pattern for testing voice adapters.
-- Existing `VerseEngine.test.ts` provides the pattern for evaluating persistence and Spaced Repetition using `MapStorageAdapter`.
+- `src/services/VoiceInput.test.ts`: Unified VoiceInput seam testing verifying adapter mechanics and prompt passing.
+- `src/services/RecitationSession.test.ts`: Session lifecycle tests covering level transitions, VAD triggers, and diff evaluations.
 
 ---
 
 ## Out of Scope
 
-- Modifying the underlying SuperMemo-2 Spaced Repetition mathematical formulas (intervals, ease factors).
-- Altering the visual design tokens, colors, or typography of the home screen or review screen.
-- Changing the VAD quadratic decibel thresholds or silence auto-completion timings established in recent bug fixes.
-- Refactoring `ScriptureCatalog` or `BibleProvider` (already consolidated in Ticket 48).
+- Modifying the Myers Sequence Alignment algorithm or F1 scoring formulas in `RecitationEvaluator`.
+- Continuous background audio streaming over WebSockets.
+- Changing the Spaced Repetition SuperMemo-2 scheduling calculation.
+- Third-party speech transcription providers beyond OpenAI Whisper and Groq Whisper.
 
 ---
 
 ## Further Notes
 
-- These changes align the codebase with the deep-module architecture defined in `/codebase-design`.
-- ADR 0006 (`SpeechTranscriber` seam) is formally superseded by the unified `VoiceInput` seam.
-- ADR 0005 (`VerseEngine` domain architecture) is deepened to encompass habit retention.
+- By eliminating cold-start latency, the application achieves feature parity with top-tier commercial language and voice learning apps (Duolingo).
+- Removing the verse text from the prompt permanently prevents Whisper from masking human memory errors or entering repetitive honorific hallucination loops.

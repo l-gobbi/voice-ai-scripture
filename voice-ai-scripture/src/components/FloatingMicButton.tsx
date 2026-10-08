@@ -21,6 +21,18 @@ export interface FloatingMicButtonProps {
   disabled?: boolean;
 }
 
+export async function triggerHapticFeedback(): Promise<void> {
+  try {
+    const Haptics = require('expo-haptics');
+    if (Haptics && typeof Haptics.impactAsync === 'function') {
+      const style = Haptics.ImpactFeedbackStyle?.Light ?? 'light';
+      await Haptics.impactAsync(style);
+    }
+  } catch {
+    // Non-blocking fallback if expo-haptics is unavailable or platform lacks haptics
+  }
+}
+
 export default function FloatingMicButton({
   isReciting,
   isVerifying = false,
@@ -36,6 +48,12 @@ export default function FloatingMicButton({
   const theme = getTheme(scheme);
 
   const isDisabled = disabled || isVerifying;
+
+  const handlePressIn = () => {
+    if (!isDisabled) {
+      triggerHapticFeedback().catch(() => {});
+    }
+  };
 
   const handlePress = () => {
     if (isDisabled) return;
@@ -103,6 +121,7 @@ export default function FloatingMicButton({
             },
             isDisabled && styles.disabledButton,
           ]}
+          onPressIn={handlePressIn}
           onPress={handlePress}
           disabled={isDisabled}
           activeOpacity={0.85}

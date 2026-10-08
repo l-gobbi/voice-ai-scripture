@@ -23,3 +23,5 @@ desktop.ini
 # Scratch & temporary runtime outputs
 *.tmp
 *.log
+.agent/
+.claude/

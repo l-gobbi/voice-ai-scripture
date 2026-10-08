@@ -5,8 +5,32 @@ import {
   NativeStreamVoiceAdapter,
   createDefaultVoiceInput,
   AudioDriver,
+  NativeAudioDriver,
 } from './VoiceInput';
 import { SpeechTranscriber, TranscriptionError } from './SpeechTranscriber';
+
+const mockSetAudioMode = jest.fn().mockResolvedValue(undefined);
+const mockPrepare = jest.fn().mockResolvedValue(undefined);
+const mockRecord = jest.fn();
+const mockAudioRecorder = jest.fn().mockImplementation(() => ({
+  prepareToRecordAsync: mockPrepare,
+  record: mockRecord,
+  getStatus: jest.fn().mockReturnValue({ isRecording: true, metering: -20 }),
+  stop: jest.fn().mockResolvedValue({ url: 'file:///mock.m4a' }),
+}));
+
+jest.mock('expo-audio', () => ({
+  AudioModule: {
+    setAudioModeAsync: (...args: any[]) => mockSetAudioMode(...args),
+    AudioRecorder: function (...args: any[]) {
+      return mockAudioRecorder(...args);
+    },
+    requestRecordingPermissionsAsync: jest.fn().mockResolvedValue({ granted: true }),
+  },
+  RecordingPresets: {
+    HIGH_QUALITY: { extension: '.m4a', sampleRate: 44100 },
+  },
+}));
 
 describe('VoiceInput Seam (Ticket 45)', () => {
   describe('Slice 1: SimulatedVoiceAdapter', () => {
@@ -289,6 +313,69 @@ describe('VoiceInput Seam (Ticket 45)', () => {
 
       const voice = createDefaultVoiceInput();
       expect(voice).toBeInstanceOf(NativeStreamVoiceAdapter);
+    });
+  });
+
+  describe('Ticket 68: Warm Standby Audio Driver & Pre-Warming Seam', () => {
+    it('CloudAudioVoiceAdapter delegates warmUp to driver', async () => {
+      const mockDriver: AudioDriver = {
+        requestPermissions: jest.fn().mockResolvedValue(true),
+        warmUp: jest.fn().mockResolvedValue(undefined),
+        startRecording: jest.fn().mockResolvedValue(undefined),
+        stopRecording: jest.fn().mockResolvedValue('file:///test.m4a'),
+        deleteAudioFile: jest.fn().mockResolvedValue(true),
+      };
+
+      const adapter = new CloudAudioVoiceAdapter({ driver: mockDriver });
+      await adapter.warmUp?.();
+      expect(mockDriver.warmUp).toHaveBeenCalledTimes(1);
+    });
+
+    it('SimulatedVoiceAdapter provides a no-op warmUp resolving cleanly', async () => {
+      const adapter = new SimulatedVoiceAdapter();
+      await expect(adapter.warmUp?.()).resolves.toBeUndefined();
+    });
+
+    it('NativeAudioDriver warmUp prepares the recorder and startRecording records immediately', async () => {
+      mockSetAudioMode.mockClear();
+      mockPrepare.mockClear();
+      mockRecord.mockClear();
+
+      const driver = new NativeAudioDriver();
+
+      // Warm up
+      await driver.warmUp();
+      expect(mockSetAudioMode).toHaveBeenCalledWith(
+        expect.objectContaining({ allowsRecording: true })
+      );
+      expect(mockPrepare).toHaveBeenCalledTimes(1);
+      expect(mockRecord).not.toHaveBeenCalled();
+
+      // Now start recording immediately
+      await driver.startRecording();
+      expect(mockRecord).toHaveBeenCalledTimes(1);
+      // setAudioModeAsync should NOT have been called a second time
+      expect(mockSetAudioMode).toHaveBeenCalledTimes(1);
+      expect(mockPrepare).toHaveBeenCalledTimes(1);
+
+      // Clean up / stop
+      await driver.stopRecording();
+    });
+
+    it('NativeAudioDriver falls back to warming up if startRecording is called without prior warmUp', async () => {
+      mockSetAudioMode.mockClear();
+      mockPrepare.mockClear();
+      mockRecord.mockClear();
+
+      const driver = new NativeAudioDriver();
+
+      // Call startRecording directly without warmUp
+      await driver.startRecording();
+      expect(mockSetAudioMode).toHaveBeenCalledTimes(1);
+      expect(mockPrepare).toHaveBeenCalledTimes(1);
+      expect(mockRecord).toHaveBeenCalledTimes(1);
+
+      await driver.stopRecording();
     });
   });
 });

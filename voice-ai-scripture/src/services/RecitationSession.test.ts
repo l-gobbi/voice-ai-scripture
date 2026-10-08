@@ -3,6 +3,7 @@ import {
   RecitationState,
   inferVerseLanguage,
   calculateMaxRecitationDurationSeconds,
+  formatAcousticPrompt,
 } from './RecitationSession';
 import { Verse, verseEngine } from './VerseEngine';
 import { SubscriptionService } from './SubscriptionService';
@@ -299,7 +300,7 @@ describe('RecitationSession (Ticket 07)', () => {
 
       expect(startSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          prompt: `${mockVerse.reference}: ${mockVerse.text}`,
+          prompt: 'Holy Bible. Translation: WEB. Reference: John 3:16.',
           language: 'en',
         })
       );
@@ -1189,6 +1190,132 @@ describe('RecitationSession (Ticket 07)', () => {
         const stopSpy = jest.spyOn(session, 'stopAndVerify');
         jest.advanceTimersByTime(300000);
         expect(stopSpy).not.toHaveBeenCalled();
+        session.dispose();
+      });
+    });
+
+    describe('Ticket 67: Acoustic Translation Metadata Prompting', () => {
+      it('formats Portuguese acoustic prompt with translation and reference, omitting verse text', () => {
+        const ptVerse: Verse = {
+          id: 'pt-1',
+          reference: 'Salmos 23:1',
+          text: 'O Senhor é o meu pastor, nada me faltará.',
+          translation: 'ALMEIDA',
+          srs: mockVerse.srs,
+        };
+
+        const prompt = formatAcousticPrompt(ptVerse);
+        expect(prompt).toBe('Bíblia Sagrada. Tradução: ALMEIDA. Referência: Salmos 23:1.');
+        expect(prompt).not.toContain(ptVerse.text);
+        expect(prompt).not.toContain('O Senhor');
+      });
+
+      it('formats English acoustic prompt with translation and reference, omitting verse text', () => {
+        const enVerse: Verse = {
+          id: 'en-1',
+          reference: 'Psalm 23:1',
+          text: 'The Lord is my shepherd; I shall not want.',
+          translation: 'WEB',
+          srs: mockVerse.srs,
+        };
+
+        const prompt = formatAcousticPrompt(enVerse);
+        expect(prompt).toBe('Holy Bible. Translation: WEB. Reference: Psalm 23:1.');
+        expect(prompt).not.toContain(enVerse.text);
+        expect(prompt).not.toContain('The Lord');
+      });
+
+      it('passes metadata prompt to voiceInput.start and verifies verbatim text accurately', async () => {
+        const ptVerse: Verse = {
+          id: 'pt-2',
+          reference: 'Salmos 23:1',
+          text: 'O Senhor é o meu pastor, nada me faltará.',
+          translation: 'ALMEIDA',
+          srs: mockVerse.srs,
+        };
+
+        const mockVoiceInput: VoiceInput = {
+          requestPermissions: jest.fn().mockResolvedValue(true),
+          start: jest.fn().mockResolvedValue(undefined),
+          stop: jest.fn().mockResolvedValue({ transcript: 'O Senhor é o meu pastor, nada me faltará.' }),
+          cancel: jest.fn().mockResolvedValue(undefined),
+        };
+
+        jest.spyOn(verseEngine, 'recordReview').mockResolvedValueOnce({
+          streak: 1,
+          repetitions: 1,
+          intervalDays: 1,
+          easeFactor: 2.5,
+          nextReviewDate: new Date(),
+          passed: true,
+        });
+
+        const session = createTestSession(ptVerse, { voiceInput: mockVoiceInput });
+        await session.startReciting();
+
+        expect(mockVoiceInput.start).toHaveBeenCalledWith(
+          expect.objectContaining({
+            language: 'pt',
+            prompt: 'Bíblia Sagrada. Tradução: ALMEIDA. Referência: Salmos 23:1.',
+          })
+        );
+        const startCall = (mockVoiceInput.start as jest.Mock).mock.calls[0][0];
+        expect(startCall.prompt).not.toContain(ptVerse.text);
+
+        const result = await session.stopAndVerify();
+        expect(result).not.toBeNull();
+        expect(result?.score).toBe(100);
+        expect(result?.passed).toBe(true);
+        session.dispose();
+      });
+    });
+
+    describe('Ticket 69: Instant Recitation Turn-Taking & Pre-Warming', () => {
+      it('warmUp checks permissions and delegates to voiceInput.warmUp()', async () => {
+        const mockVoiceInput: VoiceInput = {
+          requestPermissions: jest.fn().mockResolvedValue(true),
+          warmUp: jest.fn().mockResolvedValue(undefined),
+          start: jest.fn().mockResolvedValue(undefined),
+          stop: jest.fn().mockResolvedValue({ transcript: 'test' }),
+          cancel: jest.fn().mockResolvedValue(undefined),
+        };
+
+        const session = createTestSession(mockVerse, { voiceInput: mockVoiceInput });
+        await session.warmUp();
+
+        expect(mockVoiceInput.requestPermissions).toHaveBeenCalledTimes(1);
+        expect(mockVoiceInput.warmUp).toHaveBeenCalledTimes(1);
+        session.dispose();
+      });
+
+      it('warmUp does not invoke voiceInput.warmUp() if permission is denied', async () => {
+        const mockVoiceInput: VoiceInput = {
+          requestPermissions: jest.fn().mockResolvedValue(false),
+          warmUp: jest.fn().mockResolvedValue(undefined),
+          start: jest.fn().mockResolvedValue(undefined),
+          stop: jest.fn().mockResolvedValue({ transcript: 'test' }),
+          cancel: jest.fn().mockResolvedValue(undefined),
+        };
+
+        const session = createTestSession(mockVerse, { voiceInput: mockVoiceInput });
+        await session.warmUp();
+
+        expect(mockVoiceInput.requestPermissions).toHaveBeenCalledTimes(1);
+        expect(mockVoiceInput.warmUp).not.toHaveBeenCalled();
+        session.dispose();
+      });
+
+      it('warmUp catches and suppresses exceptions gracefully', async () => {
+        const mockVoiceInput: VoiceInput = {
+          requestPermissions: jest.fn().mockRejectedValue(new Error('Hardware failure')),
+          warmUp: jest.fn().mockResolvedValue(undefined),
+          start: jest.fn().mockResolvedValue(undefined),
+          stop: jest.fn().mockResolvedValue({ transcript: 'test' }),
+          cancel: jest.fn().mockResolvedValue(undefined),
+        };
+
+        const session = createTestSession(mockVerse, { voiceInput: mockVoiceInput });
+        await expect(session.warmUp()).resolves.toBeUndefined();
         session.dispose();
       });
     });

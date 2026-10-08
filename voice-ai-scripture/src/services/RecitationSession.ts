@@ -56,6 +56,14 @@ export function inferVerseLanguage(verse: { translation?: string; reference: str
   return scriptureCatalog.detectLanguage(verse);
 }
 
+export function formatAcousticPrompt(verse: { translation?: string; reference: string; text?: string }): string {
+  const language = inferVerseLanguage(verse);
+  const translation = verse.translation || (language === 'pt' ? 'ALMEIDA' : 'WEB');
+  return language === 'pt'
+    ? `Bíblia Sagrada. Tradução: ${translation}. Referência: ${verse.reference}.`
+    : `Holy Bible. Translation: ${translation}. Reference: ${verse.reference}.`;
+}
+
 export type RecitationStatus =
   | 'idle'
   | 'reciting'
@@ -284,6 +292,22 @@ export class RecitationSession {
     await this.synthesizer.speak(this.verse.text, { language: lang });
   }
 
+  /**
+   * Pre-warms the underlying audio capture driver in warm standby (<15ms instant onset).
+   * Verifies microphone permissions and prepares recording buffers in advance so that
+   * recitation begins without audio hardware initialization delay or opening-syllable clipping.
+   */
+  async warmUp(): Promise<void> {
+    try {
+      const hasPermission = await this.voiceInput.requestPermissions();
+      if (hasPermission && typeof this.voiceInput.warmUp === 'function') {
+        await this.voiceInput.warmUp();
+      }
+    } catch (e) {
+      console.warn('[RecitationSession] warmUp error:', e);
+    }
+  }
+
   async startReciting(options?: { unmetered?: boolean }): Promise<void> {
     await this.synthesizer.stop().catch(() => {});
 
@@ -374,7 +398,7 @@ export class RecitationSession {
 
       // 4. Start VoiceInput Streaming / Audio Capture
       const language = inferVerseLanguage(this.verse);
-      const prompt = `${this.verse.reference}: ${this.verse.text}`;
+      const prompt = formatAcousticPrompt(this.verse);
 
       await this.voiceInput.start({
         language,

@@ -50,11 +50,17 @@ export function useRecitationSession(
       setState(nextState);
     });
 
+    session.warmUp().catch(() => {});
+
     return () => {
       unsubscribe();
       session.dispose();
     };
   }, [verse.id, verse.text]);
+
+  const warmUp = useCallback(async () => {
+    await sessionRef.current?.warmUp();
+  }, []);
 
   const startReciting = useCallback(async (opts?: { unmetered?: boolean }) => {
     await sessionRef.current?.startReciting(opts);
@@ -109,6 +115,7 @@ export function useRecitationSession(
     ...state,
     isReciting,
     isVerifying,
+    warmUp,
     startReciting,
     stopAndVerify,
     cancelRecitation,

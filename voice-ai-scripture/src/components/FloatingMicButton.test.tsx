@@ -105,4 +105,15 @@ describe('FloatingMicButton (Ticket 54)', () => {
     fireEvent.press(getByTestId('floating-mic-button'));
     expect(onStart).not.toHaveBeenCalled();
   });
+
+  it('triggers haptic feedback on touch down (pressIn)', async () => {
+    const { getByTestId } = await render(
+      <FloatingMicButton {...defaultProps} />
+    );
+
+    // pressIn triggers haptic feedback without throwing
+    expect(() => {
+      fireEvent(getByTestId('floating-mic-button'), 'pressIn');
+    }).not.toThrow();
+  });
 });

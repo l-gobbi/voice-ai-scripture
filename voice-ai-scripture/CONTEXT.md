@@ -102,6 +102,14 @@ _Avoid_: Mock STT, fake whisper, test transcriber
 A domain-level error representation classifying transcription failures (such as network loss, authentication failure, or rate limits) distinctly from verse recitation scoring.
 _Avoid_: Whisper error, API crash, audio failure
 
+**Warm Standby Audio Driver**:
+The background pre-initialization mechanism that routes audio channels (`setAudioModeAsync`) and prepares native hardware recording buffers (`prepareToRecordAsync`) upon screen mount, enabling synchronous <15ms audio capture without opening-syllable clipping when the user touches down on the floating microphone button.
+_Avoid_: Audio cache, pre-recorder, mic daemon
+
+**Acoustic Translation Metadata Prompting**:
+The practice of supplying only canonical metadata (e.g., `Bíblia Sagrada. Tradução: ALMEIDA. Referência: Salmos 23:1.`) into Whisper's prompt parameter while strictly omitting verbatim verse text, guiding vocabulary and theological register while preventing autoregressive repetition loops over initial audio noise.
+_Avoid_: Whisper system prompt, text conditioning, verse priming
+
 ### Scripture & Translation Infrastructure
 
 **Translation**:
