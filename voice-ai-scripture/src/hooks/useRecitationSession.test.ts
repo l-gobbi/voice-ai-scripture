@@ -59,7 +59,7 @@ describe('useRecitationSession hook (Ticket 08 & 12)', () => {
       repetitions: 1,
       intervalDays: 1,
       easeFactor: 2.5,
-      nextReviewDate: new Date(),
+      nextReviewDate: '2026-10-10',
       passed: true,
     });
 

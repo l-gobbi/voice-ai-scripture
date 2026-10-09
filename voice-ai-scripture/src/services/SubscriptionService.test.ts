@@ -1,6 +1,11 @@
 import { SubscriptionService, subscriptionService, BURST_LIMIT, DAILY_LIMIT } from './SubscriptionService';
 import { MapStorageAdapter, AsyncStorageAdapter } from './StorageAdapter';
 
+// Instants are built from local components (month is 1-based here) so the Study Day
+// (04:00 local rollover) is the same in any machine time zone.
+const at = (year: number, month: number, day: number, hour: number, minute = 0) =>
+  new Date(year, month - 1, day, hour, minute);
+
 describe('SubscriptionService (Ticket 53: Hybrid Abuse-Prevention Rate Limiter)', () => {
   beforeEach(() => {
     jest.useFakeTimers();
@@ -51,34 +56,54 @@ describe('SubscriptionService (Ticket 53: Hybrid Abuse-Prevention Rate Limiter)'
   it('tracks daily count and flags useNativeFallback once reaching 500 recitations/day', async () => {
     const storage = new MapStorageAdapter();
     const service = new SubscriptionService(storage);
+    const now = at(2026, 10, 9, 10, 0);
 
-    // Seed storage with 499 daily recitations for today
-    const today = new Date().toISOString().slice(0, 10);
-    await storage.setItem(`daily_recitations_${today}`, '499');
+    // Seed storage with 499 recitations for today's Study Day
+    await storage.setItem('daily_recitations_2026-10-09', '499');
 
     // 500th recitation is allowed
-    const res500 = await service.consumeRecitation();
+    const res500 = await service.consumeRecitation(now);
     expect(res500.allowed).toBe(true);
     expect(res500.useNativeFallback).toBe(false);
 
     // 501st recitation is STILL allowed, but flags useNativeFallback: true
-    const res501 = await service.consumeRecitation();
+    const res501 = await service.consumeRecitation(now);
     expect(res501.allowed).toBe(true);
     expect(res501.useNativeFallback).toBe(true);
   });
 
-  it('resets daily count on the next calendar day', async () => {
+  it('resets daily count at the start of the next Study Day (04:00 local), not at midnight', async () => {
     const storage = new MapStorageAdapter();
     const service = new SubscriptionService(storage);
 
-    // Seed storage with 500 recitations for yesterday
-    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
-    await storage.setItem(`daily_recitations_${yesterday}`, '500');
+    // Seed storage with 500 recitations for Study Day Oct 8
+    await storage.setItem('daily_recitations_2026-10-08', '500');
 
-    // Today should start fresh at 0
-    const res = await service.consumeRecitation();
-    expect(res.allowed).toBe(true);
-    expect(res.useNativeFallback).toBe(false);
+    // 00:30 and 03:59 on Oct 9 still belong to Study Day Oct 8: the quota is spent
+    expect(await service.getRemainingFreeRecitations(at(2026, 10, 9, 0, 30))).toBe(0);
+    const lateNight = await service.consumeRecitation(at(2026, 10, 9, 3, 59));
+    expect(lateNight.allowed).toBe(true);
+    expect(lateNight.useNativeFallback).toBe(true);
+
+    // 04:00 starts Study Day Oct 9 with a fresh quota
+    expect(await service.getRemainingFreeRecitations(at(2026, 10, 9, 4, 0))).toBe(DAILY_LIMIT);
+    const morning = await service.consumeRecitation(at(2026, 10, 9, 4, 0));
+    expect(morning.allowed).toBe(true);
+    expect(morning.useNativeFallback).toBe(false);
+    expect(morning.remaining).toBe(DAILY_LIMIT - 1);
+  });
+
+  it('counts a recitation at 00:30 toward the same Study Day as one at 23:30', async () => {
+    const storage = new MapStorageAdapter();
+    const service = new SubscriptionService(storage);
+
+    await service.consumeRecitation(at(2026, 10, 8, 23, 30));
+    const afterMidnight = await service.consumeRecitation(at(2026, 10, 9, 0, 30));
+
+    expect(afterMidnight.remaining).toBe(DAILY_LIMIT - 2);
+    expect(await service.getRemainingFreeRecitations(at(2026, 10, 9, 3, 0))).toBe(DAILY_LIMIT - 2);
+    // The count is stored under the Study Day, keeping the existing key prefix.
+    expect(await storage.getItem('daily_recitations_2026-10-08')).toBe('2');
   });
 
   it('supports backward-compatible static singleton methods', async () => {

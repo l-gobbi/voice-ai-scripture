@@ -8,22 +8,18 @@ import {
   HabitStats,
   StoredHabitData,
   HABIT_STORAGE_KEY,
-  toCalendarDateString,
-  getYesterdayCalendarString,
 } from './VerseEngine';
 
 export {
   HabitStats,
   StoredHabitData,
   HABIT_STORAGE_KEY,
-  toCalendarDateString,
-  getYesterdayCalendarString,
 };
 
 /**
  * HabitTracker (Compatibility Facade)
- * All streak calculations, calendar day normalizations, and persistence
- * are canonically owned by the deep VerseEngine module.
+ * All streak calculations and persistence are canonically owned by the deep
+ * VerseEngine module; days are Study Days from the Study Day module.
  */
 export class HabitTracker {
   private engine: VerseEngine;

@@ -14,6 +14,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
 import { verseEngine, Verse, VerseSummary, HabitStats } from '../services/VerseEngine';
+import { addStudyDays, toStudyDay } from '../engines/studyDay';
 import ReviewScreen from './ReviewScreen';
 import PackBrowserModal from '../components/PackBrowserModal';
 import ReminderSettingsModal from '../components/ReminderSettingsModal';
@@ -159,13 +160,13 @@ export default function HomeScreen({ voiceInput }: HomeScreenProps = {}) {
               text: verse.text,
               translation: verse.translation,
             });
-            const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+            const nextStudyDay = addStudyDays(toStudyDay(new Date()), 1);
             await verseEngine.updateVerse(added.id, {
               srs: {
                 streak: 1,
                 intervalDays: 1,
                 easeFactor: 2.5,
-                nextReviewDate: tomorrow.toISOString(),
+                nextReviewDate: nextStudyDay,
                 lastScore: 100,
               },
             });

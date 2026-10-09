@@ -1,4 +1,5 @@
 import { StorageAdapter, AsyncStorageAdapter } from './StorageAdapter';
+import { toStudyDay } from '../engines/studyDay';
 
 export const SUB_KEY = 'user_is_subscribed';
 export const FREE_QUOTA_KEY = 'free_recitations_remaining';
@@ -7,6 +8,7 @@ export const INITIAL_FREE_QUOTA = 3;
 export const BURST_LIMIT = 10;
 export const BURST_WINDOW_MS = 60000; // 60 seconds
 export const DAILY_LIMIT = 500;
+/** The daily count is stored under this prefix plus the Study Day, e.g. `daily_recitations_2026-10-09`. */
 export const DAILY_KEY_PREFIX = 'daily_recitations_';
 
 export interface RateLimitResult {
@@ -28,12 +30,12 @@ export class SubscriptionService {
     return subscriptionService.isSubscribed();
   }
 
-  static async getRemainingFreeRecitations(): Promise<number> {
-    return subscriptionService.getRemainingFreeRecitations();
+  static async getRemainingFreeRecitations(now?: Date): Promise<number> {
+    return subscriptionService.getRemainingFreeRecitations(now);
   }
 
-  static async consumeRecitation(): Promise<RateLimitResult> {
-    return subscriptionService.consumeRecitation();
+  static async consumeRecitation(now?: Date): Promise<RateLimitResult> {
+    return subscriptionService.consumeRecitation(now);
   }
 
   static async subscribePremium(): Promise<void> {
@@ -55,7 +57,7 @@ export class SubscriptionService {
     }
   }
 
-  async getRemainingFreeRecitations(): Promise<number> {
+  async getRemainingFreeRecitations(now: Date = new Date()): Promise<number> {
     const isSub = await this.isSubscribed();
     if (isSub) return Infinity;
 
@@ -71,7 +73,7 @@ export class SubscriptionService {
       }
     }
 
-    const todayKey = this.getTodayKey();
+    const todayKey = this.getTodayKey(now);
     const val = await this.storage.getItem(todayKey);
     if (val !== null) {
       const count = parseInt(val, 10) || 0;
@@ -81,12 +83,12 @@ export class SubscriptionService {
     return DAILY_LIMIT;
   }
 
-  private getTodayKey(): string {
-    const today = new Date().toISOString().slice(0, 10);
-    return `${DAILY_KEY_PREFIX}${today}`;
+  /** The daily quota resets at the start of the Study Day (04:00 local), not at UTC midnight. */
+  private getTodayKey(now: Date): string {
+    return `${DAILY_KEY_PREFIX}${toStudyDay(now)}`;
   }
 
-  async consumeRecitation(): Promise<RateLimitResult> {
+  async consumeRecitation(now: Date = new Date()): Promise<RateLimitResult> {
     if (
       this === subscriptionService &&
       !this.isConsuming &&
@@ -94,7 +96,7 @@ export class SubscriptionService {
     ) {
       try {
         this.isConsuming = true;
-        return await SubscriptionService.consumeRecitation();
+        return await SubscriptionService.consumeRecitation(now);
       } finally {
         this.isConsuming = false;
       }
@@ -124,16 +126,16 @@ export class SubscriptionService {
       }
     }
 
-    const now = Date.now();
+    const nowMs = now.getTime();
 
     // 1. Sliding window burst limit check (10 calls / 60 seconds)
     this.recentTimestamps = this.recentTimestamps.filter(
-      (ts) => now - ts < BURST_WINDOW_MS
+      (ts) => nowMs - ts < BURST_WINDOW_MS
     );
 
     if (this.recentTimestamps.length >= BURST_LIMIT) {
       const oldest = this.recentTimestamps[0];
-      const retryAfterSeconds = Math.max(1, Math.ceil((oldest + BURST_WINDOW_MS - now) / 1000));
+      const retryAfterSeconds = Math.max(1, Math.ceil((oldest + BURST_WINDOW_MS - nowMs) / 1000));
       return {
         allowed: false,
         reason: 'rate_limited',
@@ -142,10 +144,10 @@ export class SubscriptionService {
       };
     }
 
-    this.recentTimestamps.push(now);
+    this.recentTimestamps.push(nowMs);
 
-    // 2. Daily ceiling check (500 calls / calendar day)
-    const todayKey = this.getTodayKey();
+    // 2. Daily ceiling check (500 calls / Study Day)
+    const todayKey = this.getTodayKey(now);
     let currentDaily = 0;
     try {
       const raw = await this.storage.getItem(todayKey);

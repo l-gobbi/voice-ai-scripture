@@ -153,7 +153,7 @@ describe('RecitationSession (Ticket 07)', () => {
         repetitions: 1,
         intervalDays: 1,
         easeFactor: 2.5,
-        nextReviewDate: new Date(),
+        nextReviewDate: '2026-10-10',
         passed: true,
       });
 
@@ -177,7 +177,7 @@ describe('RecitationSession (Ticket 07)', () => {
         repetitions: 0,
         intervalDays: 1,
         easeFactor: 2.5,
-        nextReviewDate: new Date(),
+        nextReviewDate: '2026-10-10',
         passed: false,
       });
 
@@ -203,7 +203,7 @@ describe('RecitationSession (Ticket 07)', () => {
         repetitions: 1,
         intervalDays: 1,
         easeFactor: 2.5,
-        nextReviewDate: new Date(),
+        nextReviewDate: '2026-10-10',
         passed: true,
       });
 
@@ -287,7 +287,7 @@ describe('RecitationSession (Ticket 07)', () => {
         repetitions: 1,
         intervalDays: 1,
         easeFactor: 2.5,
-        nextReviewDate: new Date(),
+        nextReviewDate: '2026-10-10',
         passed: true,
       });
 
@@ -312,7 +312,7 @@ describe('RecitationSession (Ticket 07)', () => {
         repetitions: 1,
         intervalDays: 1,
         easeFactor: 2.5,
-        nextReviewDate: new Date(),
+        nextReviewDate: '2026-10-10',
         passed: true,
       });
 
@@ -335,7 +335,7 @@ describe('RecitationSession (Ticket 07)', () => {
         repetitions: 0,
         intervalDays: 1,
         easeFactor: 2.5,
-        nextReviewDate: new Date(),
+        nextReviewDate: '2026-10-10',
         passed: false,
       });
 
@@ -412,7 +412,7 @@ describe('RecitationSession (Ticket 07)', () => {
         streak: 1,
         intervalDays: 1,
         easeFactor: 2.5,
-        nextReviewDate: new Date(),
+        nextReviewDate: '2026-10-10',
       });
 
       const ptVerse: Verse = {
@@ -442,7 +442,7 @@ describe('RecitationSession (Ticket 07)', () => {
         streak: 1,
         intervalDays: 1,
         easeFactor: 2.5,
-        nextReviewDate: new Date(),
+        nextReviewDate: '2026-10-10',
       });
 
       const enVerse: Verse = {
@@ -472,7 +472,7 @@ describe('RecitationSession (Ticket 07)', () => {
         streak: 1,
         intervalDays: 1,
         easeFactor: 2.5,
-        nextReviewDate: new Date(),
+        nextReviewDate: '2026-10-10',
       });
 
       const nviVerse: Verse = {
@@ -502,7 +502,7 @@ describe('RecitationSession (Ticket 07)', () => {
         streak: 1,
         intervalDays: 1,
         easeFactor: 2.5,
-        nextReviewDate: new Date(),
+        nextReviewDate: '2026-10-10',
       });
 
       const customPtVerse: Verse = {
@@ -532,7 +532,7 @@ describe('RecitationSession (Ticket 07)', () => {
         streak: 1,
         intervalDays: 1,
         easeFactor: 2.5,
-        nextReviewDate: new Date(),
+        nextReviewDate: '2026-10-10',
       });
 
       const customEnVerse: Verse = {
@@ -588,7 +588,7 @@ describe('RecitationSession (Ticket 07)', () => {
         repetitions: 1,
         intervalDays: 1,
         easeFactor: 2.5,
-        nextReviewDate: new Date(),
+        nextReviewDate: '2026-10-10',
         passed: false, // 75% is < 80% passing threshold
       });
 
@@ -830,7 +830,7 @@ describe('RecitationSession (Ticket 07)', () => {
         repetitions: 1,
         intervalDays: 1,
         easeFactor: 2.5,
-        nextReviewDate: new Date(),
+        nextReviewDate: '2026-10-10',
         passed: false,
       });
 
@@ -1246,7 +1246,7 @@ describe('RecitationSession (Ticket 07)', () => {
           repetitions: 1,
           intervalDays: 1,
           easeFactor: 2.5,
-          nextReviewDate: new Date(),
+          nextReviewDate: '2026-10-10',
           passed: true,
         });
 

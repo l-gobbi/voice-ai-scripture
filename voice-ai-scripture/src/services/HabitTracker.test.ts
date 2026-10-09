@@ -1,6 +1,11 @@
 import { HabitTracker, HabitStats } from './HabitTracker';
 import { MapStorageAdapter } from './StorageAdapter';
 
+// Instants are built from local components (month is 1-based here) so the Study Day
+// (04:00 local rollover) is the same in any machine time zone.
+const at = (year: number, month: number, day: number, hour: number, minute = 0) =>
+  new Date(year, month - 1, day, hour, minute);
+
 describe('HabitTracker Seam (Ticket 47)', () => {
   let storage: MapStorageAdapter;
   let getDueCountMock: jest.Mock<Promise<number>, []>;
@@ -13,7 +18,7 @@ describe('HabitTracker Seam (Ticket 47)', () => {
   });
 
   it('returns initial zeroed habit statistics when no activity recorded', async () => {
-    const stats = await tracker.getHabitStats(new Date('2026-10-05T12:00:00Z'));
+    const stats = await tracker.getHabitStats(at(2026, 10, 5, 12, 0));
     expect(stats.currentStreak).toBe(0);
     expect(stats.longestStreak).toBe(0);
     expect(stats.lastActiveDate).toBeNull();
@@ -23,7 +28,7 @@ describe('HabitTracker Seam (Ticket 47)', () => {
   });
 
   it('records first activity and initializes streak to 1', async () => {
-    const today = new Date('2026-10-05T10:00:00Z');
+    const today = at(2026, 10, 5, 10, 0);
     const stats = await tracker.recordActivity('verse-1', true, today);
 
     expect(stats.currentStreak).toBe(1);
@@ -32,8 +37,8 @@ describe('HabitTracker Seam (Ticket 47)', () => {
     expect(stats.completedTodayCount).toBe(1);
   });
 
-  it('maintains streak on multiple reviews on the same calendar day', async () => {
-    const today = new Date('2026-10-05T10:00:00Z');
+  it('maintains streak on multiple reviews on the same Study Day', async () => {
+    const today = at(2026, 10, 5, 10, 0);
     await tracker.recordActivity('verse-1', true, today);
     const stats = await tracker.recordActivity('verse-2', true, today);
 
@@ -42,9 +47,9 @@ describe('HabitTracker Seam (Ticket 47)', () => {
     expect(stats.completedTodayCount).toBe(2);
   });
 
-  it('increments streak on consecutive calendar day review', async () => {
-    const day1 = new Date('2026-10-05T10:00:00Z');
-    const day2 = new Date('2026-10-06T10:00:00Z');
+  it('increments streak on consecutive Study Day review', async () => {
+    const day1 = at(2026, 10, 5, 10, 0);
+    const day2 = at(2026, 10, 6, 10, 0);
 
     await tracker.recordActivity('verse-1', true, day1);
     const statsDay2 = await tracker.recordActivity('verse-2', true, day2);
@@ -56,11 +61,11 @@ describe('HabitTracker Seam (Ticket 47)', () => {
   });
 
   it('resets streak to 0 if a full day is missed when querying stats', async () => {
-    const day1 = new Date('2026-10-01T10:00:00Z');
+    const day1 = at(2026, 10, 1, 10, 0);
     await tracker.recordActivity('verse-1', true, day1);
 
     // Query 3 days later
-    const day4 = new Date('2026-10-04T10:00:00Z');
+    const day4 = at(2026, 10, 4, 10, 0);
     const stats = await tracker.getHabitStats(day4);
 
     expect(stats.currentStreak).toBe(0);
@@ -69,13 +74,13 @@ describe('HabitTracker Seam (Ticket 47)', () => {
   });
 
   it('re-starts streak at 1 after a missed day when recording new activity', async () => {
-    const day1 = new Date('2026-10-01T10:00:00Z');
-    const day2 = new Date('2026-10-02T10:00:00Z');
+    const day1 = at(2026, 10, 1, 10, 0);
+    const day2 = at(2026, 10, 2, 10, 0);
     await tracker.recordActivity('verse-1', true, day1);
     await tracker.recordActivity('verse-2', true, day2);
 
     // Missed 2026-10-03, activity on 2026-10-04
-    const day4 = new Date('2026-10-04T10:00:00Z');
+    const day4 = at(2026, 10, 4, 10, 0);
     const stats = await tracker.recordActivity('verse-3', true, day4);
 
     expect(stats.currentStreak).toBe(1);
@@ -84,7 +89,7 @@ describe('HabitTracker Seam (Ticket 47)', () => {
   });
 
   it('only counts verse toward completedTodayCount if wasDue is true', async () => {
-    const today = new Date('2026-10-05T10:00:00Z');
+    const today = at(2026, 10, 5, 10, 0);
     await tracker.recordActivity('verse-1', false, today);
 
     const stats = await tracker.getHabitStats(today);
@@ -93,7 +98,7 @@ describe('HabitTracker Seam (Ticket 47)', () => {
   });
 
   it('resets all habit tracking data when resetHabit is invoked', async () => {
-    const day1 = new Date('2026-10-05T10:00:00Z');
+    const day1 = at(2026, 10, 5, 10, 0);
     await tracker.recordActivity('verse-1', true, day1);
 
     await tracker.resetHabit();

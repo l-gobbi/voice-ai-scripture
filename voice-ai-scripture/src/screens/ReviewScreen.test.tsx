@@ -111,7 +111,7 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
       repetitions: 1,
       intervalDays: 1,
       easeFactor: 2.5,
-      nextReviewDate: new Date(),
+      nextReviewDate: '2026-10-10',
       passed: true,
     });
 

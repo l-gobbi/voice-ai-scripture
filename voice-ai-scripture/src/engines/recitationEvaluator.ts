@@ -5,6 +5,7 @@ import {
   SRSResult,
   DEFAULT_SRS_STATE,
 } from './srsEngine';
+import { readStudyDay } from './studyDay';
 
 export { DiffToken, SRSState, SRSResult };
 
@@ -49,9 +50,8 @@ export function evaluateRecitation(input: EvaluationInput): RecitationEvaluation
   if (input.isUnmetered) {
     srsResult = {
       ...simulatedSRS,
-      nextReviewDate: input.currentSRS?.nextReviewDate
-        ? new Date(input.currentSRS.nextReviewDate)
-        : simulatedSRS.nextReviewDate,
+      // Keep the stored due Study Day (legacy ISO timestamps read as the Study Day they fall in).
+      nextReviewDate: readStudyDay(input.currentSRS?.nextReviewDate) ?? simulatedSRS.nextReviewDate,
       intervalDays: srsState.intervalDays ?? 0,
       streak: srsState.streak ?? 0,
     };

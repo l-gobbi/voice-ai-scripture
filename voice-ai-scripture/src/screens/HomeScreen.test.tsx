@@ -6,6 +6,7 @@ import { verseEngine } from '../services/VerseEngine';
 import { SimulatedVoiceAdapter } from '../services/VoiceInput';
 import * as Clipboard from 'expo-clipboard';
 import { encodeDeckPayload } from '../utils/deckSharing';
+import { addStudyDays, toStudyDay } from '../engines/studyDay';
 
 // Mock verseEngine
 jest.mock('../services/VerseEngine', () => {
@@ -562,9 +563,11 @@ describe('HomeScreen Integration (Ticket 16)', () => {
       expect(await findByText('Add Acts 2:38 to your memory verses?')).toBeTruthy();
 
       // Tap Add to My Verses
+      const studyDayBeforeSave = toStudyDay(new Date());
       await act(async () => {
         fireEvent.press(getByTestId('sandbox-opt-in-save'));
       });
+      const studyDayAfterSave = toStudyDay(new Date());
 
       // Verify verseEngine.addVerse was called
       expect(verseEngine.addVerse).toHaveBeenCalledWith(
@@ -574,15 +577,20 @@ describe('HomeScreen Integration (Ticket 16)', () => {
         })
       );
 
-      // Verify verseEngine.updateVerse was called to schedule for tomorrow
+      // Verify verseEngine.updateVerse was called to schedule for the next Study Day
       expect(verseEngine.updateVerse).toHaveBeenCalledWith(
         '1',
         expect.objectContaining({
           srs: expect.objectContaining({
             intervalDays: 1,
             streak: 1,
+            nextReviewDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
           }),
         })
+      );
+      const savedDueStudyDay = (verseEngine.updateVerse as jest.Mock).mock.calls[0][1].srs.nextReviewDate;
+      expect([addStudyDays(studyDayBeforeSave, 1), addStudyDays(studyDayAfterSave, 1)]).toContain(
+        savedDueStudyDay
       );
     });
 

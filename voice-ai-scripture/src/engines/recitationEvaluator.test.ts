@@ -6,7 +6,7 @@ describe('RecitationEvaluator Pipeline (Ticket 43)', () => {
     streak: 2,
     intervalDays: 4,
     easeFactor: 2.5,
-    nextReviewDate: new Date('2026-10-01T00:00:00Z').toISOString(),
+    nextReviewDate: '2026-10-01',
   };
 
   it('evaluates exact match verbatim recitation to 100% score and passing SRS progression', () => {
@@ -65,6 +65,19 @@ describe('RecitationEvaluator Pipeline (Ticket 43)', () => {
     expect(result.finalScore).toBe(100);
     expect(result.srsResult.streak).toBe(2); // Retains original streak in unmetered mode
     expect(result.srsResult.intervalDays).toBe(4); // Retains original intervalDays
+    expect(result.srsResult.nextReviewDate).toBe('2026-10-01'); // Retains the due Study Day
+  });
+
+  it('unmetered mode reads a legacy ISO due timestamp as the Study Day it falls in', () => {
+    const result = evaluateRecitation({
+      expectedText: 'John 3:16 text',
+      transcribedText: 'John 3:16 text',
+      // 02:00 local on Oct 2 still belongs to Study Day Oct 1 (rollover at 04:00).
+      currentSRS: { ...currentSRS, nextReviewDate: new Date(2026, 9, 2, 2, 0).toISOString() },
+      isUnmetered: true,
+    });
+
+    expect(result.srsResult.nextReviewDate).toBe('2026-10-01');
   });
 
   it('evaluates Portuguese honorific abbreviation expansion (Sra. -> Senhora, Sr. -> Senhor)', () => {

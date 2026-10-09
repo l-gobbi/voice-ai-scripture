@@ -1,3 +1,5 @@
+import { StudyDay, addStudyDays, compareStudyDays, readStudyDay, toStudyDay } from './studyDay';
+
 export interface SRSState {
   intervalDays: number;
   streak: number;
@@ -6,7 +8,8 @@ export interface SRSState {
 }
 
 export interface SRSResult extends SRSState {
-  nextReviewDate: Date;
+  /** The due Study Day: the Study Day of the review plus `intervalDays` Study Days. */
+  nextReviewDate: StudyDay;
   passed: boolean;
 }
 
@@ -26,9 +29,10 @@ export interface CalculateNextReviewOptions {
 
 /**
  * Calculates the next review date based on a simplified SuperMemo-2 (SM-2) algorithm.
+ * Intervals are counted in Study Days from the Study Day the review falls in.
  * @param currentState Current repetition and interval state
  * @param score Accuracy score from 0 to 100
- * @param now Reference date (defaults to current time)
+ * @param now Instant of the review (defaults to current time); only its Study Day matters
  * @param options Optional flags such as assistanceUsed
  */
 export function calculateNextReview(
@@ -71,7 +75,7 @@ export function calculateNextReview(
     easeFactor = Math.max(1.3, easeFactor + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02)));
   }
 
-  const nextReviewDate = new Date(now.getTime() + intervalDays * 24 * 60 * 60 * 1000);
+  const nextReviewDate = addStudyDays(toStudyDay(now), intervalDays);
 
   return {
     streak,
@@ -84,13 +88,12 @@ export function calculateNextReview(
 }
 
 /**
- * Determines whether a verse is currently due for review.
- * A verse is due if it has never been reviewed or its scheduled date is past or equal to now.
+ * Determines whether a verse is a Due Verse: its due Study Day is today's Study Day or earlier.
+ * A verse with no (or an unreadable) due date is due. Accepts a stored Study Day string,
+ * a legacy ISO timestamp (read as the Study Day it falls in) or a Date.
  */
 export function isVerseDue(nextReviewDate?: Date | string | null, now: Date = new Date()): boolean {
-  if (!nextReviewDate) return true;
-  const reviewTime = typeof nextReviewDate === 'string'
-    ? new Date(nextReviewDate).getTime()
-    : nextReviewDate.getTime();
-  return reviewTime <= now.getTime();
+  const dueStudyDay = readStudyDay(nextReviewDate);
+  if (!dueStudyDay) return true;
+  return compareStudyDays(dueStudyDay, toStudyDay(now)) <= 0;
 }

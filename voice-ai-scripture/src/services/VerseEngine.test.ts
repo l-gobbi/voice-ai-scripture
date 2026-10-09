@@ -1,4 +1,10 @@
 import { VerseEngine, MapStorageAdapter, Verse, resolveDefaultTranslation } from './VerseEngine';
+import { isStudyDay } from '../engines/studyDay';
+
+// Instants are built from local components (month is 1-based here) so every test holds in
+// any machine time zone. The Study Day rolls over at 04:00 local time.
+const at = (year: number, month: number, day: number, hour: number, minute = 0) =>
+  new Date(year, month - 1, day, hour, minute);
 
 describe('VerseEngine (Ticket 09)', () => {
   describe('Slice 1: In-Memory / Pluggable Storage & Basic CRUD', () => {
@@ -16,7 +22,7 @@ describe('VerseEngine (Ticket 09)', () => {
       expect(created.text).toBe('For God so loved the world...');
       expect(created.srs).toBeDefined();
       expect(created.srs?.streak).toBe(0);
-      expect(created.srs?.nextReviewDate).toBeDefined();
+      expect(isStudyDay(created.srs?.nextReviewDate)).toBe(true);
 
       const all = await engine.getAllVerses();
       expect(all).toHaveLength(1);
@@ -65,20 +71,20 @@ describe('VerseEngine (Ticket 09)', () => {
       const storage = new MapStorageAdapter();
       const engine = new VerseEngine(storage);
 
-      const now = new Date('2026-09-17T12:00:00.000Z');
+      const now = at(2026, 9, 17, 12, 0);
 
       // Verse 1: Due in the past (overdue)
       const v1 = await engine.addVerse({ reference: 'John 1:1', text: 'In the beginning...' });
-      // Verse 2: Due exactly now
+      // Verse 2: Due on the current Study Day
       const v2 = await engine.addVerse({ reference: 'Psalm 23:1', text: 'The Lord is my shepherd...' });
       // Verse 3: Due tomorrow (future)
       const v3 = await engine.addVerse({ reference: 'Proverbs 3:5', text: 'Trust in the Lord...' });
 
       // Directly adjust dates in storage to simulate schedule states
       const all = await engine.getAllVerses();
-      all.find((v) => v.id === v1.id)!.srs!.nextReviewDate = new Date('2026-09-16T12:00:00.000Z').toISOString();
-      all.find((v) => v.id === v2.id)!.srs!.nextReviewDate = new Date('2026-09-17T12:00:00.000Z').toISOString();
-      all.find((v) => v.id === v3.id)!.srs!.nextReviewDate = new Date('2026-09-18T12:00:00.000Z').toISOString();
+      all.find((v) => v.id === v1.id)!.srs!.nextReviewDate = '2026-09-16';
+      all.find((v) => v.id === v2.id)!.srs!.nextReviewDate = '2026-09-17';
+      all.find((v) => v.id === v3.id)!.srs!.nextReviewDate = '2026-09-18';
       await storage.setItem('verses', JSON.stringify(all));
 
       const summary = await engine.getVersesSummary(now);
@@ -91,25 +97,25 @@ describe('VerseEngine (Ticket 09)', () => {
   });
 
   describe('Slice 3: Unified Review Recording & SM-2 Progression', () => {
-    it('advances streak and calculates next review on passing score', async () => {
+    it('advances streak and schedules the next review on the next Study Day on passing score', async () => {
       const storage = new MapStorageAdapter();
       const engine = new VerseEngine(storage);
 
       const verse = await engine.addVerse({ reference: '1 John 4:19', text: 'We love because he first loved us.' });
-      const now = new Date('2026-09-17T10:00:00.000Z');
+      const now = at(2026, 9, 17, 10, 0);
 
       const srsResult = await engine.recordReview(verse.id, 100, now);
 
       expect(srsResult.streak).toBe(1);
       expect(srsResult.repetitions).toBe(1);
       expect(srsResult.intervalDays).toBe(1);
-      expect(srsResult.nextReviewDate).toEqual(new Date('2026-09-18T10:00:00.000Z'));
+      expect(srsResult.nextReviewDate).toBe('2026-09-18');
 
       const all = await engine.getAllVerses();
       const updated = all.find((v) => v.id === verse.id);
       expect(updated?.srs?.streak).toBe(1);
       expect(updated?.srs?.intervalDays).toBe(1);
-      expect(updated?.srs?.nextReviewDate).toBe(new Date('2026-09-18T10:00:00.000Z').toISOString());
+      expect(updated?.srs?.nextReviewDate).toBe('2026-09-18');
     });
 
     it('resets streak to 0 on failing score', async () => {
@@ -117,7 +123,7 @@ describe('VerseEngine (Ticket 09)', () => {
       const engine = new VerseEngine(storage);
 
       const verse = await engine.addVerse({ reference: 'Galatians 5:22', text: 'The fruit of the Spirit...' });
-      const now = new Date('2026-09-17T10:00:00.000Z');
+      const now = at(2026, 9, 17, 10, 0);
 
       // Pre-set streak to 3 in storage
       const all = await engine.getAllVerses();
@@ -126,7 +132,7 @@ describe('VerseEngine (Ticket 09)', () => {
         repetitions: 3,
         intervalDays: 14,
         easeFactor: 2.5,
-        nextReviewDate: now.toISOString(),
+        nextReviewDate: '2026-09-17',
       };
       await storage.setItem('verses', JSON.stringify(all));
 
@@ -145,7 +151,7 @@ describe('VerseEngine (Ticket 09)', () => {
       const engine = new VerseEngine(storage);
 
       const verse = await engine.addVerse({ reference: 'Psalm 119:105', text: 'Your word is a lamp...' });
-      const now = new Date('2026-09-17T10:00:00.000Z');
+      const now = at(2026, 9, 17, 10, 0);
 
       const srsResult = await engine.recordReview(verse.id, 0, now);
 
@@ -163,7 +169,7 @@ describe('VerseEngine (Ticket 09)', () => {
 
       const vPass = await engine.addVerse({ reference: 'Hebrews 11:1', text: 'Now faith is confidence...' });
       const vFail = await engine.addVerse({ reference: 'Hebrews 11:6', text: 'And without faith...' });
-      const now = new Date('2026-09-17T10:00:00.000Z');
+      const now = at(2026, 9, 17, 10, 0);
 
       const passResult = await engine.recordReview(vPass.id, 80, now);
       const failResult = await engine.recordReview(vFail.id, 79, now);
@@ -424,7 +430,7 @@ describe('VerseEngine (Ticket 09)', () => {
       const engine = new VerseEngine(storage);
       const v1 = await engine.addVerse({ reference: 'John 3:16', text: 'For God so loved...' });
 
-      const day1 = new Date('2026-09-18T10:00:00Z');
+      const day1 = at(2026, 9, 18, 10, 0);
       await engine.recordReview(v1.id, 100, day1);
 
       const dashboard = await engine.getDashboard(day1);
@@ -437,8 +443,7 @@ describe('VerseEngine (Ticket 09)', () => {
       const storage = new MapStorageAdapter();
       const engine = new VerseEngine(storage);
 
-      const now = new Date('2026-09-18T10:00:00Z');
-      const tomorrow = new Date('2026-09-19T10:00:00Z');
+      const now = at(2026, 9, 18, 10, 0);
 
       const verse = await engine.addVerse({ reference: 'John 3:16', text: 'Text' });
       await engine.updateVerse(verse.id, {
@@ -446,7 +451,7 @@ describe('VerseEngine (Ticket 09)', () => {
           streak: 1,
           intervalDays: 1,
           easeFactor: 2.5,
-          nextReviewDate: tomorrow.toISOString(),
+          nextReviewDate: '2026-09-19',
           lastScore: 100,
         },
       });
@@ -491,7 +496,7 @@ describe('VerseEngine (Ticket 09)', () => {
 
       expect(engine.getNextReviewMessage([])).toBe('Next review due tomorrow');
 
-      const now = new Date('2026-09-18T10:00:00Z');
+      const now = at(2026, 9, 18, 10, 0);
       const tomorrowVerse = {
         id: '1',
         reference: 'John 3:16',
@@ -500,7 +505,7 @@ describe('VerseEngine (Ticket 09)', () => {
           streak: 1,
           intervalDays: 1,
           easeFactor: 2.5,
-          nextReviewDate: '2026-09-19T10:00:00Z',
+          nextReviewDate: '2026-09-19',
         },
       };
       expect(engine.getNextReviewMessage([tomorrowVerse as any], now)).toBe(
@@ -515,7 +520,7 @@ describe('VerseEngine (Ticket 09)', () => {
           streak: 3,
           intervalDays: 3,
           easeFactor: 2.5,
-          nextReviewDate: '2026-09-21T10:00:00Z',
+          nextReviewDate: '2026-09-21',
         },
       };
       expect(engine.getNextReviewMessage([in3DaysVerse as any], now)).toBe(
@@ -571,7 +576,7 @@ describe('VerseEngine (Ticket 09)', () => {
     it('recordReview() atomically updates SRS schedule and daily habit streak', async () => {
       const storage = new MapStorageAdapter();
       const engine = new VerseEngine(storage);
-      const day1 = new Date('2026-10-06T10:00:00Z');
+      const day1 = at(2026, 10, 6, 10, 0);
 
       const verse = await engine.addVerse({
         reference: 'Romans 8:28',
@@ -596,9 +601,9 @@ describe('VerseEngine (Ticket 09)', () => {
       const storage = new MapStorageAdapter();
       const engine = new VerseEngine(storage);
 
-      const day1 = new Date('2026-10-06T10:00:00Z');
-      const day2 = new Date('2026-10-07T10:00:00Z');
-      const day4 = new Date('2026-10-09T10:00:00Z');
+      const day1 = at(2026, 10, 6, 10, 0);
+      const day2 = at(2026, 10, 7, 10, 0);
+      const day4 = at(2026, 10, 9, 10, 0);
 
       const v1 = await engine.addVerse({ reference: 'Verse 1', text: 'Text 1' });
       const v2 = await engine.addVerse({ reference: 'Verse 2', text: 'Text 2' });
@@ -631,7 +636,7 @@ describe('VerseEngine (Ticket 09)', () => {
     it('resetHabit() clears streak data while preserving verses', async () => {
       const storage = new MapStorageAdapter();
       const engine = new VerseEngine(storage);
-      const today = new Date('2026-10-06T10:00:00Z');
+      const today = at(2026, 10, 6, 10, 0);
 
       const v = await engine.addVerse({ reference: 'Verse 1', text: 'Text 1' });
       await engine.recordReview(v.id, 100, today);
@@ -645,6 +650,185 @@ describe('VerseEngine (Ticket 09)', () => {
       expect(dashboard.habitStats.currentStreak).toBe(0);
       expect(dashboard.habitStats.longestStreak).toBe(0);
       expect(dashboard.habitStats.lastActiveDate).toBeNull();
+    });
+  });
+  describe('Slice 12: Study Day Scheduling with a 04:00 Rollover (Ticket 71)', () => {
+    const setDueDates = async (
+      storage: MapStorageAdapter,
+      engine: VerseEngine,
+      dueDates: Record<string, string>
+    ) => {
+      const all = await engine.getAllVerses();
+      for (const verse of all) {
+        if (dueDates[verse.id] !== undefined) {
+          verse.srs = { streak: 1, intervalDays: 1, easeFactor: 2.5, nextReviewDate: dueDates[verse.id] };
+        }
+      }
+      await storage.setItem('verses', JSON.stringify(all));
+    };
+
+    const dueIdsAt = async (engine: VerseEngine, now: Date) =>
+      (await engine.getVersesSummary(now)).dueVerses.map((v) => v.id);
+
+    it('a verse reviewed at 23:00 with a 1-day interval is due from 04:00 the next morning', async () => {
+      const storage = new MapStorageAdapter();
+      const engine = new VerseEngine(storage);
+      const verse = await engine.addVerse({ reference: 'John 3:16', text: 'For God so loved...' });
+
+      const result = await engine.recordReview(verse.id, 100, at(2026, 10, 8, 23, 0));
+
+      expect(result.intervalDays).toBe(1);
+      expect(result.nextReviewDate).toBe('2026-10-09');
+      expect((await engine.getAllVerses())[0].srs?.nextReviewDate).toBe('2026-10-09');
+      expect(await dueIdsAt(engine, at(2026, 10, 9, 3, 59))).toEqual([]);
+      expect(await dueIdsAt(engine, at(2026, 10, 9, 4, 0))).toEqual([verse.id]);
+    });
+
+    it('a review at 01:00 counts as the previous Study Day', async () => {
+      const storage = new MapStorageAdapter();
+      const engine = new VerseEngine(storage);
+      const verse = await engine.addVerse({ reference: 'John 3:16', text: 'For God so loved...' });
+
+      const result = await engine.recordReview(verse.id, 100, at(2026, 10, 9, 1, 0));
+
+      // Study Day of the review is Oct 8, so a 1-day interval is due on Oct 9 from 04:00.
+      expect(result.nextReviewDate).toBe('2026-10-09');
+      expect(await dueIdsAt(engine, at(2026, 10, 9, 3, 59))).toEqual([]);
+      expect(await dueIdsAt(engine, at(2026, 10, 9, 4, 0))).toEqual([verse.id]);
+    });
+
+    it('counts intervals in Study Days from the Study Day of the review', async () => {
+      const storage = new MapStorageAdapter();
+      const engine = new VerseEngine(storage);
+      const verse = await engine.addVerse({ reference: 'John 3:16', text: 'For God so loved...' });
+      await engine.updateVerse(verse.id, {
+        srs: { streak: 1, intervalDays: 1, easeFactor: 2.5, nextReviewDate: '2026-10-08' },
+      });
+
+      const result = await engine.recordReview(verse.id, 100, at(2026, 10, 9, 2, 30));
+
+      expect(result.intervalDays).toBe(6);
+      expect(result.nextReviewDate).toBe('2026-10-14');
+    });
+
+    it('a Due Verse is one whose due Study Day is today or earlier', async () => {
+      const storage = new MapStorageAdapter();
+      const engine = new VerseEngine(storage);
+      const overdue = await engine.addVerse({ reference: 'Psalm 23:1', text: 'The Lord is my shepherd...' });
+      const today = await engine.addVerse({ reference: 'John 1:1', text: 'In the beginning...' });
+      const tomorrow = await engine.addVerse({ reference: 'Proverbs 3:5', text: 'Trust in the Lord...' });
+      await setDueDates(storage, engine, {
+        [overdue.id]: '2026-10-07',
+        [today.id]: '2026-10-09',
+        [tomorrow.id]: '2026-10-10',
+      });
+
+      // Late on Oct 9 and early on Oct 10 are both still Study Day Oct 9.
+      expect(await dueIdsAt(engine, at(2026, 10, 9, 4, 0))).toEqual([overdue.id, today.id]);
+      expect(await dueIdsAt(engine, at(2026, 10, 9, 23, 59))).toEqual([overdue.id, today.id]);
+      expect(await dueIdsAt(engine, at(2026, 10, 10, 3, 59))).toEqual([overdue.id, today.id]);
+      expect(await dueIdsAt(engine, at(2026, 10, 10, 4, 0))).toEqual([overdue.id, today.id, tomorrow.id]);
+    });
+
+    it('reads legacy ISO due timestamps as the Study Day they fall in', async () => {
+      const storage = new MapStorageAdapter();
+      const engine = new VerseEngine(storage);
+      const evening = await engine.addVerse({ reference: 'Psalm 23:1', text: 'The Lord is my shepherd...' });
+      const smallHours = await engine.addVerse({ reference: 'John 1:1', text: 'In the beginning...' });
+      const nextMorning = await engine.addVerse({ reference: 'Proverbs 3:5', text: 'Trust in the Lord...' });
+      await setDueDates(storage, engine, {
+        [evening.id]: at(2026, 10, 9, 21, 0).toISOString(), // Study Day Oct 9
+        [smallHours.id]: at(2026, 10, 10, 2, 0).toISOString(), // still Study Day Oct 9
+        [nextMorning.id]: at(2026, 10, 10, 5, 0).toISOString(), // Study Day Oct 10
+      });
+
+      expect(await dueIdsAt(engine, at(2026, 10, 9, 3, 59))).toEqual([]);
+      expect(await dueIdsAt(engine, at(2026, 10, 9, 5, 0))).toEqual([evening.id, smallHours.id]);
+    });
+
+    it('a verse due on the next Study Day is not yet due at 01:00 and does not count as completed', async () => {
+      const storage = new MapStorageAdapter();
+      const engine = new VerseEngine(storage);
+      const verse = await engine.addVerse({ reference: 'John 3:16', text: 'For God so loved...' });
+      await setDueDates(storage, engine, { [verse.id]: '2026-10-09' });
+
+      const lateNight = at(2026, 10, 9, 1, 0);
+      await engine.recordReview(verse.id, 100, lateNight);
+
+      expect((await engine.getDashboard(lateNight)).habitStats.completedTodayCount).toBe(0);
+    });
+
+    it('recitations at 23:30 and 00:30 count toward the same Study Day', async () => {
+      const storage = new MapStorageAdapter();
+      const engine = new VerseEngine(storage);
+      const v1 = await engine.addVerse({ reference: 'John 3:16', text: 'For God so loved...' });
+      const v2 = await engine.addVerse({ reference: 'Romans 8:28', text: 'And we know...' });
+
+      await engine.recordReview(v1.id, 100, at(2026, 10, 8, 23, 30));
+      await engine.recordReview(v2.id, 100, at(2026, 10, 9, 0, 30));
+
+      const { habitStats } = await engine.getDashboard(at(2026, 10, 9, 0, 30));
+      expect(habitStats.currentStreak).toBe(1);
+      expect(habitStats.completedTodayCount).toBe(2);
+      expect(habitStats.lastActiveDate).toBe('2026-10-08');
+    });
+
+    it("reciting at 00:30 keeps yesterday's habit streak alive", async () => {
+      const storage = new MapStorageAdapter();
+      const engine = new VerseEngine(storage);
+      const v1 = await engine.addVerse({ reference: 'John 3:16', text: 'For God so loved...' });
+      const v2 = await engine.addVerse({ reference: 'Romans 8:28', text: 'And we know...' });
+
+      await engine.recordReview(v1.id, 100, at(2026, 10, 7, 20, 0));
+
+      // 00:30 on Oct 9 is still Study Day Oct 8, the day after the last activity.
+      expect((await engine.getDashboard(at(2026, 10, 9, 0, 30))).habitStats.currentStreak).toBe(1);
+
+      const stats = await engine.recordHabitActivity(v2.id, true, at(2026, 10, 9, 0, 30));
+      expect(stats.currentStreak).toBe(2);
+      expect(stats.longestStreak).toBe(2);
+      expect(stats.lastActiveDate).toBe('2026-10-08');
+    });
+
+    it('the habit streak breaks only once a whole Study Day has been missed', async () => {
+      const storage = new MapStorageAdapter();
+      const engine = new VerseEngine(storage);
+      const v1 = await engine.addVerse({ reference: 'John 3:16', text: 'For God so loved...' });
+
+      await engine.recordReview(v1.id, 100, at(2026, 10, 7, 20, 0));
+
+      expect((await engine.getDashboard(at(2026, 10, 9, 3, 59))).habitStats.currentStreak).toBe(1);
+      expect((await engine.getDashboard(at(2026, 10, 9, 4, 0))).habitStats.currentStreak).toBe(0);
+    });
+
+    it('the next review message counts Study Days, not 24-hour periods', () => {
+      const engine = new VerseEngine(new MapStorageAdapter());
+      const dueOn = (nextReviewDate: string): Verse => ({
+        id: nextReviewDate,
+        reference: 'John 3:16',
+        text: 'Text',
+        srs: { streak: 1, intervalDays: 1, easeFactor: 2.5, nextReviewDate },
+      });
+
+      // 23:00 to the next Study Day is "tomorrow", even though it is only 5 hours away.
+      expect(engine.getNextReviewMessage([dueOn('2026-10-09')], at(2026, 10, 8, 23, 0))).toBe(
+        'Next review due tomorrow'
+      );
+      // A stored Study Day is not read as UTC midnight (which would be "tomorrow" west of Greenwich).
+      expect(engine.getNextReviewMessage([dueOn('2026-10-11')], at(2026, 10, 9, 22, 0))).toBe(
+        'Next review due in 2 days'
+      );
+      // A legacy timestamp 66 hours ahead falls two Study Days ahead.
+      expect(
+        engine.getNextReviewMessage([dueOn(at(2026, 10, 10, 23, 0).toISOString())], at(2026, 10, 8, 5, 0))
+      ).toBe('Next review due in 2 days');
+      // The earliest future Study Day wins; verses due today are not "next".
+      expect(
+        engine.getNextReviewMessage(
+          [dueOn('2026-10-09'), dueOn('2026-10-14'), dueOn('2026-10-12')],
+          at(2026, 10, 9, 12, 0)
+        )
+      ).toBe('Next review due in 3 days');
     });
   });
 });

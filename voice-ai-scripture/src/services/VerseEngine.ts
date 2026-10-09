@@ -1,5 +1,13 @@
 import { DEFAULT_SRS_STATE, SRSResult, SRSState, calculateNextReview, isVerseDue } from '../engines/srsEngine';
 import {
+  StudyDay,
+  addStudyDays,
+  compareStudyDays,
+  readStudyDay,
+  studyDaysBetween,
+  toStudyDay,
+} from '../engines/studyDay';
+import {
   scriptureCatalog,
   SupportedTranslation,
 } from './ScriptureCatalog';
@@ -16,7 +24,11 @@ export interface Verse {
   deck?: string;
   lastScore?: number;
   srs?: SRSState & {
-    nextReviewDate?: string;
+    /**
+     * The due Study Day (`YYYY-MM-DD`). Verses saved before Study Days may hold a legacy
+     * ISO timestamp; read it only through the Study Day module (`readStudyDay`).
+     */
+    nextReviewDate?: StudyDay | string;
     lastScore?: number;
   };
 }
@@ -30,7 +42,8 @@ export interface VerseSummary {
 export interface HabitStats {
   currentStreak: number;
   longestStreak: number;
-  lastActiveDate: string | null;
+  /** Study Day of the most recent activity. */
+  lastActiveDate: StudyDay | null;
   completedTodayCount: number;
   totalDueToday: number;
   dueCount: number;
@@ -39,8 +52,10 @@ export interface HabitStats {
 export interface StoredHabitData {
   currentStreak: number;
   longestStreak: number;
-  lastActiveDate: string | null;
-  completedDates: Record<string, string[]>;
+  /** Study Day of the most recent activity. */
+  lastActiveDate: StudyDay | null;
+  /** Verse ids completed while due, keyed by Study Day. */
+  completedDates: Record<StudyDay, string[]>;
 }
 
 export interface DashboardData {
@@ -49,19 +64,6 @@ export interface DashboardData {
 }
 
 export const HABIT_STORAGE_KEY = 'global_habit_stats';
-
-export function toCalendarDateString(date: Date): string {
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
-
-export function getYesterdayCalendarString(today: Date): string {
-  const yesterday = new Date(today);
-  yesterday.setDate(yesterday.getDate() - 1);
-  return toCalendarDateString(yesterday);
-}
 
 import {
   StorageAdapter,
@@ -73,9 +75,10 @@ export { StorageAdapter, MapStorageAdapter, AsyncStorageAdapter };
 
 const STORAGE_KEY = 'verses';
 
+// A new verse is due on the Study Day it is added.
 const createInitialSRS = () => ({
   ...DEFAULT_SRS_STATE,
-  nextReviewDate: new Date().toISOString(),
+  nextReviewDate: toStudyDay(new Date()),
 });
 
 export const resolveDefaultTranslation = (reference: string): VerseTranslation => {
@@ -188,8 +191,8 @@ export class VerseEngine {
     const summary = await this.getVersesSummary(now);
     const habitData = await this.getStoredHabitData();
 
-    const todayStr = toCalendarDateString(now);
-    const yesterdayStr = getYesterdayCalendarString(now);
+    const todayStr = toStudyDay(now);
+    const yesterdayStr = addStudyDays(todayStr, -1);
 
     let displayStreak = habitData.currentStreak;
     if (
@@ -224,8 +227,8 @@ export class VerseEngine {
     wasDue: boolean,
     now = new Date()
   ): Promise<StoredHabitData> {
-    const todayStr = toCalendarDateString(now);
-    const yesterdayStr = getYesterdayCalendarString(now);
+    const todayStr = toStudyDay(now);
+    const yesterdayStr = addStudyDays(todayStr, -1);
     const habitData = await this.getStoredHabitData();
 
     if (habitData.lastActiveDate === todayStr) {
@@ -260,7 +263,7 @@ export class VerseEngine {
     now = new Date()
   ): Promise<HabitStats> {
     const habitData = await this.updateHabitStreak(verseId, wasDue, now);
-    const todayStr = toCalendarDateString(now);
+    const todayStr = toStudyDay(now);
     const completedToday = (habitData.completedDates[todayStr] || []).length;
     const dueCount = (await this.getVersesSummary(now)).dueCount;
 
@@ -396,7 +399,7 @@ export class VerseEngine {
       streak,
       intervalDays: srsResult.intervalDays,
       easeFactor: srsResult.easeFactor,
-      nextReviewDate: srsResult.nextReviewDate.toISOString(),
+      nextReviewDate: srsResult.nextReviewDate,
       lastScore: score,
     };
     verses[index].lastScore = score;
@@ -407,20 +410,19 @@ export class VerseEngine {
     return srsResult;
   }
 
+  /** Describes the earliest future due Study Day, counted in Study Days from today. */
   getNextReviewMessage(allVerses: Verse[], now = new Date()): string {
-    const futureDates = allVerses
-      .map((v) => v.srs?.nextReviewDate)
-      .filter((d): d is string => !!d)
-      .map((d) => new Date(d))
-      .filter((d) => d.getTime() > now.getTime())
-      .sort((a, b) => a.getTime() - b.getTime());
+    const today = toStudyDay(now);
+    const futureStudyDays = allVerses
+      .map((v) => readStudyDay(v.srs?.nextReviewDate))
+      .filter((day): day is StudyDay => day !== null && compareStudyDays(day, today) > 0)
+      .sort(compareStudyDays);
 
-    if (futureDates.length === 0) {
+    if (futureStudyDays.length === 0) {
       return 'Next review due tomorrow';
     }
 
-    const earliest = futureDates[0];
-    const diffDays = Math.ceil((earliest.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    const diffDays = studyDaysBetween(today, futureStudyDays[0]);
     if (diffDays <= 1) {
       return 'Next review due tomorrow';
     }
