@@ -770,7 +770,16 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
         fireEvent.press(getByTestId('sandbox-opt-in-save'));
       });
 
-      expect(onSandboxComplete).toHaveBeenCalledWith(sandboxVerse, true);
+      // Saving hands over the sandbox's Blind Recitation, to be logged as practice (Ticket 79)
+      expect(onSandboxComplete).toHaveBeenCalledWith(
+        sandboxVerse,
+        true,
+        expect.objectContaining({
+          level: 3,
+          evaluation: expect.objectContaining({ outcome: 'clean', errorCount: 0, rawScore: 100 }),
+          recognizer: 'simulated',
+        })
+      );
     });
 
     it('allows choosing Explore App without Saving in opt-in modal', async () => {

@@ -22,7 +22,6 @@ import {
   memoryTierLabel,
 } from '../services/VerseEngine';
 import { scriptureCatalog } from '../services/ScriptureCatalog';
-import { addStudyDays, toStudyDay } from '../engines/studyDay';
 import ReviewScreen from './ReviewScreen';
 import PackBrowserModal from '../components/PackBrowserModal';
 import ReminderSettingsModal from '../components/ReminderSettingsModal';
@@ -161,23 +160,17 @@ export default function HomeScreen({ voiceInput }: HomeScreenProps = {}) {
           setSandboxVerse(null);
           loadVerses();
         }}
-        onSandboxComplete={async (verse, saveRequested) => {
+        onSandboxComplete={async (verse, saveRequested, sandboxAttempt) => {
           if (saveRequested) {
-            const added = await verseEngine.addVerse({
-              reference: verse.reference,
-              text: verse.text,
-              translation: verse.translation,
-            });
-            const nextStudyDay = addStudyDays(toStudyDay(new Date()), 1);
-            await verseEngine.updateVerse(added.id, {
-              srs: {
-                streak: 1,
-                intervalDays: 1,
-                easeFactor: 2.5,
-                nextReviewDate: nextStudyDay,
-                lastScore: 100,
+            // A new verse, due today; the sandbox's Blind Recitation is logged as practice.
+            await verseEngine.addVerse(
+              {
+                reference: verse.reference,
+                text: verse.text,
+                translation: verse.translation,
               },
-            });
+              { sandboxAttempt }
+            );
           }
           setSandboxVerse(null);
           await loadVerses();

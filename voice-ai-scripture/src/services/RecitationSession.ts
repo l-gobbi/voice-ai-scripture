@@ -1,6 +1,7 @@
 import {
   AttemptKind,
   Recognizer,
+  SandboxAttempt,
   Verse,
   VerseEngine,
   verseEngine,
@@ -149,6 +150,13 @@ export interface RecitationState {
    * learner, so nothing was graded and any quota unit was refunded (ticket 74).
    */
   transcriptionErrorCode: TranscriptionErrorCode | null;
+  /**
+   * In sandbox mode, the last graded Blind Recitation (ticket 79). Nothing is recorded in the
+   * sandbox, so it is kept for a possible save, which hands it to the Verse Engine as a Practice
+   * Attempt. A later Blind Recitation replaces it; Echo Mode, Cloze Practice, a Transcription
+   * Error or a level change leave it in place. Always null outside the sandbox.
+   */
+  sandboxAttempt: SandboxAttempt | null;
   rateLimitCooldownSeconds?: number;
 }
 
@@ -223,6 +231,7 @@ export class RecitationSession {
       errorMessage: null,
       errorDetails: null,
       transcriptionErrorCode: null,
+      sandboxAttempt: null,
     };
 
     if (initialLevel === 1 && this.autoVocalizeOnLevel1) {
@@ -560,24 +569,29 @@ export class RecitationSession {
         peekedWordPositions,
       });
       const passed = isRecalled(evaluation.outcome);
+      const attempt: SandboxAttempt = {
+        level,
+        evaluation,
+        peekedWordPositions,
+        clozeRevealCount: this.clozeRevealCount(level),
+        recognizer: recognizerOf(this.voiceInput),
+        durationMs: this.durationUntil(now),
+        now,
+      };
 
       let kind: AttemptKind;
       let srsResult: SRSResult;
+      let sandboxAttempt = this.state.sandboxAttempt;
       if (this.isSandbox) {
-        // The sandbox verse is not stored yet, so nothing is recorded (ticket 79 saves it).
+        // The sandbox verse is not stored yet, so nothing is recorded. Its last Blind
+        // Recitation is kept, so that saving the verse can log it as practice (ticket 79).
         kind = 'practice';
         srsResult = currentSrsResult(this.verse.srs, passed, now);
+        if (level === 3) {
+          sandboxAttempt = attempt;
+        }
       } else {
-        const recorded = await this.verseEngine.recordAttempt({
-          verseId: this.verse.id,
-          level,
-          evaluation,
-          peekedWordPositions,
-          clozeRevealCount: this.clozeRevealCount(level),
-          recognizer: recognizerOf(this.voiceInput),
-          durationMs: this.durationUntil(now),
-          now,
-        });
+        const recorded = await this.verseEngine.recordAttempt({ verseId: this.verse.id, ...attempt });
         kind = recorded.kind;
         srsResult = recorded.srsResult;
       }
@@ -599,6 +613,7 @@ export class RecitationSession {
         currentResult: result,
         result,
         officialResult: kind === 'official' ? result : this.state.officialResult,
+        sandboxAttempt,
         rawTranscript: transcript,
       });
       return result;

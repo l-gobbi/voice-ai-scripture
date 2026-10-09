@@ -2428,3 +2428,150 @@ describe('RecitationSession: Transcription Failures Are Never Graded (Ticket 74)
     await session.dispose();
   });
 });
+
+describe('RecitationSession: Honest Sandbox Save (Ticket 79)', () => {
+  const PSALM_23_1 = {
+    reference: 'Psalm 23:1',
+    text: 'The Lord is my shepherd; I shall not want.',
+    translation: 'WEB',
+  };
+  const SLIP = 'The Lord is my pastor; I shall not want.';
+  const FORGOTTEN = 'The Lord is my shepherd';
+
+  /**
+   * A sandbox session on the sample verse, which is not stored, with a real Verse Engine on
+   * in-memory storage, a clock the test moves by hand and speech the test controls.
+   */
+  function setup(options: RecitationSessionOptions = {}) {
+    const engine = new VerseEngine(new MapStorageAdapter());
+    const sandboxVerse: Verse = { id: 'sandbox-psalm-23-1', ...PSALM_23_1 };
+    const clock = { now: new Date(2026, 11, 3, 7, 30) };
+    const speech = { transcript: PSALM_23_1.text };
+    const session = new RecitationSession(sandboxVerse, {
+      verseEngine: engine,
+      subscriptionService: new SubscriptionService(new MapStorageAdapter()),
+      voiceInput: new SimulatedVoiceAdapter({ handler: () => speech.transcript }),
+      synthesizer: new MockSpeechSynthesizer(),
+      autoVocalizeOnLevel1: false,
+      isSandbox: true,
+      now: () => clock.now,
+      ...options,
+    });
+    return { engine, sandboxVerse, clock, speech, session };
+  }
+
+  /** Recites until the attempt ends, verified or not. */
+  async function attempt(session: RecitationSession) {
+    await session.startReciting();
+    return session.stopAndVerify();
+  }
+
+  it('records nothing and keeps the last Blind Recitation for a possible save', async () => {
+    const t = setup();
+    const recordSpy = jest.spyOn(t.engine, 'recordAttempt');
+
+    await attempt(t.session); // Echo Mode
+    expect(t.session.getState().sandboxAttempt).toBeNull();
+
+    t.session.setLevel(3);
+    t.session.tapWord(4);
+    t.speech.transcript = PSALM_23_1.text;
+    await t.session.startReciting();
+    t.clock.now = new Date(2026, 11, 3, 7, 30, 6);
+    const blind = await t.session.stopAndVerify();
+
+    // One peeked word in a 9-word verse (budget 1): a slip.
+    expect(blind).toMatchObject({ kind: 'practice', outcome: 'slip', errorCount: 1, errorBudget: 1 });
+    expect(t.session.getState().sandboxAttempt).toEqual({
+      level: 3,
+      evaluation: {
+        tokens: blind!.tokens,
+        rawScore: 100,
+        errorCount: 1,
+        errorBudget: 1,
+        outcome: 'slip',
+      },
+      peekedWordPositions: [4],
+      recognizer: 'simulated',
+      durationMs: 6000,
+      now: t.clock.now,
+    });
+    expect(t.session.getState().officialResult).toBeNull();
+    expect(recordSpy).not.toHaveBeenCalled();
+    expect(await t.engine.getAllVerses()).toEqual([]);
+    expect(await t.engine.getReviewLog(t.sandboxVerse.id)).toEqual([]);
+    await t.session.dispose();
+  });
+
+  it('keeps only the last Blind Recitation: Echo, Cloze or a Transcription Error leave it in place', async () => {
+    const t = setup({ initialLevel: 3 });
+
+    await attempt(t.session);
+    expect(t.session.getState().sandboxAttempt?.evaluation.outcome).toBe('clean');
+
+    t.session.practiceAgain();
+    t.speech.transcript = FORGOTTEN;
+    await attempt(t.session);
+    expect(t.session.getState().sandboxAttempt?.evaluation.outcome).toBe('forgotten');
+
+    t.speech.transcript = PSALM_23_1.text;
+    t.session.setLevel(1);
+    await attempt(t.session);
+    t.session.setLevel(2);
+    await attempt(t.session);
+    t.session.setLevel(3);
+    t.speech.transcript = '';
+    expect(await attempt(t.session)).toBeNull();
+    expect(t.session.getState().transcriptionErrorCode).toBe('unintelligible');
+    await t.session.reset();
+
+    expect(t.session.getState().sandboxAttempt?.evaluation.outcome).toBe('forgotten');
+    await t.session.dispose();
+  });
+
+  it('a session outside the sandbox keeps nothing: the Verse Engine records its attempts', async () => {
+    const engine = new VerseEngine(new MapStorageAdapter());
+    const verse = await engine.addVerse(PSALM_23_1);
+    const session = new RecitationSession(verse, {
+      verseEngine: engine,
+      subscriptionService: new SubscriptionService(new MapStorageAdapter({ user_is_subscribed: 'true' })),
+      voiceInput: new SimulatedVoiceAdapter({ defaultTranscript: PSALM_23_1.text }),
+      synthesizer: new MockSpeechSynthesizer(),
+    });
+
+    await attempt(session);
+
+    expect(session.getState().sandboxAttempt).toBeNull();
+    expect(await engine.getReviewLog(verse.id)).toHaveLength(1);
+    await session.dispose();
+  });
+
+  it('saving hands the kept attempt to the Verse Engine: a new, due verse whose Review Log holds it as practice', async () => {
+    const t = setup({ initialLevel: 3 });
+    t.speech.transcript = SLIP;
+    const recitedAt = t.clock.now;
+    await attempt(t.session);
+
+    t.clock.now = new Date(2026, 11, 3, 7, 31);
+    const saved = await t.engine.addVerse(PSALM_23_1, {
+      sandboxAttempt: t.session.getState().sandboxAttempt,
+      now: t.clock.now,
+    });
+
+    expect(saved.srs).toMatchObject({ streak: 0, intervalDays: 0, easeFactor: 2.5, nextReviewDate: '2026-12-03' });
+    expect(await t.engine.getReviewLog(saved.id)).toEqual([
+      expect.objectContaining({
+        kind: 'practice',
+        level: 3,
+        reviewedAt: recitedAt.toISOString(),
+        outcome: 'slip',
+        errorCount: 1,
+        errorBudget: 1,
+        rawScore: 89,
+        recognizer: 'simulated',
+        sm2Quality: null,
+      }),
+    ]);
+    await t.session.dispose();
+  });
+});

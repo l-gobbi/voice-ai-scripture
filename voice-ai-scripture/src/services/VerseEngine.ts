@@ -28,6 +28,7 @@ import {
   REVIEW_LOG_SCHEMA_VERSION,
   ReviewLog,
   ReviewLogEntry,
+  ReviewLogSchedulingState,
   hashCanonicalText,
 } from './ReviewLog';
 import { TranscriptionErrorCode } from './SpeechTranscriberTypes';
@@ -88,6 +89,22 @@ export interface RecordAttemptInput {
   recognizer?: Recognizer;
   durationMs?: number;
   /** Instant of the attempt (defaults to now); its Study Day decides due-ness. */
+  now?: Date;
+}
+
+/**
+ * The sandbox's last Blind Recitation (ticket 79). It was graded but not recorded, because the
+ * sandbox verse was not stored yet; saving the verse hands it to `addVerse`.
+ */
+export type SandboxAttempt = Omit<RecordAttemptInput, 'verseId'>;
+
+export interface AddVerseOptions {
+  /**
+   * The sandbox's last Blind Recitation, when the verse is the saved sandbox verse. It is
+   * appended to the new verse's Review Log as a Practice Attempt with its real outcome.
+   */
+  sandboxAttempt?: SandboxAttempt | null;
+  /** Instant of the save (defaults to now): the new verse is due on its Study Day. */
   now?: Date;
 }
 
@@ -270,6 +287,40 @@ function attemptRowBase(
   };
 }
 
+/** How the engine classified a graded attempt, and the verse's SRS state around it. */
+interface AttemptScheduling {
+  kind: AttemptKind;
+  wasDue: boolean;
+  before: ReviewLogSchedulingState;
+  srsResult: SRSResult;
+}
+
+/** The Review Log row of a graded attempt. */
+function gradedAttemptRow(
+  verse: Verse,
+  input: Omit<RecordAttemptInput, 'verseId'>,
+  now: Date,
+  { kind, wasDue, before, srsResult }: AttemptScheduling
+): ReviewLogEntry {
+  const { tokens, rawScore, errorCount, errorBudget, outcome } = input.evaluation;
+  const counts = countTokens(tokens);
+  return {
+    ...attemptRowBase(verse, input, now),
+    kind,
+    wordCount: counts.correct + counts.missed,
+    ...counts,
+    rawScore,
+    errorCount,
+    errorBudget,
+    outcome,
+    wasDue,
+    sm2Quality: kind === 'official' ? SM2_QUALITY[outcome] : null,
+    before,
+    after: { intervalDays: srsResult.intervalDays, easeFactor: srsResult.easeFactor },
+    dueStudyDayAfter: srsResult.nextReviewDate,
+  };
+}
+
 import {
   StorageAdapter,
   MapStorageAdapter,
@@ -281,23 +332,23 @@ export { StorageAdapter, MapStorageAdapter, AsyncStorageAdapter };
 const STORAGE_KEY = 'verses';
 
 // A new verse is due on the Study Day it is added.
-const createInitialSRS = () => ({
+const createInitialSRS = (now: Date) => ({
   ...DEFAULT_SRS_STATE,
-  nextReviewDate: toStudyDay(new Date()),
+  nextReviewDate: toStudyDay(now),
 });
 
 /** The catalog's default Translation for the reference's language (BLIVRE or BSB). */
 export const resolveDefaultTranslation = (reference: string): VerseTranslation =>
   scriptureCatalog.getDefaultTranslation(reference);
 
-const createVerseRecord = (verseData: Omit<Verse, 'id' | 'srs'>): Verse => {
+const createVerseRecord = (verseData: Omit<Verse, 'id' | 'srs'>, now = new Date()): Verse => {
   const translation = verseData.translation || resolveDefaultTranslation(verseData.reference);
 
   return {
     ...verseData,
     translation,
     id: `${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
-    srs: createInitialSRS(),
+    srs: createInitialSRS(now),
   };
 };
 
@@ -492,11 +543,35 @@ export class VerseEngine {
     });
   }
 
-  async addVerse(verseData: Omit<Verse, 'id' | 'srs'>): Promise<Verse> {
+  /**
+   * Adds a new verse: default SRS state, due on the Study Day it is added.
+   *
+   * Saving the sandbox verse (ticket 79) also passes the sandbox's last Blind Recitation, if
+   * there was one. It is appended to the new verse's Review Log as a Practice Attempt with its
+   * real outcome. It was made before the verse was stored, so it is never an Official Review:
+   * it moves neither the schedule nor the daily habit streak, and the verse's first Official
+   * Review is still ahead.
+   */
+  async addVerse(verseData: Omit<Verse, 'id' | 'srs'>, options: AddVerseOptions = {}): Promise<Verse> {
+    const now = options.now ?? new Date();
     const verses = await this.getAllVerses();
-    const newVerse = createVerseRecord(verseData);
+    const newVerse = createVerseRecord(verseData, now);
     verses.push(newVerse);
     await this.persistVerses(verses);
+
+    const attempt = options.sandboxAttempt;
+    if (attempt) {
+      const srsResult = currentSrsResult(newVerse.srs, isRecalled(attempt.evaluation.outcome), now);
+      const entry = gradedAttemptRow(newVerse, attempt, attempt.now ?? now, {
+        kind: 'practice',
+        // The verse was not stored at the time of the recitation, so it had no due Study Day.
+        wasDue: false,
+        before: { intervalDays: srsResult.intervalDays, easeFactor: srsResult.easeFactor },
+        srsResult,
+      });
+      await this.reviewLog.append(entry);
+    }
+
     return newVerse;
   }
 
@@ -630,28 +705,13 @@ export class VerseEngine {
 
     // The verse is persisted before the row is appended, and it alone records the day's
     // Official Review, so a failed append can never let a second one through.
-    const { tokens, rawScore, errorCount, errorBudget, outcome } = input.evaluation;
+    const { rawScore, outcome } = input.evaluation;
     const srsResult =
       kind === 'official'
         ? await this.applyOfficialReview(verses, index, outcome, now, true, rawScore)
         : currentSrsResult(verse.srs, isRecalled(outcome), now);
 
-    const counts = countTokens(tokens);
-    const entry: ReviewLogEntry = {
-      ...attemptRowBase(verse, input, now),
-      kind,
-      wordCount: counts.correct + counts.missed,
-      ...counts,
-      rawScore,
-      errorCount,
-      errorBudget,
-      outcome,
-      wasDue,
-      sm2Quality: kind === 'official' ? SM2_QUALITY[outcome] : null,
-      before,
-      after: { intervalDays: srsResult.intervalDays, easeFactor: srsResult.easeFactor },
-      dueStudyDayAfter: srsResult.nextReviewDate,
-    };
+    const entry = gradedAttemptRow(verse, input, now, { kind, wasDue, before, srsResult });
     await this.reviewLog.append(entry);
 
     return { kind, srsResult, memoryTier: getMemoryTier(verses[index]), entry };

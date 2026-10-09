@@ -2,11 +2,11 @@ import React from 'react';
 import { Share } from 'react-native';
 import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
 import HomeScreen from './HomeScreen';
-import { verseEngine } from '../services/VerseEngine';
+import { verseEngine, VerseEngine, MapStorageAdapter } from '../services/VerseEngine';
 import { SimulatedVoiceAdapter } from '../services/VoiceInput';
 import * as Clipboard from 'expo-clipboard';
 import { encodeDeckPayload } from '../utils/deckSharing';
-import { addStudyDays, toStudyDay } from '../engines/studyDay';
+import { toStudyDay } from '../engines/studyDay';
 
 // Mock the verseEngine instance; the pure helpers (Memory Tier) stay real.
 jest.mock('../services/VerseEngine', () => {
@@ -565,38 +565,19 @@ describe('HomeScreen Integration (Ticket 16)', () => {
       });
     });
 
-    it('launches sandbox ReviewScreen when tapping sandbox button and saves verse on opt-in', async () => {
-      (verseEngine.getVersesSummary as jest.Mock)
-        .mockResolvedValueOnce({
-          allVerses: [],
-          dueVerses: [],
-          dueCount: 0,
-        })
-        .mockResolvedValueOnce({
-          allVerses: [
-            {
-              id: 'saved-acts',
-              reference: 'Acts 2:38',
-              text: 'Peter replied...',
-              translation: 'BSB',
-            },
-          ],
-          dueVerses: [
-            {
-              id: 'saved-acts',
-              reference: 'Acts 2:38',
-              text: 'Peter replied...',
-              translation: 'BSB',
-            },
-          ],
-          dueCount: 1,
-        });
+    it('saves the sandbox verse as a new, due Seed and logs its Blind Recitation as practice (Ticket 79)', async () => {
+      // A real Verse Engine on in-memory storage stands behind the screen for this save path.
+      const engine = new VerseEngine(new MapStorageAdapter());
+      (verseEngine.getDashboard as jest.Mock).mockImplementation(() => engine.getDashboard());
+      (verseEngine.addVerse as jest.Mock).mockImplementationOnce((verseData, options) =>
+        engine.addVerse(verseData, options)
+      );
 
       const mockVoiceInput = new SimulatedVoiceAdapter({
         defaultTranscript: ACTS_2_38_BSB,
       });
 
-      const { getByTestId, getByText, findByText } = await render(
+      const { getByTestId, getByText, findByText, queryByText, queryByTestId } = await render(
         <HomeScreen voiceInput={mockVoiceInput} />
       );
 
@@ -638,30 +619,36 @@ describe('HomeScreen Integration (Ticket 16)', () => {
       });
       const studyDayAfterSave = toStudyDay(new Date());
 
-      // Verify verseEngine.addVerse was called
-      expect(verseEngine.addVerse).toHaveBeenCalledWith(
-        expect.objectContaining({
-          reference: 'Acts 2:38',
-          translation: 'BSB',
-          text: ACTS_2_38_BSB,
-        })
-      );
+      // Back home, the saved verse is due today and a Seed, with no invented accuracy
+      await waitFor(() => {
+        expect(getByText('Acts 2:38')).toBeTruthy();
+        expect(getByText('Due Today')).toBeTruthy();
+        expect(getByText('Seed')).toBeTruthy();
+      });
+      expect(queryByTestId('sandbox-welcome-card')).toBeNull();
+      expect(queryByText(/Accuracy/)).toBeNull();
 
-      // Verify verseEngine.updateVerse was called to schedule for the next Study Day
-      expect(verseEngine.updateVerse).toHaveBeenCalledWith(
-        '1',
+      // The verse is new: default SRS state, due on the Study Day of the save
+      expect(verseEngine.updateVerse).not.toHaveBeenCalled();
+      const [saved] = await engine.getAllVerses();
+      expect(saved).toMatchObject({ reference: 'Acts 2:38', translation: 'BSB', text: ACTS_2_38_BSB });
+      expect(saved.srs).toMatchObject({ streak: 0, intervalDays: 0, easeFactor: 2.5 });
+      expect([studyDayBeforeSave, studyDayAfterSave]).toContain(saved.srs?.nextReviewDate);
+      expect(saved.lastScore).toBeUndefined();
+      expect(saved.srs?.lastScore).toBeUndefined();
+
+      // Its sandbox recitation is a Practice Attempt with its real outcome, not an Official Review
+      expect(await engine.getReviewLog(saved.id)).toEqual([
         expect.objectContaining({
-          srs: expect.objectContaining({
-            intervalDays: 1,
-            streak: 1,
-            nextReviewDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
-          }),
-        })
-      );
-      const savedDueStudyDay = (verseEngine.updateVerse as jest.Mock).mock.calls[0][1].srs.nextReviewDate;
-      expect([addStudyDays(studyDayBeforeSave, 1), addStudyDays(studyDayAfterSave, 1)]).toContain(
-        savedDueStudyDay
-      );
+          kind: 'practice',
+          level: 3,
+          outcome: 'clean',
+          errorCount: 0,
+          rawScore: 100,
+          sm2Quality: null,
+        }),
+      ]);
+      expect((await engine.getHabitStats()).currentStreak).toBe(0);
     });
 
     it('returns to empty HomeScreen when choosing Explore App without Saving', async () => {

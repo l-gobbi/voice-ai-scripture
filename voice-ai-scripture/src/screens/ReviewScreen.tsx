@@ -8,7 +8,7 @@ import {
   useColorScheme,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Verse } from '../services/VerseEngine';
+import { SandboxAttempt, Verse } from '../services/VerseEngine';
 import { useRecitationSession, RecitationLevel } from '../hooks/useRecitationSession';
 import DiffView from '../components/DiffView';
 import FloatingMicButton from '../components/FloatingMicButton';
@@ -72,7 +72,15 @@ interface ReviewScreenProps {
   onComplete: () => void;
   voiceInput?: VoiceInput;
   isSandbox?: boolean;
-  onSandboxComplete?: (verse: Verse, saveRequested: boolean) => void;
+  /**
+   * Ends the sandbox. On a save it also hands over the sandbox's last Blind Recitation (null if
+   * there was none), which the Verse Engine logs as a Practice Attempt of the new verse.
+   */
+  onSandboxComplete?: (
+    verse: Verse,
+    saveRequested: boolean,
+    sandboxAttempt?: SandboxAttempt | null
+  ) => void;
   /** Skips the recitation quota. Whether a recitation is an Official Review is the Verse Engine's call. */
   isUnmetered?: boolean;
 }
@@ -107,6 +115,7 @@ export default function ReviewScreen({
     errorMessage,
     errorDetails,
     transcriptionErrorCode,
+    sandboxAttempt,
     isReciting,
     isVerifying,
     startReciting,
@@ -486,7 +495,7 @@ export default function ReviewScreen({
         onSave={() => {
           setShowSandboxOptIn(false);
           if (onSandboxComplete) {
-            onSandboxComplete(verse, true);
+            onSandboxComplete(verse, true, sandboxAttempt);
           } else {
             onComplete();
           }

@@ -5,9 +5,9 @@ Saving the sandbox verse no longer invents a perfect first review. The saved ver
 
 **Blocked by:** 72: Review Log and Official Review Classification
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] In sandbox mode the Recitation Session records nothing, and keeps its last Blind Recitation attempt for a possible save.
-- [ ] Saving creates the verse through the Verse Engine as new and due today, with no fabricated SRS state.
-- [ ] The sandbox attempt is appended as a Practice Attempt with its real outcome.
-- [ ] Home Screen tests cover the save path.
+- [x] In sandbox mode the Recitation Session records nothing, and keeps its last Blind Recitation attempt for a possible save.
+- [x] Saving creates the verse through the Verse Engine as new and due today, with no fabricated SRS state.
+- [x] The sandbox attempt is appended as a Practice Attempt with its real outcome.
+- [x] Home Screen tests cover the save path.

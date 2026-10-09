@@ -1,6 +1,7 @@
 import {
   VerseEngine,
   MapStorageAdapter,
+  SandboxAttempt,
   Verse,
   resolveDefaultTranslation,
   getMemoryTier,
@@ -1331,5 +1332,164 @@ describe('VerseEngine: Interval Cap and Fuzz (Ticket 76)', () => {
     } finally {
       random.mockRestore();
     }
+  });
+});
+
+describe('VerseEngine: Saved Sandbox Verse (Ticket 79)', () => {
+  const PSALM_23_1 = {
+    reference: 'Psalm 23:1',
+    text: 'The Lord is my shepherd; I shall not want.',
+    translation: 'WEB',
+  };
+  const recitedAt = at(2026, 12, 3, 7, 30);
+  const savedAt = at(2026, 12, 3, 7, 31);
+
+  /** The sandbox's Blind Recitation of `transcript`, as the Recitation Session keeps it. */
+  const sandboxAttempt = (transcript: string, peekedWordPositions: number[] = []): SandboxAttempt => ({
+    level: 3,
+    evaluation: evaluateRecitation({
+      expectedText: PSALM_23_1.text,
+      transcribedText: transcript,
+      peekedWordPositions,
+    }),
+    peekedWordPositions,
+    recognizer: 'simulated',
+    durationMs: 4200,
+    now: recitedAt,
+  });
+
+  it('saves the verse as new and due today, with no fabricated SRS state', async () => {
+    const engine = new VerseEngine(new MapStorageAdapter());
+
+    const saved = await engine.addVerse(PSALM_23_1, {
+      sandboxAttempt: sandboxAttempt(PSALM_23_1.text),
+      now: savedAt,
+    });
+
+    const [stored] = await engine.getAllVerses();
+    expect(stored).toEqual(saved);
+    expect(stored.srs).toEqual({
+      streak: 0,
+      repetitions: 0,
+      intervalDays: 0,
+      easeFactor: 2.5,
+      nextReviewDate: '2026-12-03',
+    });
+    expect(stored.lastScore).toBeUndefined();
+    expect(getMemoryTier(stored)).toBe('seed');
+    expect((await engine.getVersesSummary(savedAt)).dueVerses.map((v) => v.id)).toEqual([saved.id]);
+  });
+
+  it('appends the sandbox Blind Recitation to the Review Log as a Practice Attempt with its real outcome', async () => {
+    const engine = new VerseEngine(new MapStorageAdapter());
+
+    const saved = await engine.addVerse(PSALM_23_1, {
+      sandboxAttempt: sandboxAttempt('The Lord is my pastor; I shall not want.'),
+      now: savedAt,
+    });
+
+    expect(await engine.getReviewLog(saved.id)).toEqual([
+      {
+        id: expect.any(String),
+        schemaVersion: 1,
+        verseId: saved.id,
+        // The row keeps the instant of the recitation, not of the save.
+        reviewedAt: recitedAt.toISOString(),
+        utcOffsetMinutes: -recitedAt.getTimezoneOffset(),
+        studyDay: '2026-12-03',
+        durationMs: 4200,
+        kind: 'practice',
+        level: 3,
+        translation: 'WEB',
+        textHash: hashCanonicalText(PSALM_23_1.text),
+        wordCount: 9,
+        correct: 8,
+        missed: 1,
+        added: 1,
+        rawScore: 89,
+        peekedWordPositions: [],
+        errorCount: 1,
+        errorBudget: 1,
+        outcome: 'slip',
+        recognizer: 'simulated',
+        // The verse was not stored yet, so it had no due Study Day.
+        wasDue: false,
+        gradingRuleId: 'error-budget-5pct@1',
+        schedulerId: 'sm2-app@3',
+        sm2Quality: null,
+        before: { intervalDays: 0, easeFactor: 2.5 },
+        after: { intervalDays: 0, easeFactor: 2.5 },
+        dueStudyDayAfter: '2026-12-03',
+      },
+    ]);
+  });
+
+  it('is not an Official Review: the habit streak stays and the verse’s first Blind Recitation that Study Day is still official', async () => {
+    const engine = new VerseEngine(new MapStorageAdapter());
+    const saved = await engine.addVerse(PSALM_23_1, {
+      sandboxAttempt: sandboxAttempt(PSALM_23_1.text),
+      now: savedAt,
+    });
+
+    const habit = await engine.getHabitStats(savedAt);
+    expect(habit.currentStreak).toBe(0);
+    expect(habit.completedTodayCount).toBe(0);
+
+    const first = await engine.recordAttempt({
+      verseId: saved.id,
+      level: 3,
+      evaluation: evaluateRecitation({ expectedText: saved.text, transcribedText: saved.text }),
+      recognizer: 'simulated',
+      now: at(2026, 12, 3, 7, 40),
+    });
+
+    expect(first.kind).toBe('official');
+    expect(first.srsResult).toMatchObject({ intervalDays: 1, nextReviewDate: '2026-12-04' });
+    expect((await engine.getReviewLog(saved.id)).map((row) => row.kind)).toEqual(['practice', 'official']);
+  });
+
+  it('a forgotten sandbox recitation is logged as forgotten and costs the new verse nothing', async () => {
+    const engine = new VerseEngine(new MapStorageAdapter());
+
+    const saved = await engine.addVerse(PSALM_23_1, {
+      sandboxAttempt: sandboxAttempt('The Lord is my shepherd', [2]),
+      now: savedAt,
+    });
+
+    expect((await engine.getAllVerses())[0].srs).toMatchObject({
+      streak: 0,
+      intervalDays: 0,
+      easeFactor: 2.5,
+      nextReviewDate: '2026-12-03',
+    });
+    expect(await engine.getReviewLog(saved.id)).toEqual([
+      expect.objectContaining({
+        kind: 'practice',
+        outcome: 'forgotten',
+        errorCount: 5,
+        errorBudget: 1,
+        peekedWordPositions: [2],
+        sm2Quality: null,
+        after: { intervalDays: 0, easeFactor: 2.5 },
+      }),
+    ]);
+  });
+
+  it('the new verse is due on the Study Day of the save', async () => {
+    const engine = new VerseEngine(new MapStorageAdapter());
+
+    // 01:00 on Dec 4 still belongs to the Study Day of Dec 3.
+    await engine.addVerse(PSALM_23_1, { now: at(2026, 12, 4, 1, 0) });
+
+    expect((await engine.getAllVerses())[0].srs?.nextReviewDate).toBe('2026-12-03');
+  });
+
+  it('saving without a Blind Recitation creates just the new verse, with an empty Review Log', async () => {
+    const engine = new VerseEngine(new MapStorageAdapter());
+
+    const saved = await engine.addVerse(PSALM_23_1, { sandboxAttempt: null, now: savedAt });
+
+    expect(saved.srs).toMatchObject({ streak: 0, intervalDays: 0, nextReviewDate: '2026-12-03' });
+    expect(await engine.getReviewLog(saved.id)).toEqual([]);
   });
 });
