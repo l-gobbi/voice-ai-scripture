@@ -1,4 +1,5 @@
 import { isNumberWord, parseNumberWords, spellNumber } from './numberWords';
+import type { Language } from '../utils/languageNormalizer';
 
 export type DiffStatus = 'correct' | 'missed' | 'added';
 
@@ -92,8 +93,12 @@ const readDigits = (display: string): number | null => {
   return Number.isSafeInteger(value) ? value : null;
 };
 
-/** The longest spelled-out number considered ("novecentos e noventa e nove mil novecentos e noventa e nove"). */
-const MAX_NUMBER_WORDS = 16;
+/**
+ * The longest run of words the diff reads as one spelled-out number. Any number below a million
+ * fits, with room for some millions: 999 999 takes 11 words in either language ("novecentos e
+ * noventa e nove mil novecentos e noventa e nove").
+ */
+const MAX_WORDS_IN_SPELLED_NUMBER = 16;
 
 interface NumberPhrase {
   start: number;
@@ -105,7 +110,7 @@ interface NumberPhrase {
 const findNumberPhrases = (tokens: AlignedToken[]): NumberPhrase[] => {
   const phrases: NumberPhrase[] = [];
   for (let start = 0; start < tokens.length; start++) {
-    const limit = Math.min(tokens.length, start + MAX_NUMBER_WORDS);
+    const limit = Math.min(tokens.length, start + MAX_WORDS_IN_SPELLED_NUMBER);
     for (let end = start + 1; end <= limit && isNumberWord(tokens[end - 1].key); end++) {
       const value = parseNumberWords(tokens.slice(start, end).map((t) => t.key));
       if (value !== null) phrases.push({ start, end, value });
@@ -125,7 +130,7 @@ const findNumberPhrases = (tokens: AlignedToken[]): NumberPhrase[] => {
 const matchNumberForms = (
   expected: AlignedToken[],
   transcribed: AlignedToken[],
-  language?: 'en' | 'pt'
+  language?: Language
 ): AlignedToken[] => {
   const expectedDigits = new Set(
     expected.map((t) => readDigits(t.display)).filter((value): value is number => value !== null)
@@ -150,7 +155,7 @@ const matchNumberForms = (
   /** The longest run of number words at `at` whose value the canonical text writes in digits. */
   const wordsForDigitsAt = (at: number): { end: number; value: number } | null => {
     if (expectedDigits.size === 0 || !isNumberWord(transcribed[at].key)) return null;
-    for (let end = Math.min(transcribed.length, at + MAX_NUMBER_WORDS); end > at; end--) {
+    for (let end = Math.min(transcribed.length, at + MAX_WORDS_IN_SPELLED_NUMBER); end > at; end--) {
       const value = parseNumberWords(transcribed.slice(at, end).map((t) => t.key));
       if (value !== null && expectedDigits.has(value)) return { end, value };
     }
@@ -180,7 +185,7 @@ const matchNumberForms = (
 
 export interface DiffOptions {
   /** The verse's language. Digits that the canonical text does not spell out are read as words in it. */
-  language?: 'en' | 'pt';
+  language?: Language;
 }
 
 export function diffVerses(

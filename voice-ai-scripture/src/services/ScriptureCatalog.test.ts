@@ -230,6 +230,29 @@ describe('ScriptureCatalog open-licensed Bibles (Ticket 80)', () => {
     expect(web?.notice).toContain('"World English Bible" is a Trademark of eBible.org.');
   });
 
+  it('pins the ONBV notice, line for line as eBible gives it (Ticket 92)', () => {
+    expect(scriptureCatalog.getTranslationMetadata('ONBV')?.notice).toBe(
+      'Biblica® Open Nova Bíblia Viva™\n' +
+        'Copyright © 2007, 2010 by Biblica, Inc.\n' +
+        '“Biblica” é uma marca registrada na Oficina de Patentes e Marcas dos Estados Unidos por Biblica, Inc. Usado com permissão.\n' +
+        '“Biblica” is a trademark registered in the United States Patent and Trademark Office by Biblica, Inc. Used with permission.'
+    );
+  });
+
+  it('states where the original ONBV is available, as its licence asks of a changed work (Ticket 92)', () => {
+    // Omitting the Psalm titles changes the ONBV, so besides listing the changes the app must
+    // "show where the original Work is from" (https://ebible.org/find/details.php?id=poronbv).
+    const onbv = scriptureCatalog.getTranslationMetadata('ONBV');
+    expect(onbv?.changes).toContain('títulos dos Salmos');
+    expect(onbv?.originalWork).toBe(
+      'The original Work by its copyright holders is available for free at www.biblica.com and open.bible.'
+    );
+
+    for (const code of ['BLIVRE', 'BSB', 'WEB']) {
+      expect(scriptureCatalog.getTranslationMetadata(code)?.originalWork).toBeUndefined();
+    }
+  });
+
   it('looks metadata up by alias, lists every bundled translation and has none for labels without text', () => {
     expect(scriptureCatalog.getTranslationMetadata('Bíblia Livre')?.code).toBe('BLIVRE');
     expect(scriptureCatalog.getTranslationMetadata('NVI')).toBeNull();
@@ -369,6 +392,25 @@ describe('ScriptureCatalog: NBV is not the ONBV (Ticket 82)', () => {
     expect(nbv).toMatchObject({ canonicalRef: 'João 3:16', translation: 'NBV', isBundled: false });
     expect(nbv?.text).toBeUndefined();
     expect(scriptureCatalog.fetchPassageText('JHN', 3, 16, undefined, 'NBV')).toBeNull();
+  });
+});
+
+describe('ScriptureCatalog: labels without bundled text (Ticket 92)', () => {
+  it('lists every label it recognizes but has no text for, per language, in picker order', () => {
+    expect(scriptureCatalog.getUnbundledLabels('pt')).toEqual([
+      'ARA', 'ARC', 'ACF', 'NAA', 'NVI', 'NTLH', 'NVT', 'NBV', 'ALMEIDA',
+    ]);
+    expect(scriptureCatalog.getUnbundledLabels('en')).toEqual([
+      'KJV', 'NIV', 'ESV', 'NKJV', 'NASB', 'NLT', 'MSG', 'ASV',
+    ]);
+  });
+
+  it.each(['pt', 'en'] as const)('each %s label is recognized in its language and has no text', (language) => {
+    for (const label of scriptureCatalog.getUnbundledLabels(language)) {
+      expect(scriptureCatalog.recognizeTranslation(label.toLowerCase())).toBe(label);
+      expect(scriptureCatalog.isBundledTranslation(label)).toBe(false);
+      expect(scriptureCatalog.detectLanguage({ translation: label })).toBe(language);
+    }
   });
 });
 

@@ -7,7 +7,7 @@
  */
 
 export interface SpeechOptions {
-  language?: 'en' | 'pt' | string;
+  language?: Language | string;
   pitch?: number;
   rate?: number;
   onDone?: () => void;
@@ -21,7 +21,7 @@ export interface SpeechSynthesizer {
   isSpeaking(): Promise<boolean>;
 }
 
-import { normalizeSpeechLanguage } from '../utils/languageNormalizer';
+import { Language, normalizeSpeechLanguage } from '../utils/languageNormalizer';
 
 export const formatSpeechLanguage = normalizeSpeechLanguage;
 

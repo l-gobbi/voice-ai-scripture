@@ -1,7 +1,6 @@
 import {
   AttemptKind,
-  Recognizer,
-  SandboxAttempt,
+  VerifiedAttempt,
   Verse,
   VerseEngine,
   verseEngine,
@@ -28,13 +27,8 @@ import {
   getDefaultSpeechSynthesizer,
 } from './SpeechSynthesizer';
 import { scriptureCatalog } from './ScriptureCatalog';
-import {
-  VoiceInput,
-  SimulatedVoiceAdapter,
-  NativeStreamVoiceAdapter,
-  CloudAudioVoiceAdapter,
-  createDefaultVoiceInput,
-} from './VoiceInput';
+import { VoiceInput, createDefaultVoiceInput } from './VoiceInput';
+import type { Language } from '../utils/languageNormalizer';
 import {
   VoiceActivityDetector,
   VADConfig,
@@ -67,7 +61,7 @@ export function calculateMaxRecitationDurationSeconds(verseText: string): number
   return Math.min(300, Math.max(30, scaledSeconds));
 }
 
-export function inferVerseLanguage(verse: { translation?: string; reference: string; text?: string }): 'en' | 'pt' {
+export function inferVerseLanguage(verse: { translation?: string; reference: string; text?: string }): Language {
   return scriptureCatalog.detectLanguage(verse);
 }
 
@@ -92,9 +86,9 @@ export type RecitationLevel = 1 | 2 | 3;
 
 export interface VoiceRecitationResult {
   tokens: DiffToken[];
-  /** Word-level F1 score, 0–100: secondary detail for display. The outcome is the grade. */
+  /** Word-level F1 score, 0–100: secondary detail for display. The outcome decides. */
   score: number;
-  /** The Error Budget grade: `clean`, `slip` or `forgotten`. */
+  /** The Recitation Outcome under the Error Budget: `clean`, `slip` or `forgotten`. */
   outcome: RecitationOutcome;
   /** Unaided errors: missed or peeked words (once each), plus added words beyond two. */
   errorCount: number;
@@ -117,10 +111,11 @@ export interface VoiceRecitationResult {
 export const RELEARNING_LOOPS = 2;
 
 /**
- * Same-Day Relearning (ticket 78): after an Official Review graded `forgotten`, the learner is
- * offered Cloze Practice, then Blind Recitation again. Each relearning Blind Recitation uses one
- * loop. Relearning ends when the learner recalls the verse or no loops remain; a forgotten one
- * with loops left offers again. Its attempts are Practice Attempts, so the schedule stays.
+ * Same-Day Relearning (ticket 78): after an Official Review whose outcome is `forgotten`, the
+ * learner is offered Cloze Practice, then Blind Recitation again. Each relearning Blind
+ * Recitation uses one loop. Relearning ends when the learner recalls the verse or no loops
+ * remain; a forgotten one with loops left offers again. Its attempts are Practice Attempts, so
+ * the schedule stays.
  */
 export interface RelearningState {
   /** The offer is waiting for the learner to accept or decline it. */
@@ -131,19 +126,17 @@ export interface RelearningState {
   active: boolean;
 }
 
-/** Said after every Transcription Error, in the verse's language (ticket 74). */
-const NOT_GRADED_NOTICE: Record<'en' | 'pt', string> = {
-  en: 'Nothing was graded and no recitation was used.',
-  pt: 'Nada foi avaliado e nenhuma recitação foi usada.',
+/** Said when the learner did not speak before the initial silence timeout (ticket 52). */
+const NO_SPEECH_MESSAGE: Record<Language, string> = {
+  en: 'No speech detected. Tap the mic to try again.',
+  pt: 'Nenhuma fala detectada. Toque no microfone para tentar novamente.',
 };
 
-/** Which recognizer produced the transcript, when the voice input is one of the app's adapters. */
-function recognizerOf(voiceInput: VoiceInput): Recognizer | undefined {
-  if (voiceInput instanceof NativeStreamVoiceAdapter) return 'native';
-  if (voiceInput instanceof CloudAudioVoiceAdapter) return 'cloud';
-  if (voiceInput instanceof SimulatedVoiceAdapter) return 'simulated';
-  return undefined;
-}
+/** Said after every Transcription Error, in the verse's language (tickets 74 and 92). */
+const NOT_COUNTED_NOTICE: Record<Language, string> = {
+  en: 'Nothing was counted and no recitation was used.',
+  pt: 'Nada foi contado e nenhuma recitação foi usada.',
+};
 
 export interface RecitationState {
   level: RecitationLevel;
@@ -167,16 +160,16 @@ export interface RecitationState {
   errorDetails?: string | null;
   /**
    * Set when the last attempt ended in a Transcription Error: the app failed to hear the
-   * learner, so nothing was graded and any quota unit was refunded (ticket 74).
+   * learner, so nothing was counted and any quota unit was refunded (ticket 74).
    */
   transcriptionErrorCode: TranscriptionErrorCode | null;
   /**
-   * In sandbox mode, the last graded Blind Recitation (ticket 79). Nothing is recorded in the
+   * In sandbox mode, the last verified Blind Recitation (ticket 79). Nothing is recorded in the
    * sandbox, so it is kept for a possible save, which hands it to the Verse Engine as a Practice
    * Attempt. A later Blind Recitation replaces it; Echo Mode, Cloze Practice, a Transcription
    * Error or a level change leave it in place. Always null outside the sandbox.
    */
-  sandboxAttempt: SandboxAttempt | null;
+  sandboxAttempt: VerifiedAttempt | null;
   /** The Same-Day Relearning offer or drill in progress; null when there is none. */
   relearning: RelearningState | null;
   rateLimitCooldownSeconds?: number;
@@ -190,7 +183,11 @@ export interface RecitationSessionOptions {
   initialLevel?: RecitationLevel;
   autoVocalizeOnLevel1?: boolean;
   isSandbox?: boolean;
-  /** Skips the recitation quota. It never decides scheduling: the Verse Engine does. */
+  /**
+   * Skips the recitation quota for every attempt (the Home Screen sets it for a verse that is
+   * not due). It can only skip: `false` never meters practice. It never decides scheduling:
+   * the Verse Engine does.
+   */
   isUnmetered?: boolean;
   vadConfig?: VADConfig;
   /** The clock for Study Days and timing (defaults to the system time). */
@@ -215,7 +212,10 @@ export class RecitationSession {
   /** Canonical word positions of each Cloze token (a hyphenated token holds several). */
   private canonicalPositionsByClozeIndex: number[][];
   private recitationStartedAt: Date | null = null;
-  /** When the current attempt consumed a quota unit; null when it is unmetered. */
+  /**
+   * When the attempt in progress consumed a quota unit; null when it is unmetered or its unit
+   * is settled (spent by a verified recitation, or refunded).
+   */
   private quotaConsumedAt: Date | null = null;
 
   private state: RecitationState;
@@ -380,9 +380,9 @@ export class RecitationSession {
     return this.state.relearning?.active ? this.state.relearning : null;
   }
 
-  /** The Same-Day Relearning state after a graded attempt. */
+  /** The Same-Day Relearning state after a verified attempt. */
   private relearningAfter(level: RecitationLevel, kind: AttemptKind, outcome: RecitationOutcome): RelearningState | null {
-    if (kind === 'official' && outcome === 'forgotten') {
+    if (kind === 'official' && !isRecalled(outcome)) {
       return { offered: true, loopsRemaining: RELEARNING_LOOPS, active: false };
     }
     const relearning = this.state.relearning;
@@ -453,7 +453,13 @@ export class RecitationSession {
     }
   }
 
-  /** `unmetered` skips the recitation quota for this attempt; it does not affect scheduling. */
+  /**
+   * Starts an attempt. Only a Blind Recitation (Level 3) of a Due Verse is metered: Echo Mode,
+   * Cloze Practice and the sandbox never are. `unmetered: true` lets the caller skip the quota
+   * for this attempt too (the Home Screen does for a verse that is not due); `false` or no
+   * value leaves the rule as it is, so no caller can ever meter practice. Metering never
+   * affects scheduling: the Verse Engine classifies every attempt.
+   */
   async startReciting(options?: { unmetered?: boolean }): Promise<void> {
     await this.synthesizer.stop().catch(() => {});
 
@@ -480,8 +486,9 @@ export class RecitationSession {
       }
 
       // 2. Quota & Rate Limit Gating Check
-      const isUnmetered = this.isSandbox || this.isUnmetered || (options?.unmetered ?? (this.state.level !== 3));
-      if (!isUnmetered) {
+      const isMetered =
+        this.state.level === 3 && !this.isSandbox && !this.isUnmetered && options?.unmetered !== true;
+      if (isMetered) {
         const consumedAt = this.now();
         const rateLimit = await this.subscriptionService.consumeRecitation(consumedAt);
         if (!rateLimit.allowed) {
@@ -529,18 +536,8 @@ export class RecitationSession {
             if (typeof __DEV__ !== 'undefined' && __DEV__) {
               console.log('[RecitationSession] VAD initial silence timeout (10s no speech).');
             }
-            this.clearUtteranceCeilingTimer();
-            this.voiceInput.cancel().catch(() => {});
-            const isPt = inferVerseLanguage(this.verse) === 'pt';
-            this.setState({
-              status: 'idle',
-              volumeLevel: 0,
-              vadProgress: 0,
-              vadState: 'idle',
-              vadThreshold: 0.58,
-              errorMessage: isPt
-                ? 'Nenhuma fala detectada. Toque no microfone para tentar novamente.'
-                : 'No speech detected. Tap the mic to try again.',
+            this.endWithoutSpeech().catch((err) => {
+              console.error('[RecitationSession] Error ending a recitation without speech:', err);
             });
           },
         },
@@ -590,7 +587,10 @@ export class RecitationSession {
       });
     } catch (err: any) {
       this.clearUtteranceCeilingTimer();
+      this.vad?.cancel();
       console.error('[RecitationSession] startReciting error:', err);
+      // The recitation never started, so its unit goes back.
+      await this.refundQuotaUnit();
       this.setState({
         status: 'error',
         errorMessage: err.message || 'Failed to start recitation',
@@ -625,7 +625,7 @@ export class RecitationSession {
       }
       const now = this.now();
 
-      // Pure Recitation Evaluator Pipeline (grading only; the Verse Engine schedules)
+      // Pure Recitation Evaluator Pipeline (verification only; the Verse Engine schedules)
       const evaluation = evaluateRecitation({
         expectedText: this.verse.text,
         transcribedText: transcript,
@@ -634,12 +634,12 @@ export class RecitationSession {
         peekedWordPositions,
       });
       const passed = isRecalled(evaluation.outcome);
-      const attempt: SandboxAttempt = {
+      const attempt: VerifiedAttempt = {
         level,
         evaluation,
         peekedWordPositions,
         clozeRevealCount: this.clozeRevealCount(level),
-        recognizer: recognizerOf(this.voiceInput),
+        recognizer: this.voiceInput.recognizer,
         durationMs: this.durationUntil(now),
         now,
       };
@@ -674,6 +674,8 @@ export class RecitationSession {
         isRelearning: this.state.relearning?.active ?? false,
       };
 
+      // A verified recitation spends its quota unit for good.
+      this.quotaConsumedAt = null;
       this.setState({
         status: 'verified',
         currentResult: result,
@@ -691,6 +693,8 @@ export class RecitationSession {
       }
 
       console.error('[RecitationSession] Verification error:', err);
+      // Nothing was verified, so the attempt's unit goes back.
+      await this.refundQuotaUnit();
       this.setState({
         status: 'error',
         errorMessage: err?.message || 'An error occurred during verification.',
@@ -705,23 +709,18 @@ export class RecitationSession {
    * The app failed to hear the learner (ticket 74). The attempt is never evaluated or
    * scheduled: its quota unit, if it used one, is refunded, it is logged with its error code
    * and no outcome, and the learner is asked calmly to try again. Neither a failed refund nor
-   * a failed log write changes what the learner is told.
+   * a failed log write changes what the learner is told. `userMessage` replaces the error's
+   * own message when the session knows more (no speech at all).
    */
   private async endInTranscriptionError(
     error: TranscriptionError,
     level: RecitationLevel,
-    peekedWordPositions: number[]
+    peekedWordPositions: number[],
+    userMessage?: string
   ): Promise<void> {
     const now = this.now();
 
-    const consumedAt = this.quotaConsumedAt;
-    this.quotaConsumedAt = null;
-    if (consumedAt) {
-      // The unit belongs to the Study Day it was consumed on.
-      await this.subscriptionService
-        .refundRecitation(consumedAt)
-        .catch((err) => console.warn('[RecitationSession] Quota refund failed:', err));
-    }
+    await this.refundQuotaUnit();
 
     // The sandbox verse is not stored yet, so nothing is recorded.
     if (!this.isSandbox) {
@@ -732,7 +731,7 @@ export class RecitationSession {
           code: error.code,
           peekedWordPositions,
           clozeRevealCount: this.clozeRevealCount(level),
-          recognizer: recognizerOf(this.voiceInput),
+          recognizer: this.voiceInput.recognizer,
           durationMs: this.durationUntil(now),
           now,
         })
@@ -743,10 +742,56 @@ export class RecitationSession {
     this.setState({
       status: 'error',
       transcriptionErrorCode: error.code,
-      errorMessage: `${error.getUserFacingMessage(language)} ${NOT_GRADED_NOTICE[language]}`,
+      errorMessage: `${userMessage ?? error.getUserFacingMessage(language)} ${NOT_COUNTED_NOTICE[language]}`,
       errorDetails: error.message,
       rawTranscript: null,
     });
+  }
+
+  /**
+   * The VAD heard no speech in the first seconds of the recitation (ticket 92). That is a
+   * Transcription Error like an empty transcript: the recording is discarded unheard, and the
+   * attempt goes through the same path (refunded, logged with its code and no outcome, and a
+   * calm retry message).
+   */
+  private async endWithoutSpeech(): Promise<void> {
+    if (this.state.status !== 'reciting') return;
+
+    this.clearUtteranceCeilingTimer();
+    this.vad?.cancel();
+    this.setState({ status: 'verifying', volumeLevel: 0, vadProgress: 0, vadState: 'idle' });
+    await this.voiceInput.cancel().catch(() => {});
+
+    const level = this.state.level;
+    await this.endInTranscriptionError(
+      new TranscriptionError('unintelligible', 'No speech was detected before the initial silence timeout.'),
+      level,
+      level === 3 ? [...this.state.peekedWordPositions] : [],
+      NO_SPEECH_MESSAGE[inferVerseLanguage(this.verse)]
+    );
+  }
+
+  /**
+   * Gives back the quota unit of the attempt in progress, if it consumed one: only a verified
+   * recitation spends a unit (ticket 92). The unit belongs to the Study Day it was consumed on.
+   * A failed refund never changes what the learner is told.
+   */
+  private async refundQuotaUnit(): Promise<void> {
+    const consumedAt = this.quotaConsumedAt;
+    this.quotaConsumedAt = null;
+    if (!consumedAt) return;
+    await this.subscriptionService
+      .refundRecitation(consumedAt)
+      .catch((err) => console.warn('[RecitationSession] Quota refund failed:', err));
+  }
+
+  /**
+   * Refunds an attempt the learner abandoned (cancel, reset, leaving the screen). While it is
+   * being verified, the verification settles its unit instead.
+   */
+  private async refundAbandonedAttempt(): Promise<void> {
+    if (this.state.status === 'verifying') return;
+    await this.refundQuotaUnit();
   }
 
   /** Words revealed during Cloze Practice, for the Review Log. */
@@ -760,10 +805,12 @@ export class RecitationSession {
       : undefined;
   }
 
+  /** Cancels the recitation: nothing is evaluated or logged, and its quota unit goes back. */
   async cancelRecitation(): Promise<void> {
     this.clearUtteranceCeilingTimer();
     this.vad?.cancel();
     await this.voiceInput.cancel().catch(() => {});
+    await this.refundAbandonedAttempt();
     this.setState({
       status: 'idle',
       volumeLevel: 0,
@@ -782,6 +829,7 @@ export class RecitationSession {
     this.clearPeekTimers();
     await this.synthesizer.stop().catch(() => {});
     await this.voiceInput.cancel().catch(() => {});
+    await this.refundAbandonedAttempt();
 
     // A reset ends the attempt, so its Word Peeks go with it.
     this.setState({
@@ -807,6 +855,7 @@ export class RecitationSession {
     this.clearPeekTimers();
     await this.synthesizer.stop().catch(() => {});
     await this.voiceInput.cancel().catch(() => {});
+    await this.refundAbandonedAttempt();
     this.listeners.clear();
   }
 }

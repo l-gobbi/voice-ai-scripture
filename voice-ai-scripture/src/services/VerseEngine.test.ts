@@ -1,7 +1,9 @@
 import {
+  AttemptEvaluation,
+  RecitationOutcome,
   VerseEngine,
   MapStorageAdapter,
-  SandboxAttempt,
+  VerifiedAttempt,
   Verse,
   resolveDefaultTranslation,
   getMemoryTier,
@@ -16,6 +18,23 @@ import { hashCanonicalText } from './ReviewLog';
 // any machine time zone. The Study Day rolls over at 04:00 local time.
 const at = (year: number, month: number, day: number, hour: number, minute = 0) =>
   new Date(year, month - 1, day, hour, minute);
+
+/** An evaluation with the given outcome. Scheduling reads only the outcome and the raw score. */
+const evaluationWith = (outcome: RecitationOutcome): AttemptEvaluation => ({
+  tokens: [],
+  rawScore: outcome === 'clean' ? 100 : outcome === 'slip' ? 95 : 50,
+  errorCount: outcome === 'clean' ? 0 : outcome === 'slip' ? 1 : 2,
+  errorBudget: 1,
+  outcome,
+});
+
+/**
+ * Records a Blind Recitation with the given outcome through `recordAttempt`, the engine's only
+ * way to record a recitation: it is an Official Review only when the verse is due at `now` and
+ * has had none that Study Day (ADR 0017).
+ */
+const reciteBlind = (engine: VerseEngine, verseId: string, outcome: RecitationOutcome, now?: Date) =>
+  engine.recordAttempt({ verseId, level: 3, evaluation: evaluationWith(outcome), now });
 
 describe('VerseEngine (Ticket 09)', () => {
   describe('Slice 1: In-Memory / Pluggable Storage & Basic CRUD', () => {
@@ -115,7 +134,7 @@ describe('VerseEngine (Ticket 09)', () => {
       const verse = await engine.addVerse({ reference: '1 John 4:19', text: 'We love because he first loved us.' });
       const now = at(2026, 9, 17, 10, 0);
 
-      const srsResult = await engine.recordReview(verse.id, 'clean', now);
+      const { srsResult } = await reciteBlind(engine, verse.id, 'clean', now);
 
       expect(srsResult.streak).toBe(1);
       expect(srsResult.repetitions).toBe(1);
@@ -147,7 +166,7 @@ describe('VerseEngine (Ticket 09)', () => {
       };
       await storage.setItem('verses', JSON.stringify(all));
 
-      const srsResult = await engine.recordReview(verse.id, 'forgotten', now);
+      const { srsResult } = await reciteBlind(engine, verse.id, 'forgotten', now);
 
       expect(srsResult.streak).toBe(0);
       expect(srsResult.intervalDays).toBe(1);
@@ -166,7 +185,7 @@ describe('VerseEngine (Ticket 09)', () => {
       const verse = await engine.addVerse({ reference: 'Psalm 119:105', text: 'Your word is a lamp...' });
       const now = at(2026, 9, 17, 10, 0);
 
-      const srsResult = await engine.recordReview(verse.id, 'forgotten', now);
+      const { srsResult } = await reciteBlind(engine, verse.id, 'forgotten', now);
 
       expect(srsResult.streak).toBe(0);
       expect(srsResult.passed).toBe(false);
@@ -184,8 +203,8 @@ describe('VerseEngine (Ticket 09)', () => {
       const vForgotten = await engine.addVerse({ reference: 'Hebrews 11:6', text: 'And without faith...' });
       const now = at(2026, 9, 17, 10, 0);
 
-      const slipResult = await engine.recordReview(vSlip.id, 'slip', now);
-      const forgottenResult = await engine.recordReview(vForgotten.id, 'forgotten', now);
+      const { srsResult: slipResult } = await reciteBlind(engine, vSlip.id, 'slip', now);
+      const { srsResult: forgottenResult } = await reciteBlind(engine, vForgotten.id, 'forgotten', now);
 
       expect(slipResult.passed).toBe(true);
       expect(slipResult.streak).toBe(1);
@@ -199,7 +218,7 @@ describe('VerseEngine (Ticket 09)', () => {
       const storage = new MapStorageAdapter();
       const engine = new VerseEngine(storage);
 
-      await expect(engine.recordReview('non-existent-id', 'clean')).rejects.toThrow('Verse not found');
+      await expect(reciteBlind(engine, 'non-existent-id', 'clean')).rejects.toThrow('Verse not found');
     });
   });
 
@@ -304,7 +323,7 @@ describe('VerseEngine (Ticket 09)', () => {
       });
 
       // Advance review streak
-      await engine.recordReview(verse.id, 'clean');
+      await reciteBlind(engine, verse.id, 'clean');
       const afterReview = (await engine.getAllVerses())[0];
       expect(afterReview.srs?.streak).toBe(1);
 
@@ -488,7 +507,7 @@ describe('VerseEngine (Ticket 09)', () => {
       const v1 = await engine.addVerse({ reference: 'John 3:16', text: 'For God so loved...' });
 
       const day1 = at(2026, 9, 18, 10, 0);
-      await engine.recordReview(v1.id, 'clean', day1);
+      await reciteBlind(engine, v1.id, 'clean', day1);
 
       const dashboard = await engine.getDashboard(day1);
       expect(dashboard.habitStats.currentStreak).toBe(1);
@@ -496,14 +515,14 @@ describe('VerseEngine (Ticket 09)', () => {
       expect(dashboard.habitStats.lastActiveDate).toBe('2026-09-18');
     });
 
-    it('passes wasDue = false when reviewing a non-due verse ahead of schedule', async () => {
+    it('reciting a verse ahead of schedule is practice: it moves neither the schedule nor the habit streak', async () => {
       const storage = new MapStorageAdapter();
       const engine = new VerseEngine(storage);
 
       const now = at(2026, 9, 18, 10, 0);
 
       const verse = await engine.addVerse({ reference: 'John 3:16', text: 'Text' });
-      await engine.updateVerse(verse.id, {
+      const notYetDue = await engine.updateVerse(verse.id, {
         srs: {
           streak: 1,
           intervalDays: 1,
@@ -513,9 +532,12 @@ describe('VerseEngine (Ticket 09)', () => {
         },
       });
 
-      await engine.recordReview(verse.id, 'clean', now);
+      const { kind } = await reciteBlind(engine, verse.id, 'clean', now);
+
+      expect(kind).toBe('practice');
+      expect((await engine.getAllVerses())[0].srs).toEqual(notYetDue.srs);
       const dashboard = await engine.getDashboard(now);
-      expect(dashboard.habitStats.currentStreak).toBe(1);
+      expect(dashboard.habitStats.currentStreak).toBe(0);
       expect(dashboard.habitStats.completedTodayCount).toBe(0);
     });
   });
@@ -582,7 +604,7 @@ describe('VerseEngine (Ticket 09)', () => {
       expect(dashboard.habitStats.totalDueToday).toBe(1);
     });
 
-    it('recordReview() atomically updates SRS schedule and daily habit streak', async () => {
+    it('an Official Review atomically updates the SRS schedule and the daily habit streak', async () => {
       const storage = new MapStorageAdapter();
       const engine = new VerseEngine(storage);
       const day1 = at(2026, 10, 6, 10, 0);
@@ -593,7 +615,7 @@ describe('VerseEngine (Ticket 09)', () => {
       });
 
       // Review verse on day 1 with perfect score
-      const srsResult = await engine.recordReview(verse.id, 'clean', day1);
+      const { srsResult } = await reciteBlind(engine, verse.id, 'clean', day1);
       expect(srsResult.passed).toBe(true);
       expect(srsResult.streak).toBe(1);
 
@@ -619,18 +641,18 @@ describe('VerseEngine (Ticket 09)', () => {
       const v3 = await engine.addVerse({ reference: 'Verse 3', text: 'Text 3' });
 
       // Day 1: review v1 and v2 on same day
-      await engine.recordReview(v1.id, 'clean', day1);
+      await reciteBlind(engine, v1.id, 'clean', day1);
       const statsSameDay = (await engine.getDashboard(day1)).habitStats;
       expect(statsSameDay.currentStreak).toBe(1);
       expect(statsSameDay.completedTodayCount).toBe(1);
 
-      await engine.recordReview(v2.id, 'clean', day1);
+      await reciteBlind(engine, v2.id, 'clean', day1);
       const statsSameDay2 = (await engine.getDashboard(day1)).habitStats;
       expect(statsSameDay2.currentStreak).toBe(1); // Same day maintains streak
       expect(statsSameDay2.completedTodayCount).toBe(2);
 
       // Day 2: consecutive day review increments streak
-      await engine.recordReview(v3.id, 'clean', day2);
+      await reciteBlind(engine, v3.id, 'clean', day2);
       const statsDay2 = (await engine.getDashboard(day2)).habitStats;
       expect(statsDay2.currentStreak).toBe(2);
       expect(statsDay2.longestStreak).toBe(2);
@@ -648,7 +670,7 @@ describe('VerseEngine (Ticket 09)', () => {
       const today = at(2026, 10, 6, 10, 0);
 
       const v = await engine.addVerse({ reference: 'Verse 1', text: 'Text 1' });
-      await engine.recordReview(v.id, 'clean', today);
+      await reciteBlind(engine, v.id, 'clean', today);
 
       expect((await engine.getDashboard(today)).habitStats.currentStreak).toBe(1);
 
@@ -684,7 +706,7 @@ describe('VerseEngine (Ticket 09)', () => {
       const engine = new VerseEngine(storage);
       const verse = await engine.addVerse({ reference: 'John 3:16', text: 'For God so loved...' });
 
-      const result = await engine.recordReview(verse.id, 'clean', at(2026, 10, 8, 23, 0));
+      const { srsResult: result } = await reciteBlind(engine, verse.id, 'clean', at(2026, 10, 8, 23, 0));
 
       expect(result.intervalDays).toBe(1);
       expect(result.nextReviewDate).toBe('2026-10-09');
@@ -698,7 +720,7 @@ describe('VerseEngine (Ticket 09)', () => {
       const engine = new VerseEngine(storage);
       const verse = await engine.addVerse({ reference: 'John 3:16', text: 'For God so loved...' });
 
-      const result = await engine.recordReview(verse.id, 'clean', at(2026, 10, 9, 1, 0));
+      const { srsResult: result } = await reciteBlind(engine, verse.id, 'clean', at(2026, 10, 9, 1, 0));
 
       // Study Day of the review is Oct 8, so a 1-day interval is due on Oct 9 from 04:00.
       expect(result.nextReviewDate).toBe('2026-10-09');
@@ -714,7 +736,7 @@ describe('VerseEngine (Ticket 09)', () => {
         srs: { streak: 1, intervalDays: 1, easeFactor: 2.5, nextReviewDate: '2026-10-08' },
       });
 
-      const result = await engine.recordReview(verse.id, 'clean', at(2026, 10, 9, 2, 30));
+      const { srsResult: result } = await reciteBlind(engine, verse.id, 'clean', at(2026, 10, 9, 2, 30));
 
       expect(result.intervalDays).toBe(6);
       expect(result.nextReviewDate).toBe('2026-10-14');
@@ -762,8 +784,9 @@ describe('VerseEngine (Ticket 09)', () => {
       await setDueDates(storage, engine, { [verse.id]: '2026-10-09' });
 
       const lateNight = at(2026, 10, 9, 1, 0);
-      await engine.recordReview(verse.id, 'clean', lateNight);
+      const { kind } = await reciteBlind(engine, verse.id, 'clean', lateNight);
 
+      expect(kind).toBe('practice');
       expect((await engine.getDashboard(lateNight)).habitStats.completedTodayCount).toBe(0);
     });
 
@@ -773,8 +796,8 @@ describe('VerseEngine (Ticket 09)', () => {
       const v1 = await engine.addVerse({ reference: 'John 3:16', text: 'For God so loved...' });
       const v2 = await engine.addVerse({ reference: 'Romans 8:28', text: 'And we know...' });
 
-      await engine.recordReview(v1.id, 'clean', at(2026, 10, 8, 23, 30));
-      await engine.recordReview(v2.id, 'clean', at(2026, 10, 9, 0, 30));
+      await reciteBlind(engine, v1.id, 'clean', at(2026, 10, 8, 23, 30));
+      await reciteBlind(engine, v2.id, 'clean', at(2026, 10, 9, 0, 30));
 
       const { habitStats } = await engine.getDashboard(at(2026, 10, 9, 0, 30));
       expect(habitStats.currentStreak).toBe(1);
@@ -788,7 +811,7 @@ describe('VerseEngine (Ticket 09)', () => {
       const v1 = await engine.addVerse({ reference: 'John 3:16', text: 'For God so loved...' });
       const v2 = await engine.addVerse({ reference: 'Romans 8:28', text: 'And we know...' });
 
-      await engine.recordReview(v1.id, 'clean', at(2026, 10, 7, 20, 0));
+      await reciteBlind(engine, v1.id, 'clean', at(2026, 10, 7, 20, 0));
 
       // 00:30 on Oct 9 is still Study Day Oct 8, the day after the last activity.
       expect((await engine.getDashboard(at(2026, 10, 9, 0, 30))).habitStats.currentStreak).toBe(1);
@@ -804,7 +827,7 @@ describe('VerseEngine (Ticket 09)', () => {
       const engine = new VerseEngine(storage);
       const v1 = await engine.addVerse({ reference: 'John 3:16', text: 'For God so loved...' });
 
-      await engine.recordReview(v1.id, 'clean', at(2026, 10, 7, 20, 0));
+      await reciteBlind(engine, v1.id, 'clean', at(2026, 10, 7, 20, 0));
 
       expect((await engine.getDashboard(at(2026, 10, 9, 3, 59))).habitStats.currentStreak).toBe(1);
       expect((await engine.getDashboard(at(2026, 10, 9, 4, 0))).habitStats.currentStreak).toBe(0);
@@ -886,7 +909,7 @@ describe('VerseEngine (Ticket 09)', () => {
       });
       expect(getMemoryTier((await engine.getAllVerses())[0])).toBe('hidden_in_the_heart');
 
-      await engine.recordReview(verse.id, 'forgotten', at(2026, 10, 9, 10, 0));
+      await reciteBlind(engine, verse.id, 'forgotten', at(2026, 10, 9, 10, 0));
 
       expect(getMemoryTier((await engine.getAllVerses())[0])).toBe('seed');
     });
@@ -1094,7 +1117,7 @@ describe('VerseEngine (Ticket 09)', () => {
         outcome: 'forgotten',
         recognizer: 'simulated',
         wasDue: true,
-        gradingRuleId: 'error-budget-5pct@1',
+        verificationRuleId: 'error-budget-5pct@1',
         schedulerId: 'sm2-app@3',
         sm2Quality: 2,
         before: { intervalDays: 1, easeFactor: 2.5 },
@@ -1320,7 +1343,7 @@ describe('VerseEngine: Saved Sandbox Verse (Ticket 79)', () => {
   const savedAt = at(2026, 12, 3, 7, 31);
 
   /** The sandbox's Blind Recitation of `transcript`, as the Recitation Session keeps it. */
-  const sandboxAttempt = (transcript: string, peekedWordPositions: number[] = []): SandboxAttempt => ({
+  const sandboxAttempt = (transcript: string, peekedWordPositions: number[] = []): VerifiedAttempt => ({
     level: 3,
     evaluation: evaluateRecitation({
       expectedText: PSALM_23_1.text,
@@ -1389,7 +1412,7 @@ describe('VerseEngine: Saved Sandbox Verse (Ticket 79)', () => {
         recognizer: 'simulated',
         // The verse was not stored yet, so it had no due Study Day.
         wasDue: false,
-        gradingRuleId: 'error-budget-5pct@1',
+        verificationRuleId: 'error-budget-5pct@1',
         schedulerId: 'sm2-app@3',
         sm2Quality: null,
         before: { intervalDays: 0, easeFactor: 2.5 },

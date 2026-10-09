@@ -3,10 +3,11 @@ import { View, Text, StyleSheet, TouchableOpacity, useColorScheme } from 'react-
 import { Verse } from '../services/VerseEngine';
 import { scriptureCatalog } from '../services/ScriptureCatalog';
 import { getTheme, touchTarget } from '../theme/tokens';
+import type { Language } from '../utils/languageNormalizer';
 
 export interface SandboxWelcomeCardProps {
   onStartSandbox: (verse: Verse) => void;
-  initialLanguage?: 'en' | 'pt';
+  initialLanguage?: Language;
 }
 
 export interface SandboxPassage {
@@ -24,7 +25,7 @@ function sandboxPassage(reference: string): SandboxPassage {
   return { reference: passage.canonicalRef, translation: passage.translation, text: passage.text };
 }
 
-export const SANDBOX_PASSAGES: Record<'en' | 'pt', SandboxPassage> = {
+export const SANDBOX_PASSAGES: Record<Language, SandboxPassage> = {
   en: sandboxPassage('Acts 2:38'),
   pt: sandboxPassage('Atos 2:38'),
 };
@@ -36,7 +37,7 @@ export default function SandboxWelcomeCard({
   const scheme = useColorScheme();
   const theme = getTheme(scheme);
 
-  const [language, setLanguage] = useState<'en' | 'pt'>(initialLanguage);
+  const [language, setLanguage] = useState<Language>(initialLanguage);
   const passage = SANDBOX_PASSAGES[language];
 
   const currentVerse: Verse = {

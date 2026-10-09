@@ -7,8 +7,8 @@
  *       # rewrite only the metadata of an existing dataset, keeping its verses
  *
  * Every dataset has the shape
- *   { translation, name, fullName, language, license, notice, changes, sourceUrl,
- *     books: { BOOKID: { chapter: { verse: text } } } }
+ *   { translation, name, fullName, language, license, notice, changes, [originalWork,]
+ *     sourceUrl, books: { BOOKID: { chapter: { verse: text } } } }
  * and the Scripture Catalog reads its metadata from there. The dataset integrity test
  * (src/services/ScriptureCatalog.integrity.test.ts) guards the output.
  *
@@ -67,6 +67,8 @@ const EBIBLE_TO_CANON = Object.fromEntries(EBIBLE_VPL_BOOKS.map((code, i) => [co
  * Per-translation metadata written into each dataset. `notice` is the attribution text the
  * licence requires (or, for public-domain texts, the courtesy credit and trademark note),
  * copied from the licensor. `changes` says what this build did to the text, as CC BY asks.
+ * `originalWork`, only where the licence asks it of a changed work, says verbatim where the
+ * unchanged original is available.
  */
 const TRANSLATION_METADATA = {
   BLIVRE: {
@@ -105,6 +107,10 @@ const TRANSLATION_METADATA = {
     changes:
       'Texto sem alterações, exceto que os títulos dos Salmos foram omitidos do texto dos ' +
       'versículos e os espaços foram normalizados.',
+    // Omitting the Psalm titles makes this a changed work, and the licence then asks: "You must
+    // also show where the original Work is from:" (same page), verbatim.
+    originalWork:
+      'The original Work by its copyright holders is available for free at www.biblica.com and open.bible.',
     sourceUrl: 'https://ebible.org/find/details.php?id=poronbv',
   },
   BSB: {
@@ -194,6 +200,7 @@ function writeDataset(code, books) {
     license: meta.license,
     notice: meta.notice,
     changes: meta.changes,
+    ...(meta.originalWork ? { originalWork: meta.originalWork } : {}),
     sourceUrl: meta.sourceUrl,
     books,
   };

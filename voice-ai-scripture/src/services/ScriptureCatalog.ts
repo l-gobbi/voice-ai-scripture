@@ -10,6 +10,7 @@ import blivreData from '../data/bibles/blivre.json';
 import onbvData from '../data/bibles/onbv.json';
 import bsbData from '../data/bibles/bsb.json';
 import webData from '../data/bibles/web.json';
+import type { Language } from '../utils/languageNormalizer';
 
 export type { CanonBook };
 /** The bundled Translations: open-licensed texts only (ADR 0018). */
@@ -31,7 +32,6 @@ export const BUNDLED_TRANSLATIONS: readonly SupportedTranslation[] = [
 export const PT_TRANSLATIONS: ReadonlySet<string> = new Set([
   'BLIVRE',
   'ONBV',
-  'ALMEIDA',
   'ARA',
   'ARC',
   'ACF',
@@ -40,6 +40,7 @@ export const PT_TRANSLATIONS: ReadonlySet<string> = new Set([
   'NTLH',
   'NVT',
   'NBV',
+  'ALMEIDA',
 ]);
 
 /** English Translation labels: the bundled ones and labels without text, such as KJV. */
@@ -47,8 +48,8 @@ export const EN_TRANSLATIONS: ReadonlySet<string> = new Set([
   'BSB',
   'WEB',
   'KJV',
-  'ESV',
   'NIV',
+  'ESV',
   'NKJV',
   'NASB',
   'NLT',
@@ -56,8 +57,13 @@ export const EN_TRANSLATIONS: ReadonlySet<string> = new Set([
   'ASV',
 ]);
 
+const TRANSLATION_LABELS: Readonly<Record<Language, ReadonlySet<string>>> = {
+  pt: PT_TRANSLATIONS,
+  en: EN_TRANSLATIONS,
+};
+
 /** The per-language default Translation, used when no Preferred Translation applies. */
-const DEFAULT_TRANSLATIONS: Readonly<Record<'en' | 'pt', SupportedTranslation>> = {
+const DEFAULT_TRANSLATIONS: Readonly<Record<Language, SupportedTranslation>> = {
   pt: 'BLIVRE',
   en: 'BSB',
 };
@@ -81,12 +87,17 @@ export interface TranslationMetadata {
   name: string;
   /** Full title as the licensor gives it, e.g. "Biblica® Open Nova Bíblia Viva™". */
   fullName: string;
-  language: 'en' | 'pt';
+  language: Language;
   license: string;
   /** Attribution notice required by the licence (or courtesy credit), verbatim. May span lines. */
   notice: string;
   /** What the build changed in the source text (markers removed, whitespace normalized). */
   changes: string;
+  /**
+   * Where the unchanged original is available, verbatim as the licence asks a changed work to
+   * state it (the ONBV, whose Psalm titles the app omits). Absent when the licence asks nothing.
+   */
+  originalWork?: string;
   sourceUrl: string;
 }
 
@@ -94,10 +105,11 @@ interface BibleDataset {
   translation: SupportedTranslation;
   name: string;
   fullName: string;
-  language: 'en' | 'pt';
+  language: Language;
   license: string;
   notice: string;
   changes: string;
+  originalWork?: string;
   sourceUrl: string;
   books: Record<string, Record<string, Record<string, string>>>;
 }
@@ -153,7 +165,7 @@ export interface NormalizedReference {
   startVerse: number;
   endVerse?: number;
   canonicalRef: string;
-  language: 'en' | 'pt';
+  language: Language;
 }
 
 export interface ResolvedPassage extends NormalizedReference {
@@ -284,14 +296,14 @@ export class ScriptureCatalog {
    * is not recognized. A name with Portuguese accents ("Gênesis") is Portuguese only.
    * `resolveReference` reads a name spelled the same in both as Portuguese.
    */
-  referenceLanguages(reference: string): Array<'en' | 'pt'> {
+  referenceLanguages(reference: string): Language[] {
     if (!this.resolveReference(reference)) return [];
     const rawBook = reference.trim().match(REFERENCE_PATTERN)!.groups!.rawBook.trim();
     if (rawBook.toLowerCase() === 'jó') return ['pt'];
 
     const forms = bookNameForms(rawBook);
     const hasAccents = rawBook.normalize('NFD') !== rawBook.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-    const languages: Array<'en' | 'pt'> = [];
+    const languages: Language[] = [];
     if (CANON_BOOKS.some((book) => matchesAnyAlias(book.ptAliases, forms))) languages.push('pt');
     if (!hasAccents && CANON_BOOKS.some((book) => matchesAnyAlias(book.enAliases, forms))) {
       languages.push('en');
@@ -304,7 +316,7 @@ export class ScriptureCatalog {
     chapter: number,
     startVerse: number,
     endVerse: number | undefined,
-    language: 'en' | 'pt'
+    language: Language
   ): NormalizedReference {
     const bookName = language === 'pt' ? book.ptName : book.enName;
     const span = endVerse !== undefined ? `${startVerse}-${endVerse}` : `${startVerse}`;
@@ -323,7 +335,7 @@ export class ScriptureCatalog {
    * Intelligently detects whether a verse is Portuguese or English based on text diacritics,
    * marker vocabulary, translation codes, or book reference names.
    */
-  detectLanguage(verse: { text?: string; reference?: string; translation?: string }): 'en' | 'pt' {
+  detectLanguage(verse: { text?: string; reference?: string; translation?: string }): Language {
     if (verse.text && verse.text.trim().length > 0) {
       const raw = verse.text;
       const hasPtDiacritics = /[áàâãéêíóôõúçÁÀÂÃÉÊÍÓÔÕÚÇ]/.test(raw);
@@ -397,7 +409,7 @@ export class ScriptureCatalog {
    * The language a reference is written in, from its book name ("Salmos 23:1" → pt), or English
    * when the reference is not recognized (yet).
    */
-  referenceLanguage(reference: string): 'en' | 'pt' {
+  referenceLanguage(reference: string): Language {
     return this.resolveReference(reference)?.language ?? 'en';
   }
 
@@ -436,22 +448,40 @@ export class ScriptureCatalog {
   getTranslationMetadata(raw?: string | null): TranslationMetadata | null {
     const code = this.canonicalizeTranslation(raw);
     if (!code) return null;
-    const { name, fullName, language, license, notice, changes, sourceUrl } = DATASETS[code];
-    return { code, name, fullName, language, license, notice, changes, sourceUrl };
+    const { name, fullName, language, license, notice, changes, originalWork, sourceUrl } = DATASETS[code];
+    return {
+      code,
+      name,
+      fullName,
+      language,
+      license,
+      notice,
+      changes,
+      ...(originalWork ? { originalWork } : {}),
+      sourceUrl,
+    };
   }
 
   /**
    * Metadata of every bundled Translation, in BUNDLED_TRANSLATIONS order; only those of one
    * language when it is given (the choices for that language's Preferred Translation).
    */
-  getBundledTranslations(language?: 'en' | 'pt'): TranslationMetadata[] {
+  getBundledTranslations(language?: Language): TranslationMetadata[] {
     return BUNDLED_TRANSLATIONS.map((code) => this.getTranslationMetadata(code)!).filter(
       (meta) => !language || meta.language === language
     );
   }
 
+  /**
+   * The labels of one language that the catalog recognizes but has no text for (ARA, NVI, KJV,
+   * NLT, …), in a stable order. The learner labels their own wording with one of them.
+   */
+  getUnbundledLabels(language: Language): string[] {
+    return [...TRANSLATION_LABELS[language]].filter((label) => !this.isBundledTranslation(label));
+  }
+
   /** Language of a bundled Translation or of a known label without bundled text. */
-  private languageOfTranslation(raw?: string | null): 'en' | 'pt' | null {
+  private languageOfTranslation(raw?: string | null): Language | null {
     const label = this.recognizeTranslation(raw);
     if (!label) return null;
     const code = this.canonicalizeTranslation(label);

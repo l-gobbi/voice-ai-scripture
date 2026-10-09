@@ -2,6 +2,7 @@ import { StudyDay } from '../engines/studyDay';
 import type { RecitationOutcome } from '../engines/recitationEvaluator';
 import { TranscriptionErrorCode } from './SpeechTranscriberTypes';
 import { StorageAdapter } from './StorageAdapter';
+import type { Recognizer } from './VoiceInput';
 
 /**
  * Review Log (CONTEXT.md, ADR 0017): the append-only record of every recitation attempt
@@ -20,8 +21,7 @@ const SHARD_KEY_PREFIX = 'review_log:';
 
 export type AttemptKind = 'official' | 'practice';
 export type AttemptLevel = 1 | 2 | 3;
-export type Recognizer = 'native' | 'cloud' | 'simulated';
-export type { RecitationOutcome };
+export type { Recognizer, RecitationOutcome };
 
 export interface ReviewLogSchedulingState {
   intervalDays: number;
@@ -84,7 +84,8 @@ export interface ReviewLogEntry {
   // --- scheduling ---
   /** Whether the verse was a Due Verse at the moment of the attempt. */
   wasDue: boolean;
-  gradingRuleId: string;
+  /** The verification rule that produced the outcome (e.g. the Error Budget's `error-budget-5pct@1`). */
+  verificationRuleId: string;
   schedulerId: string;
   /** SM-2 quality given by an Official Review (clean 5, slip 4, forgotten 2); null for practice. */
   sm2Quality: number | null;

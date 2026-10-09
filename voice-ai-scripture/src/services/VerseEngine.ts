@@ -32,16 +32,17 @@ import {
   hashCanonicalText,
 } from './ReviewLog';
 import { TranscriptionErrorCode } from './SpeechTranscriberTypes';
+import type { Language } from '../utils/languageNormalizer';
 
 export { SRSResult, AttemptKind, AttemptLevel, Recognizer, ReviewLogEntry, RecitationOutcome };
 
 /**
- * The grading rule behind each logged grade: the Error Budget (ADR 0017). Unaided errors are
- * missed or Word-Peeked words, once each, plus added words beyond two; up to 5% of the verse's
- * words (at least one) is a slip, none is clean, more is forgotten. It replaced
- * `f1-80-peek-cap-75@1` (F1 ≥ 80 passes, a Word Peek caps the score at 75).
+ * The verification rule behind each logged Recitation Outcome: the Error Budget (ADR 0017).
+ * Unaided errors are missed or Word-Peeked words, once each, plus added words beyond two; up to
+ * 5% of the verse's words (at least one) is a slip, none is clean, more is forgotten. It
+ * replaced `f1-80-peek-cap-75@1` (F1 ≥ 80 passes, a Word Peek caps the score at 75).
  */
-export const GRADING_RULE_ID = 'error-budget-5pct@1';
+export const VERIFICATION_RULE_ID = 'error-budget-5pct@1';
 /**
  * The scheduler behind each logged Official Review: the app's SM-2 in Study Days, taking the
  * outcome as quality 5/4/2 with Woźniak's ease formula for every quality (forgotten lowers ease
@@ -76,7 +77,7 @@ export interface Verse {
   };
 }
 
-/** The graded outcome of one recitation, as the recitation evaluator returned it. */
+/** The verified outcome of one recitation, as the recitation evaluator returned it. */
 export type AttemptEvaluation = RecitationEvaluation;
 
 export interface RecordAttemptInput {
@@ -97,24 +98,25 @@ export interface RecordAttemptInput {
 }
 
 /**
- * The sandbox's last Blind Recitation (ticket 79). It was graded but not recorded, because the
- * sandbox verse was not stored yet; saving the verse hands it to `addVerse`.
+ * A verified recitation attempt: everything `recordAttempt` needs except the verse. The
+ * Recitation Session builds one for every attempt it verifies; in the sandbox, whose verse is
+ * not stored yet, it keeps the last Blind Recitation's for a possible save (ticket 79).
  */
-export type SandboxAttempt = Omit<RecordAttemptInput, 'verseId'>;
+export type VerifiedAttempt = Omit<RecordAttemptInput, 'verseId'>;
 
 export interface AddVerseOptions {
   /**
    * The sandbox's last Blind Recitation, when the verse is the saved sandbox verse. It is
    * appended to the new verse's Review Log as a Practice Attempt with its real outcome.
    */
-  sandboxAttempt?: SandboxAttempt | null;
+  sandboxAttempt?: VerifiedAttempt | null;
   /** Instant of the save (defaults to now): the new verse is due on its Study Day. */
   now?: Date;
 }
 
 /**
  * A recitation that ended in a Transcription Error: the app failed to hear the learner, so
- * there is nothing to grade (ticket 74).
+ * there is nothing to verify (ticket 74).
  */
 export interface RecordTranscriptionErrorInput {
   verseId: string;
@@ -190,7 +192,7 @@ export function getMemoryTier(verse: Pick<Verse, 'srs'>): MemoryTier {
   return 'hidden_in_the_heart';
 }
 
-const MEMORY_TIER_LABELS: Record<'en' | 'pt', Record<MemoryTier, string>> = {
+const MEMORY_TIER_LABELS: Record<Language, Record<MemoryTier, string>> = {
   en: {
     seed: 'Seed',
     growing: 'Growing',
@@ -206,7 +208,7 @@ const MEMORY_TIER_LABELS: Record<'en' | 'pt', Record<MemoryTier, string>> = {
 };
 
 /** The Memory Tier's name in the verse's language. */
-export function memoryTierLabel(tier: MemoryTier, language: 'en' | 'pt'): string {
+export function memoryTierLabel(tier: MemoryTier, language: Language): string {
   return MEMORY_TIER_LABELS[language][tier];
 }
 
@@ -244,7 +246,7 @@ function countTokens(tokens: DiffToken[]) {
 const createAttemptId = (now: Date) =>
   `${now.getTime()}-${Math.random().toString(36).substring(2, 10)}`;
 
-/** The Review Log fields every attempt shares, graded or not. */
+/** The Review Log fields every attempt shares, verified or not. */
 type AttemptRowBase = Pick<
   ReviewLogEntry,
   | 'id'
@@ -260,7 +262,7 @@ type AttemptRowBase = Pick<
   | 'peekedWordPositions'
   | 'clozeRevealCount'
   | 'recognizer'
-  | 'gradingRuleId'
+  | 'verificationRuleId'
   | 'schedulerId'
 >;
 
@@ -286,12 +288,12 @@ function attemptRowBase(
     peekedWordPositions: [...(input.peekedWordPositions ?? [])],
     clozeRevealCount: input.clozeRevealCount,
     recognizer: input.recognizer,
-    gradingRuleId: GRADING_RULE_ID,
+    verificationRuleId: VERIFICATION_RULE_ID,
     schedulerId: SCHEDULER_ID,
   };
 }
 
-/** How the engine classified a graded attempt, and the verse's SRS state around it. */
+/** How the engine classified a verified attempt, and the verse's SRS state around it. */
 interface AttemptScheduling {
   kind: AttemptKind;
   wasDue: boolean;
@@ -299,10 +301,10 @@ interface AttemptScheduling {
   srsResult: SRSResult;
 }
 
-/** The Review Log row of a graded attempt. */
-function gradedAttemptRow(
+/** The Review Log row of a verified attempt. */
+function verifiedAttemptRow(
   verse: Verse,
-  input: Omit<RecordAttemptInput, 'verseId'>,
+  input: VerifiedAttempt,
   now: Date,
   { kind, wasDue, before, srsResult }: AttemptScheduling
 ): ReviewLogEntry {
@@ -349,29 +351,26 @@ const createInitialSRS = (now: Date) => ({
 export const resolveDefaultTranslation = (reference: string): VerseTranslation =>
   scriptureCatalog.getDefaultTranslation(reference);
 
-/** A language the learner keeps a Preferred Translation for. */
-export type PreferenceLanguage = 'en' | 'pt';
-
 /** The learner's Preferred Translation per language. */
-export type PreferredTranslations = Record<PreferenceLanguage, SupportedTranslation>;
+export type PreferredTranslations = Record<Language, SupportedTranslation>;
 
 export const PREFERRED_TRANSLATIONS_STORAGE_KEY = 'preferred_translations';
 
-const PREFERENCE_LANGUAGES: readonly PreferenceLanguage[] = ['pt', 'en'];
+const PREFERENCE_LANGUAGES: readonly Language[] = ['pt', 'en'];
 
-const LANGUAGE_NAMES: Record<PreferenceLanguage, string> = {
+const LANGUAGE_NAMES: Record<Language, string> = {
   pt: 'Portuguese',
   en: 'English',
 };
 
 /** "a Portuguese translation", "an English translation". */
-const A_TRANSLATION_OF: Record<PreferenceLanguage, string> = {
+const A_TRANSLATION_OF: Record<Language, string> = {
   pt: 'a Portuguese translation',
   en: 'an English translation',
 };
 
 /** The stored code if it is still a bundled Translation of `language`; otherwise null. */
-function allowedPreference(raw: unknown, language: PreferenceLanguage): SupportedTranslation | null {
+function allowedPreference(raw: unknown, language: Language): SupportedTranslation | null {
   if (typeof raw !== 'string') return null;
   const meta = scriptureCatalog.getTranslationMetadata(raw);
   return meta && meta.language === language ? meta.code : null;
@@ -423,7 +422,7 @@ export class VerseEngine {
    * default (Bíblia Livre, BSB).
    */
   async getPreferredTranslations(): Promise<PreferredTranslations> {
-    let stored: Partial<Record<PreferenceLanguage, unknown>> = {};
+    let stored: Partial<Record<Language, unknown>> = {};
     try {
       const data = await this.storage.getItem(PREFERRED_TRANSLATIONS_STORAGE_KEY);
       const parsed = data ? JSON.parse(data) : null;
@@ -440,7 +439,7 @@ export class VerseEngine {
   }
 
   /** The learner's Preferred Translation for one language. */
-  async getPreferredTranslation(language: PreferenceLanguage): Promise<SupportedTranslation> {
+  async getPreferredTranslation(language: Language): Promise<SupportedTranslation> {
     return (await this.getPreferredTranslations())[language];
   }
 
@@ -450,7 +449,7 @@ export class VerseEngine {
    * leaves the preference unchanged. Verses already saved keep their translation and text.
    */
   async setPreferredTranslation(
-    language: PreferenceLanguage,
+    language: Language,
     translation: string
   ): Promise<SupportedTranslation> {
     if (!PREFERENCE_LANGUAGES.includes(language)) {
@@ -671,7 +670,7 @@ export class VerseEngine {
     const attempt = options.sandboxAttempt;
     if (attempt) {
       const srsResult = currentSrsResult(newVerse.srs, isRecalled(attempt.evaluation.outcome), now);
-      const entry = gradedAttemptRow(newVerse, attempt, attempt.now ?? now, {
+      const entry = verifiedAttemptRow(newVerse, attempt, attempt.now ?? now, {
         kind: 'practice',
         // The verse was not stored at the time of the recitation, so it had no due Study Day.
         wasDue: false,
@@ -806,10 +805,10 @@ export class VerseEngine {
     const { rawScore, outcome } = input.evaluation;
     const srsResult =
       kind === 'official'
-        ? await this.applyOfficialReview(verses, index, outcome, now, true, rawScore)
+        ? await this.applyOfficialReview(verses, index, outcome, now, rawScore)
         : currentSrsResult(verse.srs, isRecalled(outcome), now);
 
-    const entry = gradedAttemptRow(verse, input, now, { kind, wasDue, before, srsResult });
+    const entry = verifiedAttemptRow(verse, input, now, { kind, wasDue, before, srsResult });
     await this.reviewLog.append(entry);
 
     return { kind, srsResult, memoryTier: getMemoryTier(verses[index]), entry };
@@ -853,20 +852,8 @@ export class VerseEngine {
   }
 
   /**
-   * Applies a review to the SRS schedule directly, with no classification and no Review Log
-   * row. The app records recitations through `recordAttempt`; nothing in the app calls this.
-   */
-  async recordReview(verseId: string, outcome: RecitationOutcome, now = new Date()): Promise<SRSResult> {
-    const verses = await this.getAllVerses();
-    const index = verses.findIndex((verse) => verse.id === verseId);
-    if (index === -1) {
-      throw new Error(`Verse not found: ${verseId}`);
-    }
-    return this.applyOfficialReview(verses, index, outcome, now, isDueAt(verses[index], now));
-  }
-
-  /**
    * Moves the schedule and the daily habit streak for an Official Review, and persists both.
+   * An Official Review is always of a Due Verse, so it counts as completed for the Study Day.
    * `rawScore` (the F1 percentage) is kept as the verse's last score for display.
    */
   private async applyOfficialReview(
@@ -874,28 +861,23 @@ export class VerseEngine {
     index: number,
     outcome: RecitationOutcome,
     now: Date,
-    wasDue: boolean,
-    rawScore?: number
+    rawScore: number
   ): Promise<SRSResult> {
-    const current = verses[index].srs;
-    const currentSRS: SRSState = current || DEFAULT_SRS_STATE;
+    const currentSRS: SRSState = verses[index].srs || DEFAULT_SRS_STATE;
     const srsResult = calculateNextReview(currentSRS, outcome, now, this.random);
-    const lastScore = rawScore ?? current?.lastScore;
 
     verses[index].srs = {
       streak: srsResult.streak ?? 0,
       intervalDays: srsResult.intervalDays,
       easeFactor: srsResult.easeFactor,
       nextReviewDate: srsResult.nextReviewDate,
-      ...(lastScore !== undefined ? { lastScore } : {}),
+      lastScore: rawScore,
       lastOfficialReviewDay: toStudyDay(now),
     };
-    if (rawScore !== undefined) {
-      verses[index].lastScore = rawScore;
-    }
+    verses[index].lastScore = rawScore;
 
     await this.persistVerses(verses);
-    await this.updateHabitStreak(verses[index].id, wasDue, now);
+    await this.updateHabitStreak(verses[index].id, true, now);
 
     return srsResult;
   }

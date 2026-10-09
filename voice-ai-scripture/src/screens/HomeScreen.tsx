@@ -70,7 +70,7 @@ export default function HomeScreen({ voiceInput }: HomeScreenProps = {}) {
   });
   const [modalVisible, setModalVisible] = useState(false);
   const [reminderModalVisible, setReminderModalVisible] = useState(false);
-  const [translationsModalVisible, setTranslationsModalVisible] = useState(false);
+  const [copyrightModalVisible, setCopyrightModalVisible] = useState(false);
   const [preferredTranslationVisible, setPreferredTranslationVisible] = useState(false);
   const [verseToDelete, setVerseToDelete] = useState<Verse | null>(null);
 
@@ -347,7 +347,7 @@ export default function HomeScreen({ voiceInput }: HomeScreenProps = {}) {
                 borderColor: theme.colors.border,
               },
             ]}
-            onPress={() => setTranslationsModalVisible(true)}
+            onPress={() => setCopyrightModalVisible(true)}
             activeOpacity={0.7}
             testID="open-translations-copyright-home"
             accessibilityRole="button"
@@ -706,8 +706,8 @@ export default function HomeScreen({ voiceInput }: HomeScreenProps = {}) {
       />
 
       <TranslationsCopyrightModal
-        visible={translationsModalVisible}
-        onClose={() => setTranslationsModalVisible(false)}
+        visible={copyrightModalVisible}
+        onClose={() => setCopyrightModalVisible(false)}
       />
 
       <PreferredTranslationModal

@@ -6,6 +6,18 @@ import { BUNDLED_TRANSLATIONS, scriptureCatalog } from '../services/ScriptureCat
 // Exact text, line breaks and all: the default normalizer would collapse them.
 const VERBATIM = { normalizer: getDefaultNormalizer({ trim: false, collapseWhitespace: false }) };
 
+/** The ONBV notice as eBible requires it, line for line (https://ebible.org/find/details.php?id=poronbv). */
+const ONBV_NOTICE = [
+  'Biblica® Open Nova Bíblia Viva™',
+  'Copyright © 2007, 2010 by Biblica, Inc.',
+  '“Biblica” é uma marca registrada na Oficina de Patentes e Marcas dos Estados Unidos por Biblica, Inc. Usado com permissão.',
+  '“Biblica” is a trademark registered in the United States Patent and Trademark Office by Biblica, Inc. Used with permission.',
+].join('\n');
+
+/** What the ONBV licence asks a changed work to state about the original (same page). */
+const ONBV_ORIGINAL_WORK =
+  'The original Work by its copyright holders is available for free at www.biblica.com and open.bible.';
+
 describe('TranslationsCopyrightModal (Ticket 84)', () => {
   const renderScreen = (onClose = jest.fn()) =>
     render(<TranslationsCopyrightModal visible={true} onClose={onClose} />);
@@ -32,14 +44,26 @@ describe('TranslationsCopyrightModal (Ticket 84)', () => {
     }
   });
 
-  it("shows the ONBV notice verbatim as the catalog's string, all four lines", async () => {
-    const onbv = scriptureCatalog.getTranslationMetadata('ONBV')!;
-    expect(onbv.notice.split('\n')).toHaveLength(4);
-
+  it('shows the exact four-line ONBV notice', async () => {
     const { getByTestId } = await renderScreen();
 
     const entry = within(getByTestId('translation-entry-ONBV'));
-    expect(entry.getByText(onbv.notice, VERBATIM)).toBeTruthy();
+    expect(entry.getByText(ONBV_NOTICE, VERBATIM)).toBeTruthy();
+  });
+
+  it('shows where the original ONBV is available, since the app changes it (Ticket 92)', async () => {
+    const { getByTestId } = await renderScreen();
+
+    const onbv = within(getByTestId('translation-entry-ONBV'));
+    expect(onbv.getByText('Obra original')).toBeTruthy();
+    expect(onbv.getByText(ONBV_ORIGINAL_WORK, VERBATIM)).toBeTruthy();
+
+    // The other licences ask nothing of the kind.
+    for (const code of ['BLIVRE', 'BSB', 'WEB']) {
+      const entry = within(getByTestId(`translation-entry-${code}`));
+      expect(entry.queryByText(/Obra original|Original work/)).toBeNull();
+      expect(entry.queryByText(/original Work/)).toBeNull();
+    }
   });
 
   it('shows the Bíblia Livre credit and what was changed in its text', async () => {

@@ -64,7 +64,10 @@ export function useRecitationSession(
     await sessionRef.current?.warmUp();
   }, []);
 
-  /** `unmetered` skips the recitation quota only; the Verse Engine decides scheduling. */
+  /**
+   * `unmetered: true` skips the recitation quota for this attempt; it can never meter one. The
+   * Verse Engine decides scheduling.
+   */
   const startReciting = useCallback(async (opts?: { unmetered?: boolean }) => {
     await sessionRef.current?.startReciting(opts);
   }, []);

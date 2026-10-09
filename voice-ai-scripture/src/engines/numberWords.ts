@@ -1,3 +1,5 @@
+import type { Language } from '../utils/languageNormalizer';
+
 /**
  * Spelled-out cardinal numbers in English and Portuguese.
  *
@@ -191,7 +193,7 @@ export const MAX_SPELLED_NUMBER = 999_999_999;
  * Spells out a cardinal in its usual form, as words with diacritics:
  * 144 is "one hundred forty four" in en and "cento e quarenta e quatro" in pt.
  */
-export function spellNumber(value: number, language: 'en' | 'pt'): string[] {
+export function spellNumber(value: number, language: Language): string[] {
   if (!Number.isInteger(value) || value < 0 || value > MAX_SPELLED_NUMBER) return [];
   if (value === 0) return ['zero'];
 

@@ -368,6 +368,8 @@ describe('VoiceInput Seam (Ticket 45)', () => {
 
     it.each([
       ['no-speech', 'unintelligible'],
+      // The Web Speech API's "no-match": speech was heard but nothing was recognized.
+      ['no-match', 'unintelligible'],
       ['speech-timeout', 'unintelligible'],
       ['network', 'network_error'],
       ['language-not-supported', 'unavailable'],

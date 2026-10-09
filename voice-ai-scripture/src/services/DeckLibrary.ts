@@ -1,6 +1,7 @@
 import { scriptureCatalog } from './ScriptureCatalog';
 import { AsyncStorageAdapter, StorageAdapter } from './StorageAdapter';
 import { MemoryTier, Verse, VerseEngine, getMemoryTier, verseEngine } from './VerseEngine';
+import type { Language } from '../utils/languageNormalizer';
 
 /**
  * The Deck Library owns Decks and their membership (CONTEXT.md: Deck, Own Deck, Received Deck,
@@ -50,7 +51,7 @@ export interface DeckSummary extends Omit<Deck, 'entries'> {
   /** How many of those verses are at each Memory Tier. */
   tierCounts: MemoryTierCounts;
   /** The language most of its verses are in (ties go to the first verse; empty is English). */
-  language: 'en' | 'pt';
+  language: Language;
 }
 
 export type ResolvedDeckEntry = DeckSectionEntry | { kind: 'verse'; verse: Verse };
@@ -149,7 +150,7 @@ function fileUnderOwnDeck(
   return { decks: next, deck, changed: true };
 }
 
-function majorityLanguage(verses: Verse[]): 'en' | 'pt' {
+function majorityLanguage(verses: Verse[]): Language {
   if (verses.length === 0) return 'en';
   const languages = verses.map((verse) => scriptureCatalog.detectLanguage(verse));
   const pt = languages.filter((language) => language === 'pt').length;

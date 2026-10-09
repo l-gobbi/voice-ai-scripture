@@ -52,7 +52,7 @@ function stubRecordTranscriptionError() {
     .mockImplementation(async () => ({} as ReviewLogEntry));
 }
 
-const NOT_GRADED = 'Nothing was graded and no recitation was used.';
+const NOT_COUNTED = 'Nothing was counted and no recitation was used.';
 
 describe('RecitationSession (Ticket 07)', () => {
   const mockVerse: Verse = {
@@ -383,7 +383,7 @@ describe('RecitationSession (Ticket 07)', () => {
       expect(result).toBeNull();
       expect(session.getState().status).toBe('error');
       expect(session.getState().errorMessage).toBe(
-        `Network connection failed. Please check your internet connection. ${NOT_GRADED}`
+        `Network connection failed. Please check your internet connection. ${NOT_COUNTED}`
       );
       expect(recordSpy).not.toHaveBeenCalled();
       expect(transcriptionErrorSpy).toHaveBeenCalledWith(
@@ -405,7 +405,7 @@ describe('RecitationSession (Ticket 07)', () => {
       await session1.stopAndVerify();
       expect(session1.getState().status).toBe('error');
       expect(session1.getState().errorMessage).toBe(
-        `Transcription service is temporarily busy. Please try again shortly. ${NOT_GRADED}`
+        `Transcription service is temporarily busy. Please try again shortly. ${NOT_COUNTED}`
       );
 
       // Unauthorized
@@ -419,7 +419,7 @@ describe('RecitationSession (Ticket 07)', () => {
       await session2.stopAndVerify();
       expect(session2.getState().status).toBe('error');
       expect(session2.getState().errorMessage).toBe(
-        `Transcription authentication failed. Please check your API key. ${NOT_GRADED}`
+        `Transcription authentication failed. Please check your API key. ${NOT_COUNTED}`
       );
     });
   });
@@ -1070,7 +1070,7 @@ describe('RecitationSession (Ticket 07)', () => {
       session.dispose();
     });
 
-    it('resets to idle with prompt if initial 10s grace expires without speech', async () => {
+    it('ends in a calm Transcription Error if the initial 10s grace expires without speech (Ticket 92)', async () => {
       let meterCallback: ((level: number) => void) | undefined;
       const voiceInput = new SimulatedVoiceAdapter({
         defaultTranscript: mockVerse.text,
@@ -1079,6 +1079,8 @@ describe('RecitationSession (Ticket 07)', () => {
         meterCallback = options?.onMeter;
       });
 
+      const logSpy = stubRecordTranscriptionError();
+
       const session = new RecitationSession(mockVerse, {
         voiceInput,
         subscriptionService: subscribedService,
@@ -1086,6 +1088,11 @@ describe('RecitationSession (Ticket 07)', () => {
 
       await session.startReciting();
       expect(session.getState().status).toBe('reciting');
+      const ended = new Promise<void>((resolve) => {
+        session.subscribe((state) => {
+          if (state.status === 'error') resolve();
+        });
+      });
 
       // Calibration 300ms + silence for 10s
       meterCallback?.(0.04);
@@ -1093,12 +1100,14 @@ describe('RecitationSession (Ticket 07)', () => {
 
       jest.advanceTimersByTime(10000);
       jest.advanceTimersByTime(1000);
-      for (let i = 0; i < 10; i++) {
-        await Promise.resolve();
-      }
+      await ended;
 
-      expect(session.getState().status).toBe('idle');
-      expect(session.getState().errorMessage).toContain('No speech detected');
+      expect(logSpy).toHaveBeenCalledWith(expect.objectContaining({ verseId: mockVerse.id, code: 'unintelligible' }));
+      expect(session.getState()).toMatchObject({
+        status: 'error',
+        transcriptionErrorCode: 'unintelligible',
+        errorMessage: `No speech detected. Tap the mic to try again. ${NOT_COUNTED}`,
+      });
       session.dispose();
     });
   });
@@ -1307,6 +1316,7 @@ describe('RecitationSession (Ticket 07)', () => {
         };
 
         const mockVoiceInput: VoiceInput = {
+          recognizer: 'simulated',
           requestPermissions: jest.fn().mockResolvedValue(true),
           start: jest.fn().mockResolvedValue(undefined),
           stop: jest.fn().mockResolvedValue({ transcript: 'O Senhor é o meu pastor, nada me faltará.' }),
@@ -1338,6 +1348,7 @@ describe('RecitationSession (Ticket 07)', () => {
     describe('Ticket 69: Instant Recitation Turn-Taking & Pre-Warming', () => {
       it('warmUp checks permissions and delegates to voiceInput.warmUp()', async () => {
         const mockVoiceInput: VoiceInput = {
+          recognizer: 'simulated',
           requestPermissions: jest.fn().mockResolvedValue(true),
           warmUp: jest.fn().mockResolvedValue(undefined),
           start: jest.fn().mockResolvedValue(undefined),
@@ -1355,6 +1366,7 @@ describe('RecitationSession (Ticket 07)', () => {
 
       it('warmUp does not invoke voiceInput.warmUp() if permission is denied', async () => {
         const mockVoiceInput: VoiceInput = {
+          recognizer: 'simulated',
           requestPermissions: jest.fn().mockResolvedValue(false),
           warmUp: jest.fn().mockResolvedValue(undefined),
           start: jest.fn().mockResolvedValue(undefined),
@@ -1372,6 +1384,7 @@ describe('RecitationSession (Ticket 07)', () => {
 
       it('warmUp catches and suppresses exceptions gracefully', async () => {
         const mockVoiceInput: VoiceInput = {
+          recognizer: 'simulated',
           requestPermissions: jest.fn().mockRejectedValue(new Error('Hardware failure')),
           warmUp: jest.fn().mockResolvedValue(undefined),
           start: jest.fn().mockResolvedValue(undefined),
@@ -2292,7 +2305,7 @@ describe('RecitationSession: Transcription Failures Are Never Graded (Ticket 74)
       status: 'error',
       transcriptionErrorCode: 'unintelligible',
       errorMessage:
-        'Could not transcribe audio. Please speak clearly and try again. Nothing was graded and no recitation was used.',
+        'Could not transcribe audio. Please speak clearly and try again. Nothing was counted and no recitation was used.',
       currentResult: null,
       officialResult: null,
     });
@@ -2378,7 +2391,7 @@ describe('RecitationSession: Transcription Failures Are Never Graded (Ticket 74)
       status: 'error',
       transcriptionErrorCode: 'network_error',
       errorMessage:
-        'Falha na conexão de rede. Verifique sua conexão com a internet. Nada foi avaliado e nenhuma recitação foi usada.',
+        'Falha na conexão de rede. Verifique sua conexão com a internet. Nada foi contado e nenhuma recitação foi usada.',
     });
     expect(await t.quotaUsed()).toBe(0);
     expect(await t.log()).toEqual([
@@ -2870,5 +2883,271 @@ describe('RecitationSession: Same-Day Relearning (Ticket 78)', () => {
     expect(await recite(t, FORGOTTEN)).toMatchObject({ isRelearning: true, outcome: 'forgotten' });
     expect(t.session.getState().relearning).toEqual({ offered: true, loopsRemaining: 1, active: false });
     await t.session.dispose();
+  });
+});
+
+describe('RecitationSession: Fair Metering and No Quota Leaks (Ticket 92)', () => {
+  const PSALM_23_1 = {
+    reference: 'Psalm 23:1',
+    text: 'The Lord is my shepherd; I shall not want.',
+    translation: 'WEB',
+  };
+  const DUE_TODAY = { intervalDays: 6, streak: 2, easeFactor: 2.5, nextReviewDate: '2026-10-09' };
+  /** As the Home Screen opens a Due Verse: it never forces metering, it only declines to skip it. */
+  const AS_FOR_A_DUE_VERSE = { unmetered: false };
+
+  /**
+   * A stored Due Verse with a real Verse Engine and a real free-tier Subscription Service on
+   * in-memory storage, a clock the test moves by hand, and speech the test controls.
+   */
+  async function setup(options: RecitationSessionOptions = {}) {
+    const engine = new VerseEngine(new MapStorageAdapter(), { random: () => 0.5 });
+    const added = await engine.addVerse(PSALM_23_1);
+    const verse = await engine.updateVerse(added.id, { srs: DUE_TODAY });
+    const subscription = new SubscriptionService(new MapStorageAdapter());
+    const clock = { now: new Date(2026, 9, 9, 7, 30) };
+    const speech = { transcript: verse.text };
+    const voiceInput = new SimulatedVoiceAdapter({ handler: () => speech.transcript });
+    const session = new RecitationSession(verse, {
+      verseEngine: engine,
+      subscriptionService: subscription,
+      voiceInput,
+      synthesizer: new MockSpeechSynthesizer(),
+      autoVocalizeOnLevel1: false,
+      now: () => clock.now,
+      ...options,
+    });
+
+    return {
+      engine,
+      verse,
+      clock,
+      speech,
+      voiceInput,
+      session,
+      log: () => engine.getReviewLog(verse.id),
+      quotaUsed: async () => DAILY_LIMIT - (await subscription.getRemainingFreeRecitations(clock.now)),
+    };
+  }
+
+  describe('only a Blind Recitation of a Due Verse is metered', () => {
+    it('Echo Mode and Cloze Practice on a Due Verse use no quota, even when the caller does not skip it', async () => {
+      const t = await setup({ initialLevel: 1 });
+
+      await t.session.startReciting(AS_FOR_A_DUE_VERSE);
+      await t.session.stopAndVerify();
+      t.session.nextLevel();
+      await t.session.startReciting(AS_FOR_A_DUE_VERSE);
+      await t.session.stopAndVerify();
+
+      expect(await t.quotaUsed()).toBe(0);
+
+      t.session.nextLevel();
+      await t.session.startReciting(AS_FOR_A_DUE_VERSE);
+      expect((await t.session.stopAndVerify())?.kind).toBe('official');
+      expect(await t.quotaUsed()).toBe(1);
+      await t.session.dispose();
+    });
+
+    it('a session opened with isUnmetered: false cannot meter practice either', async () => {
+      const t = await setup({ isUnmetered: false, initialLevel: 2 });
+
+      await t.session.startReciting();
+      await t.session.stopAndVerify();
+
+      expect(await t.quotaUsed()).toBe(0);
+      await t.session.dispose();
+    });
+
+    it('the Cloze step of Same-Day Relearning uses no quota', async () => {
+      const t = await setup();
+      t.speech.transcript = 'The Lord is my shepherd';
+      await t.session.startReciting(AS_FOR_A_DUE_VERSE);
+      expect((await t.session.stopAndVerify())?.outcome).toBe('forgotten');
+      expect(await t.quotaUsed()).toBe(1);
+
+      t.session.acceptRelearning();
+      expect(t.session.getState().level).toBe(2);
+      t.speech.transcript = PSALM_23_1.text;
+      await t.session.startReciting(AS_FOR_A_DUE_VERSE);
+      await t.session.stopAndVerify();
+
+      expect(await t.quotaUsed()).toBe(1);
+      await t.session.dispose();
+    });
+
+    it('a caller may still skip the quota for a Blind Recitation', async () => {
+      const t = await setup();
+
+      await t.session.startReciting({ unmetered: true });
+      await t.session.stopAndVerify();
+
+      expect(await t.quotaUsed()).toBe(0);
+      await t.session.dispose();
+    });
+  });
+
+  describe('a unit is spent only by a verified recitation', () => {
+    it('cancelling a metered recitation refunds its unit and logs nothing', async () => {
+      const t = await setup();
+
+      await t.session.startReciting();
+      expect(await t.quotaUsed()).toBe(1);
+      await t.session.cancelRecitation();
+
+      expect(t.session.getState().status).toBe('idle');
+      expect(await t.quotaUsed()).toBe(0);
+      expect(await t.log()).toEqual([]);
+      await t.session.dispose();
+    });
+
+    it.each([
+      ['reset', (session: RecitationSession) => session.reset()],
+      ['dispose', (session: RecitationSession) => session.dispose()],
+    ])('leaving a metered recitation unfinished (%s) refunds its unit and logs nothing', async (_case, leave) => {
+      const t = await setup();
+
+      await t.session.startReciting();
+      expect(await t.quotaUsed()).toBe(1);
+      await leave(t.session);
+
+      expect(await t.quotaUsed()).toBe(0);
+      expect(await t.log()).toEqual([]);
+      await t.session.dispose();
+    });
+
+    it('a voice input that fails to start refunds the unit it was given', async () => {
+      const t = await setup();
+      jest.spyOn(t.voiceInput, 'start').mockRejectedValueOnce(new Error('Recorder busy'));
+
+      await t.session.startReciting();
+
+      expect(t.session.getState()).toMatchObject({ status: 'error', errorMessage: 'Recorder busy' });
+      expect(await t.quotaUsed()).toBe(0);
+      expect(await t.log()).toEqual([]);
+      await t.session.dispose();
+    });
+
+    it('a verification that fails for another reason refunds the unit too', async () => {
+      const t = await setup();
+      jest.spyOn(t.voiceInput, 'stop').mockRejectedValueOnce(new Error('Recorder crashed'));
+
+      await t.session.startReciting();
+      expect(await t.session.stopAndVerify()).toBeNull();
+
+      expect(t.session.getState().status).toBe('error');
+      expect(await t.quotaUsed()).toBe(0);
+      await t.session.dispose();
+    });
+
+    it('a verified recitation keeps its unit when the learner then cancels, resets or leaves', async () => {
+      const t = await setup();
+
+      await t.session.startReciting();
+      expect((await t.session.stopAndVerify())?.kind).toBe('official');
+      await t.session.cancelRecitation();
+      await t.session.reset();
+      await t.session.dispose();
+
+      expect(await t.quotaUsed()).toBe(1);
+    });
+  });
+
+  it('logs the recognizer each voice input declares, whatever adapter it is (ADR 0006)', async () => {
+    const t = await setup();
+    const onDevice: VoiceInput = {
+      recognizer: 'native',
+      requestPermissions: async () => true,
+      start: async () => {},
+      stop: async () => ({ transcript: PSALM_23_1.text }),
+      cancel: async () => {},
+    };
+    const session = new RecitationSession(t.verse, {
+      verseEngine: t.engine,
+      subscriptionService: new SubscriptionService(new MapStorageAdapter({ user_is_subscribed: 'true' })),
+      voiceInput: onDevice,
+      synthesizer: new MockSpeechSynthesizer(),
+      now: () => t.clock.now,
+    });
+
+    await session.startReciting();
+    await session.stopAndVerify();
+
+    expect((await t.log()).map((row) => row.recognizer)).toEqual(['native']);
+    await session.dispose();
+    await t.session.dispose();
+  });
+
+  describe('the no-speech timeout is a Transcription Error', () => {
+    beforeEach(() => {
+      jest.useFakeTimers();
+    });
+
+    afterEach(() => {
+      jest.clearAllTimers();
+      jest.useRealTimers();
+    });
+
+    /** Resolves once the attempt in progress has ended in an error. */
+    const attemptEnded = (session: RecitationSession) =>
+      new Promise<RecitationState>((resolve) => {
+        session.subscribe((state) => {
+          if (state.status === 'error') resolve(state);
+        });
+      });
+
+    it('after 10 s with no speech: refunded, logged with its code and no outcome, and the calm notice is shown', async () => {
+      const t = await setup();
+      const cancelSpy = jest.spyOn(t.voiceInput, 'cancel');
+      const stopSpy = jest.spyOn(t.voiceInput, 'stop');
+
+      await t.session.startReciting();
+      expect(await t.quotaUsed()).toBe(1);
+      const ended = attemptEnded(t.session);
+
+      // Calibration (300 ms), then 10 s without speech.
+      t.clock.now = new Date(2026, 9, 9, 7, 30, 10);
+      jest.advanceTimersByTime(300 + 10000);
+      const state = await ended;
+
+      expect(state).toMatchObject({
+        status: 'error',
+        transcriptionErrorCode: 'unintelligible',
+        errorMessage: 'No speech detected. Tap the mic to try again. Nothing was counted and no recitation was used.',
+        currentResult: null,
+        officialResult: null,
+      });
+      expect(cancelSpy).toHaveBeenCalled();
+      expect(stopSpy).not.toHaveBeenCalled();
+      expect(await t.quotaUsed()).toBe(0);
+      expect(await t.log()).toEqual([
+        expect.objectContaining({
+          kind: 'practice',
+          level: 3,
+          recognizer: 'simulated',
+          transcriptionErrorCode: 'unintelligible',
+          outcome: null,
+          errorCount: null,
+          sm2Quality: null,
+          wasDue: true,
+        }),
+      ]);
+      await t.session.dispose();
+    });
+
+    it('the retry after a no-speech timeout is still the day’s Official Review', async () => {
+      const t = await setup();
+      await t.session.startReciting();
+      const ended = attemptEnded(t.session);
+      jest.advanceTimersByTime(300 + 10000);
+      await ended;
+
+      await t.session.startReciting();
+      const retry = await t.session.stopAndVerify();
+
+      expect(retry).toMatchObject({ kind: 'official', outcome: 'clean' });
+      expect(await t.quotaUsed()).toBe(1);
+      await t.session.dispose();
+    });
   });
 });

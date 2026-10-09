@@ -41,7 +41,12 @@ export interface VoiceInputResult {
   transcript: string;
 }
 
+/** Which kind of recognizer turns the learner's speech into a transcript. */
+export type Recognizer = 'native' | 'cloud' | 'simulated';
+
 export interface VoiceInput {
+  /** The recognizer behind this adapter, recorded with each attempt in the Review Log. */
+  readonly recognizer: Recognizer;
   requestPermissions(): Promise<boolean>;
   warmUp?(): Promise<void>;
   start(options?: VoiceInputOptions): Promise<void>;
@@ -59,6 +64,7 @@ export function transcriptionErrorCodeFor(
 ): TranscriptionErrorCode {
   switch (recognizerError) {
     case 'no-speech':
+    case 'no-match': // (Web Speech API) speech heard, but nothing recognized
     case 'speech-timeout': // (Android) no speech input
       return 'unintelligible';
     case 'network':
@@ -88,6 +94,7 @@ const joinSegments = (pieces: string[]): string => pieces.join(' ').split(/\s+/)
  * when nothing was heard and an error was reported.
  */
 export class NativeStreamVoiceAdapter implements VoiceInput {
+  readonly recognizer = 'native';
   private speechModule: any;
   private isListening: boolean = false;
   /** Final segments of this attempt, in order. */
@@ -298,6 +305,7 @@ export interface CloudAudioVoiceAdapterOptions {
 }
 
 export class CloudAudioVoiceAdapter implements VoiceInput {
+  readonly recognizer = 'cloud';
   private transcriber: SpeechTranscriber;
   private driver: AudioDriver;
   private currentOptions?: VoiceInputOptions;
@@ -378,6 +386,7 @@ export interface SimulatedVoiceAdapterConfig {
 }
 
 export class SimulatedVoiceAdapter implements VoiceInput {
+  readonly recognizer = 'simulated';
   private config: SimulatedVoiceAdapterConfig;
   private currentOptions?: VoiceInputOptions;
   private meterTimer: any = null;

@@ -3,18 +3,27 @@ import {
   BUNDLED_TRANSLATIONS,
   SupportedTranslation,
 } from './ScriptureCatalog';
+import type { Language } from '../utils/languageNormalizer';
+import blivreData from '../data/bibles/blivre.json';
+import onbvData from '../data/bibles/onbv.json';
+import bsbData from '../data/bibles/bsb.json';
+import webData from '../data/bibles/web.json';
 
 /**
- * Dataset integrity for every bundled Bible (Ticket 80, spec-open-translations.md).
+ * Dataset integrity for every bundled Bible (Tickets 80 and 92, spec-open-translations.md).
  *
- * Each translation is read through the Scripture Catalog exactly as the app reads it, and
- * compared with the canon matrix (src/data/bibleCanon.ts, ADR 0008). A rebuilt dataset that
- * loses a book, chapter or verse, gains one, or carries `{…}`/`[…]` markers fails here.
+ * Each dataset is read key by key, exactly as bundled, and compared with the canon matrix
+ * (src/data/bibleCanon.ts, ADR 0008); the Scripture Catalog must then serve it verse for verse.
+ * A rebuilt dataset that loses a book, chapter or verse, gains one anywhere (an unknown book,
+ * a chapter or verse beyond the canon, verse 0), or carries `{…}`/`[…]` markers in any verse
+ * it holds fails here.
  *
  * VERSIFICATION_EXCEPTIONS lists every place where a dataset legitimately differs from the
  * canon matrix. The list must match exactly: a new gap fails, and so does a stale exception.
- * Format: "BOOK chapter:verse missing" (the canon has the verse, the dataset does not) or
- * "BOOK chapter:verse extra" (the dataset has a verse beyond the canon's count).
+ * Format, per book and chapter in canon order, missing verses before extra ones:
+ * "BOOK chapter:verse missing" (the canon has the verse, the dataset does not),
+ * "BOOK chapter:verse extra" (the dataset has a verse the canon does not: beyond the chapter's
+ * count, or verse 0), "BOOK chapter extra chapter" and "BOOK unknown book".
  */
 const VERSIFICATION_EXCEPTIONS: Record<SupportedTranslation, readonly string[]> = {
   // Bíblia Livre follows the canon matrix verse for verse.
@@ -73,7 +82,7 @@ const MARKER = /[{}[\]]/;
  * The openings below cover every title the bundled sources use, plus common ones from other
  * Bibles, matched as whole words at the very start of verse 1, ignoring case.
  */
-const PSALM_TITLE_OPENINGS: Record<'pt' | 'en', readonly string[]> = {
+const PSALM_TITLE_OPENINGS: Record<Language, readonly string[]> = {
   pt: [
     'Salmo', 'Salmos', 'Cântico', 'Canção', 'Um cântico', 'Uma canção', 'Hino', 'Poema',
     'Oração de', 'Oração do', 'Instrução', 'Memorial de', 'Confissão de', 'Mictão', 'Masquil',
@@ -88,7 +97,7 @@ const PSALM_TITLE_OPENINGS: Record<'pt' | 'en', readonly string[]> = {
   ],
 };
 
-const titleOpening = (language: 'pt' | 'en') =>
+const titleOpening = (language: Language) =>
   new RegExp(
     `^(?:${PSALM_TITLE_OPENINGS[language].map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\b`,
     'i'
@@ -105,49 +114,112 @@ const PSALM_TITLE_EXCEPTIONS: Record<SupportedTranslation, readonly string[]> = 
   WEB: [],
 };
 
+/** A dataset's books as bundled: book id → chapter → verse → text, every key a string. */
+type DatasetBooks = Record<string, Record<string, Record<string, string>>>;
+
+const DATASET_BOOKS: Record<SupportedTranslation, DatasetBooks> = {
+  BLIVRE: blivreData.books,
+  ONBV: onbvData.books,
+  BSB: bsbData.books,
+  WEB: webData.books,
+};
+
 interface DatasetScan {
   booksWithText: number;
   gaps: string[];
   markedVerses: string[];
 }
 
-function scanDataset(code: SupportedTranslation): DatasetScan {
-  const books = scriptureCatalog.getBooks();
+/** "1", "2", … but not "0", "01", "-1" or "1a". */
+const isCountingNumber = (key: string) => /^[1-9]\d*$/.test(key);
+/** Numeric keys in numeric order, anything else after them. */
+const byNumber = (a: string, b: string) =>
+  (Number(a) || Infinity) - (Number(b) || Infinity) || a.localeCompare(b);
+const sortedKeys = (record: object) => Object.keys(record).sort(byNumber);
+
+/** Every difference between a dataset and the canon matrix, and every verse carrying a marker. */
+function scanBooks(books: DatasetBooks): DatasetScan {
+  const canon = scriptureCatalog.getBooks();
+  const canonIds = new Set(canon.map((book) => book.id));
   const gaps: string[] = [];
   const markedVerses: string[] = [];
   let booksWithText = 0;
 
-  const text = (bookId: string, chapter: number, verse: number) =>
-    scriptureCatalog.fetchPassageText(bookId, chapter, verse, undefined, code);
+  for (const book of canon) {
+    const chapters = books[book.id] ?? {};
+    if (chapters['1']?.['1']?.trim()) booksWithText++;
 
-  for (const book of books) {
-    if (text(book.id, 1, 1)) booksWithText++;
+    const chapterKeys = new Set(Object.keys(chapters));
+    for (let chapter = 1; chapter <= book.chapters; chapter++) chapterKeys.add(String(chapter));
 
-    for (let chapter = 1; chapter <= book.chapters; chapter++) {
-      const expected = scriptureCatalog.getVerseCount(book.id, chapter);
-      for (let verse = 1; verse <= expected; verse++) {
-        const verseText = text(book.id, chapter, verse);
-        if (!verseText) {
-          gaps.push(`${book.id} ${chapter}:${verse} missing`);
-        } else if (MARKER.test(verseText)) {
-          markedVerses.push(`${book.id} ${chapter}:${verse}`);
-        }
+    for (const chapterKey of [...chapterKeys].sort(byNumber)) {
+      if (!isCountingNumber(chapterKey) || Number(chapterKey) > book.chapters) {
+        gaps.push(`${book.id} ${chapterKey} extra chapter`);
+        continue;
       }
-      for (let verse = expected + 1; text(book.id, chapter, verse); verse++) {
-        gaps.push(`${book.id} ${chapter}:${verse} extra`);
-        if (MARKER.test(text(book.id, chapter, verse)!)) {
-          markedVerses.push(`${book.id} ${chapter}:${verse}`);
+      const verses = chapters[chapterKey] ?? {};
+      const expected = scriptureCatalog.getVerseCount(book.id, Number(chapterKey));
+      for (let verse = 1; verse <= expected; verse++) {
+        if (!verses[String(verse)]?.trim()) gaps.push(`${book.id} ${chapterKey}:${verse} missing`);
+      }
+      for (const verseKey of sortedKeys(verses)) {
+        if (!isCountingNumber(verseKey) || Number(verseKey) > expected) {
+          gaps.push(`${book.id} ${chapterKey}:${verseKey} extra`);
         }
       }
     }
+  }
 
-    if (text(book.id, book.chapters + 1, 1)) {
-      gaps.push(`${book.id} ${book.chapters + 1} extra chapter`);
+  for (const bookId of Object.keys(books)) {
+    if (!canonIds.has(bookId)) gaps.push(`${bookId} unknown book`);
+  }
+
+  // Every verse the dataset holds, wherever it is, in the dataset's own order.
+  for (const [bookId, chapters] of Object.entries(books)) {
+    for (const chapterKey of sortedKeys(chapters)) {
+      for (const verseKey of sortedKeys(chapters[chapterKey])) {
+        if (MARKER.test(chapters[chapterKey][verseKey])) markedVerses.push(`${bookId} ${chapterKey}:${verseKey}`);
+      }
     }
   }
 
   return { booksWithText, gaps, markedVerses };
 }
+
+describe('The dataset integrity scan (Ticket 92)', () => {
+  // John 3 has 36 verses and John 21 chapters.
+  const scan = scanBooks({
+    JHN: {
+      '3': {
+        '0': 'A verse zero.',
+        '16': 'For God so loved {the} world.',
+        '36': 'The last verse of the chapter.',
+        '50': 'Far past the end [of the chapter].',
+      },
+      '22': { '1': 'A {chapter} the canon does not have.' },
+    },
+    XYZ: { '1': { '1': 'Not a [canon] book.' } },
+  });
+
+  it('reports an unknown book, an extra chapter, verse 0 and an extra verse past a gap', () => {
+    expect(scan.gaps).toEqual(
+      expect.arrayContaining(['XYZ unknown book', 'JHN 22 extra chapter', 'JHN 3:0 extra', 'JHN 3:50 extra'])
+    );
+    expect(scan.gaps).toContain('JHN 3:1 missing');
+    expect(scan.gaps).not.toContain('JHN 3:16 missing');
+    expect(scan.gaps).not.toContain('JHN 3:37 extra');
+    expect(scan.gaps.filter((gap) => gap.endsWith('extra') || gap.endsWith('book') || gap.endsWith('chapter'))).toHaveLength(4);
+  });
+
+  it('finds markers in every verse present, inside the canon or not', () => {
+    expect(scan.markedVerses).toEqual(['JHN 3:16', 'JHN 3:50', 'JHN 22:1', 'XYZ 1:1']);
+  });
+
+  it('counts the books that have text', () => {
+    expect(scan.booksWithText).toBe(0);
+    expect(scanBooks({ JHN: { '1': { '1': 'In the beginning was the Word.' } } }).booksWithText).toBe(1);
+  });
+});
 
 describe('Bundled Bible dataset integrity (Tickets 80 and 81)', () => {
   it('has an exception list for every bundled translation', () => {
@@ -158,7 +230,7 @@ describe('Bundled Bible dataset integrity (Tickets 80 and 81)', () => {
     let scan: DatasetScan;
 
     beforeAll(() => {
-      scan = scanDataset(code);
+      scan = scanBooks(DATASET_BOOKS[code]);
     });
 
     it('contains all 66 books of the canon', () => {
@@ -173,6 +245,20 @@ describe('Bundled Bible dataset integrity (Tickets 80 and 81)', () => {
     it('has no { } [ ] markers in any verse', () => {
       expect(scan.markedVerses.slice(0, 20)).toEqual([]);
       expect(scan.markedVerses).toHaveLength(0);
+    });
+
+    it('is served by the Scripture Catalog verse for verse', () => {
+      const differing: string[] = [];
+      for (const [bookId, chapters] of Object.entries(DATASET_BOOKS[code])) {
+        for (const [chapter, verses] of Object.entries(chapters)) {
+          for (const [verse, text] of Object.entries(verses)) {
+            const served = scriptureCatalog.fetchPassageText(bookId, Number(chapter), Number(verse), undefined, code);
+            // A blank verse (a documented "missing" one in the WEB) is served as no text.
+            if (served !== (text.trim() || null)) differing.push(`${bookId} ${chapter}:${verse}`);
+          }
+        }
+      }
+      expect(differing.slice(0, 20)).toEqual([]);
     });
 
     it('carries non-empty name, language, licence, notice and source metadata', () => {
@@ -207,7 +293,7 @@ describe('Psalm titles are not verse text (Ticket 85)', () => {
   it.each([...BUNDLED_TRANSLATIONS])(
     '%s: no Psalm verse 1 starts with a title, except the documented ones',
     (code) => {
-      const language = scriptureCatalog.getTranslationMetadata(code)!.language as 'pt' | 'en';
+      const language = scriptureCatalog.getTranslationMetadata(code)!.language;
       const opening = titleOpening(language);
       const titled: string[] = [];
       for (let chapter = 1; chapter <= 150; chapter++) {

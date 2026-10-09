@@ -1,10 +1,11 @@
 import { diffVerses, calculateScore, DiffToken } from './diffEngine';
 import { stripSpokenReference, VerseReference } from './spokenReference';
+import type { Language } from '../utils/languageNormalizer';
 
 export { DiffToken, VerseReference };
 
 /**
- * The grade of a recitation under the Error Budget (CONTEXT.md, ADR 0017): no unaided errors is
+ * The Recitation Outcome under the Error Budget (CONTEXT.md, ADR 0017): no unaided errors is
  * `clean`, errors within the budget are a `slip`, and more errors than the budget is `forgotten`.
  */
 export type RecitationOutcome = 'clean' | 'slip' | 'forgotten';
@@ -21,7 +22,7 @@ export interface EvaluationInput {
   /** The verse's own reference. A spoken copy of it at the start or end of the transcript is ignored. */
   reference?: VerseReference | null;
   /** The verse's language, used to read digits in the transcript as number words. */
-  language?: 'en' | 'pt';
+  language?: Language;
   /**
    * Canonical word positions (from 0, as the diff counts words) revealed with the Word Peek
    * Lifeline during the attempt. Each counts as one error, even if the word was then recited.
@@ -31,7 +32,7 @@ export interface EvaluationInput {
 
 export interface RecitationEvaluation {
   tokens: DiffToken[];
-  /** Word-level F1 score, 0–100. Kept for display and the Review Log; it does not decide the grade. */
+  /** Word-level F1 score, 0–100. Kept for display and the Review Log; it does not decide the outcome. */
   rawScore: number;
   /** Unaided errors: canonical words missed or peeked (once each), plus added words beyond two. */
   errorCount: number;
@@ -51,7 +52,7 @@ export function isRecalled(outcome: RecitationOutcome): boolean {
 }
 
 /**
- * Pure, deterministic grading of a scripture recitation: sequence alignment with diacritic,
+ * Pure, deterministic verification of a scripture recitation: sequence alignment with diacritic,
  * abbreviation and number tolerance (ADR 0001, 0014), the raw F1 score, and the Error Budget
  * outcome. Scheduling is the SM-2 engine's job, from the outcome.
  */

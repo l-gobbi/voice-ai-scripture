@@ -14,11 +14,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
 import { verseEngine, VerseTranslation, PreferredTranslations } from '../services/VerseEngine';
 import { deckLibrary } from '../services/DeckLibrary';
-import { scriptureCatalog } from '../services/ScriptureCatalog';
+import { scriptureCatalog, TranslationMetadata } from '../services/ScriptureCatalog';
 import { parseScriptureClipboard } from '../utils/clipboardParser';
 import ReferencePickerModal from './ReferencePickerModal';
 import TranslationsCopyrightModal from './TranslationsCopyrightModal';
 import { colors, typography, spacing, radius, touchTarget } from '../theme/tokens';
+import type { Language } from '../utils/languageNormalizer';
 
 export interface AddVerseModalProps {
   visible: boolean;
@@ -33,50 +34,49 @@ interface TranslationOption {
 }
 
 interface TranslationGroup {
-  id: 'en' | 'pt' | 'own-text';
+  id: Language | 'own-text';
   groupName: string;
   /** A line under the group name, for groups that need explaining. */
   hint?: string;
   options: TranslationOption[];
 }
 
-/**
- * Translations the app has no text for (ADR 0018). The learner pastes or types the wording of
- * their own Bible and labels it with its name; picking one never fetches bundled text.
- */
-const OWN_TEXT_LABELS: Record<'pt' | 'en', readonly string[]> = {
-  // NBV is the copyrighted Nova Bíblia Viva, not the bundled Open Nova Bíblia Viva (ONBV).
-  pt: ['ARA', 'ARC', 'ACF', 'NAA', 'NVI', 'NTLH', 'NVT', 'NBV', 'ALMEIDA'],
-  en: ['KJV', 'NIV', 'ESV', 'NKJV', 'NASB'],
-};
+/** A bundled Translation as a chip: its code and short name, e.g. "ONBV (Open Nova Bíblia Viva)". */
+const bundledOption = (meta: TranslationMetadata): TranslationOption => ({
+  code: meta.code,
+  label: `${meta.code} (${meta.name})`,
+  isBundled: true,
+});
 
+/**
+ * A Translation the app has no text for (ADR 0018). The learner pastes or types the wording of
+ * their own Bible and labels it with its name; picking one never fetches bundled text. NBV is
+ * the copyrighted Nova Bíblia Viva, not the bundled Open Nova Bíblia Viva (ONBV).
+ */
 const ownTextOption = (code: string): TranslationOption => ({ code, label: code, isBundled: false });
 
+/**
+ * The picker's chips, all from the Scripture Catalog: each language's bundled Translations,
+ * then every label the catalog recognizes without text, so a pasted label always has its chip.
+ */
 export const TRANSLATION_GROUPS: TranslationGroup[] = [
   {
     id: 'en',
     groupName: '🇺🇸 English',
-    options: [
-      { code: 'BSB', label: 'BSB (Berean Standard Bible)', isBundled: true },
-      { code: 'WEB', label: 'WEB (World English Bible)', isBundled: true },
-    ],
+    options: scriptureCatalog.getBundledTranslations('en').map(bundledOption),
   },
   {
     id: 'pt',
     groupName: '🇧🇷 Português',
-    options: [
-      { code: 'BLIVRE', label: 'Bíblia Livre (BLIVRE)', isBundled: true },
-      // "Open" is part of the licensed title; plain Nova Bíblia Viva is a different text.
-      { code: 'ONBV', label: 'ONBV (Open Nova Bíblia Viva)', isBundled: true },
-    ],
+    options: scriptureCatalog.getBundledTranslations('pt').map(bundledOption),
   },
   {
     id: 'own-text',
     groupName: '📋 Texto próprio / Your own text',
     hint: 'Cole ou digite o texto da sua Bíblia. / Paste or type the text from your Bible.',
     options: [
-      ...OWN_TEXT_LABELS.pt.map(ownTextOption),
-      ...OWN_TEXT_LABELS.en.map(ownTextOption),
+      ...scriptureCatalog.getUnbundledLabels('pt').map(ownTextOption),
+      ...scriptureCatalog.getUnbundledLabels('en').map(ownTextOption),
       { code: 'CUSTOM', label: 'Outra (Personalizada)', isBundled: false },
     ],
   },
@@ -103,8 +103,8 @@ export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVe
   // The language last detected from the reference: English until one is. A reference that
   // cannot be resolved yet, or whose book is spelled the same in both languages ("Daniel",
   // "Gn"), keeps it, so the English Reference Picker's "Genesis 1:1" stays English.
-  const [referenceLanguage, setReferenceLanguage] = useState<'en' | 'pt'>('en');
-  const languageOf = (ref: string): 'en' | 'pt' => {
+  const [referenceLanguage, setReferenceLanguage] = useState<Language>('en');
+  const languageOf = (ref: string): Language => {
     const languages = scriptureCatalog.referenceLanguages(ref);
     return languages.length === 1 ? languages[0] : referenceLanguage;
   };
@@ -236,13 +236,9 @@ export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVe
       if (parsed.translation) {
         // A pasted label counts as the learner's choice, so the reference that came with it
         // does not swap it for the Preferred Translation (whose text would replace the paste).
+        // The picker lists every label the catalog recognizes; anything else is CUSTOM.
         const transUpper = parsed.translation.toUpperCase();
-        if (KNOWN_MODAL_CODES.has(transUpper)) {
-          setChosenTranslation(transUpper);
-        } else {
-          // A recognized label the picker does not list (e.g. NLT) falls back to CUSTOM.
-          setChosenTranslation('CUSTOM');
-        }
+        setChosenTranslation(KNOWN_MODAL_CODES.has(transUpper) ? transUpper : 'CUSTOM');
       }
       setFetchNotice('Texto colado da área de transferência com sucesso!');
     } catch {

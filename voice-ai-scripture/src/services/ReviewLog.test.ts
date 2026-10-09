@@ -29,7 +29,7 @@ function row(overrides: Partial<ReviewLogEntry> & Pick<ReviewLogEntry, 'id' | 'v
     errorBudget: 1,
     outcome: 'clean',
     wasDue: false,
-    gradingRuleId: 'test-rule',
+    verificationRuleId: 'test-rule',
     schedulerId: 'test-scheduler',
     sm2Quality: null,
     before: { intervalDays: 0, easeFactor: 2.5 },

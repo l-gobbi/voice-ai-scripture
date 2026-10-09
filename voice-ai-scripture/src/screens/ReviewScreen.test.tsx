@@ -7,7 +7,7 @@ import {
   setDefaultSpeechSynthesizer,
   MockSpeechSynthesizer,
 } from '../services/SpeechSynthesizer';
-import { SimulatedVoiceAdapter } from '../services/VoiceInput';
+import { SimulatedVoiceAdapter, VoiceInput } from '../services/VoiceInput';
 import { ReviewLogEntry } from '../services/ReviewLog';
 import { addStudyDays, toStudyDay } from '../engines/studyDay';
 
@@ -315,7 +315,12 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
     ).toBeTruthy();
   });
 
-  it('displays localized initial silence prompt if 10s grace expires without speech (English & Portuguese)', async () => {
+  it('displays the localized retry notice if 10s grace expires without speech (English & Portuguese)', async () => {
+    // These verses are not stored: the no-speech attempt's Review Log row is not the point here.
+    const logSpy = jest
+      .spyOn(verseEngine, 'recordTranscriptionError')
+      .mockResolvedValue({} as ReviewLogEntry);
+
     // 1. English
     const onCompleteEn = jest.fn();
     const { getByTestId: getByTestIdEn, findByText: findByTextEn } = await render(
@@ -333,7 +338,9 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
       });
 
       expect(
-        await findByTextEn('No speech detected. Tap the mic to try again.')
+        await findByTextEn(
+          'No speech detected. Tap the mic to try again. Nothing was counted and no recitation was used.'
+        )
       ).toBeTruthy();
     } finally {
       jest.useRealTimers();
@@ -364,12 +371,16 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
 
       expect(
         await findByTextPt(
-          'Nenhuma fala detectada. Toque no microfone para tentar novamente.'
+          'Nenhuma fala detectada. Toque no microfone para tentar novamente. Nada foi contado e nenhuma recitação foi usada.'
         )
       ).toBeTruthy();
     } finally {
       jest.useRealTimers();
     }
+    // Each no-speech attempt goes to the Review Log as a Transcription Error.
+    expect(logSpy).toHaveBeenCalledTimes(2);
+    expect(logSpy).toHaveBeenCalledWith(expect.objectContaining({ code: 'unintelligible' }));
+    logSpy.mockRestore();
   });
 
   it('hides floating mic button and renders review actions once results are displayed', async () => {
@@ -447,8 +458,8 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
   });
 
   describe('Official Review vs Practice Attempt (Ticket 72)', () => {
-    const OFFICIAL = '🎉 Official Review Recorded!';
-    const PRACTICE = '✅ Practice Attempt (Schedule Unchanged)';
+    const OFFICIAL = 'Official Review Recorded!';
+    const PRACTICE = 'Practice Attempt (Schedule Unchanged)';
 
     /** A verse stored through the app's Verse Engine, so the real classification runs. */
     const storeVerse = (reference: string, text: string) =>
@@ -547,7 +558,7 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
       expect(await findByText('Recalled')).toBeTruthy();
       expect(getByText('0 errors · 1 allowed')).toBeTruthy();
       expect(getByText('100% accuracy')).toBeTruthy();
-      expect(getByText('🎉 Official Review Recorded!')).toBeTruthy();
+      expect(getByText('Official Review Recorded!')).toBeTruthy();
       expect(queryByText('100% Accuracy')).toBeNull();
     });
 
@@ -566,7 +577,7 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
       expect(await findByText('Needs work')).toBeTruthy();
       expect(getByText('6 errors · 1 allowed')).toBeTruthy();
       expect(getByText('82% accuracy')).toBeTruthy();
-      expect(getByText('🔄 Reinforcement Scheduled for Tomorrow')).toBeTruthy();
+      expect(getByText('Reinforcement Scheduled for Tomorrow')).toBeTruthy();
     });
 
     it('speaks Portuguese for a Portuguese verse: a slip, its errors and the Official Review label', async () => {
@@ -581,7 +592,7 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
       expect(await findByText('Lembrado com um deslize')).toBeTruthy();
       expect(getByText('1 erro · 1 permitido')).toBeTruthy();
       expect(getByText('94% de precisão')).toBeTruthy();
-      expect(getByText('🎉 Revisão oficial registrada!')).toBeTruthy();
+      expect(getByText('Revisão oficial registrada!')).toBeTruthy();
     });
 
     it('speaks Portuguese for a forgotten verse and for a Practice Attempt', async () => {
@@ -604,7 +615,7 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
       // "chorou" missed, and one added word beyond the allowance of two.
       expect(await findByText('Precisa de mais prática')).toBeTruthy();
       expect(getByText('2 erros · 1 permitido')).toBeTruthy();
-      expect(getByText('🔄 Reforço agendado para amanhã')).toBeTruthy();
+      expect(getByText('Reforço agendado para amanhã')).toBeTruthy();
 
       await act(async () => {
         fireEvent.press(getByText('Practice Again'));
@@ -614,32 +625,35 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
 
       expect(await findByText('Lembrado')).toBeTruthy();
       expect(getByText('0 erros · 1 permitido')).toBeTruthy();
-      expect(getByText('✅ Tentativa de prática (agenda inalterada)')).toBeTruthy();
+      expect(getByText('Tentativa de prática (agenda inalterada)')).toBeTruthy();
     });
 
-    it('labels Echo Mode and Cloze Practice attempts as practice in the verse’s language', async () => {
-      const verse = await verseEngine.addVerse({
-        reference: 'Salmos 119:105',
-        text: 'Lâmpada para os meus pés é tua palavra, e luz para o meu caminho.',
-        translation: 'ALMEIDA',
-      });
-      const { findByText, getByText, getByTestId } = await render(
-        <ReviewScreen
-          verse={verse}
-          onComplete={jest.fn()}
-          isUnmetered={true}
-          voiceInput={new SimulatedVoiceAdapter({ defaultTranscript: verse.text })}
-        />
-      );
+    it.each([
+      ['Salmos 119:105', 'Lâmpada para os meus pés é tua palavra, e luz para o meu caminho.', 'ALMEIDA', 'Tentativa de prática', 'Lembrado'],
+      ['Psalm 119:105', 'Your word is a lamp to my feet and a light to my path.', 'WEB', 'Practice Attempt', 'Recalled'],
+    ])(
+      'labels Echo Mode and Cloze Practice attempts as plain practice in the verse’s language (%s)',
+      async (reference, text, translation, practiceLabel, outcomeLabel) => {
+        const verse = await verseEngine.addVerse({ reference, text, translation });
+        const { findByText, getByText, getByTestId, queryByText } = await render(
+          <ReviewScreen
+            verse={verse}
+            onComplete={jest.fn()}
+            voiceInput={new SimulatedVoiceAdapter({ defaultTranscript: verse.text })}
+          />
+        );
 
-      await act(async () => {
-        fireEvent.press(getByText('2. Cloze'));
-      });
-      await reciteOnScreen(getByTestId);
+        await act(async () => {
+          fireEvent.press(getByText('2. Cloze'));
+        });
+        await reciteOnScreen(getByTestId);
 
-      expect(await findByText('✅ Tentativa de prática (fora do limite diário)')).toBeTruthy();
-      expect(getByText('Lembrado')).toBeTruthy();
-    });
+        expect(await findByText(practiceLabel)).toBeTruthy();
+        expect(getByText(outcomeLabel)).toBeTruthy();
+        // Quota is never the learner's concern on the result, and the labels carry no emoji (DESIGN.md).
+        expect(queryByText(/Unmetered|fora do limite|✅|🎉|🔄/)).toBeNull();
+      }
+    );
   });
 
   describe('Transcription Error retry message (Ticket 74)', () => {
@@ -660,7 +674,7 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
       return screen;
     }
 
-    it('says calmly that nothing was graded and no recitation was used, shows no score, and lets the learner retry', async () => {
+    it('says calmly that nothing was counted and no recitation was used, shows no score, and lets the learner retry', async () => {
       const verse = await verseEngine.addVerse({
         reference: 'Psalm 23:1',
         text: 'The Lord is my shepherd; I shall not want.',
@@ -672,7 +686,7 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
       expect(await findByTestId('transcription-error-retry')).toBeTruthy();
       expect(
         getByText(
-          'Could not transcribe audio. Please speak clearly and try again. Nothing was graded and no recitation was used.'
+          'Could not transcribe audio. Please speak clearly and try again. Nothing was counted and no recitation was used.'
         )
       ).toBeTruthy();
       expect(queryByText(/accuracy/)).toBeNull();
@@ -693,7 +707,7 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
 
       expect(
         await findByText(
-          'Não foi possível entender o áudio. Fale com clareza e tente novamente. Nada foi avaliado e nenhuma recitação foi usada.'
+          'Não foi possível entender o áudio. Fale com clareza e tente novamente. Nada foi contado e nenhuma recitação foi usada.'
         )
       ).toBeTruthy();
       expect(queryByText(/precisão/)).toBeNull();
@@ -706,7 +720,7 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
     const ACCEPT = 'Yes, practice';
     const DECLINE = 'Not now';
     const RESTORED = 'Restored. It comes back tomorrow.';
-    const PRACTICE = '✅ Practice Attempt (Schedule Unchanged)';
+    const PRACTICE = 'Practice Attempt (Schedule Unchanged)';
 
     /**
      * A Due Verse stored through the app's Verse Engine, so the real classification runs, and
@@ -825,7 +839,7 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
 
       await screen.recite(PSALM_23_1.text);
 
-      expect(await screen.findByText('🎉 Official Review Recorded!')).toBeTruthy();
+      expect(await screen.findByText('Official Review Recorded!')).toBeTruthy();
       expect(screen.queryByTestId('relearning-offer')).toBeNull();
       expect(screen.queryByTestId('relearning-restored')).toBeNull();
     });
@@ -852,7 +866,7 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
 
       expect(await screen.findByText('Lembrado')).toBeTruthy();
       expect(screen.getByText('Restaurado. Ele volta amanhã.')).toBeTruthy();
-      expect(screen.getByText('✅ Tentativa de prática (agenda inalterada)')).toBeTruthy();
+      expect(screen.getByText('Tentativa de prática (agenda inalterada)')).toBeTruthy();
       expect(screen.queryByText('Vamos fixar de novo?')).toBeNull();
       expect(screen.queryByText(RESTORED)).toBeNull();
     });
@@ -983,7 +997,8 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
   describe('Ticket 69: Instant Recitation Turn-Taking & Pre-Warming', () => {
     it('automatically triggers warmUp on mount when review screen displays', async () => {
       const onComplete = jest.fn();
-      const mockVoiceInput = {
+      const mockVoiceInput: VoiceInput = {
+        recognizer: 'simulated',
         requestPermissions: jest.fn().mockResolvedValue(true),
         warmUp: jest.fn().mockResolvedValue(undefined),
         start: jest.fn().mockResolvedValue(undefined),
@@ -995,7 +1010,7 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
         <ReviewScreen
           verse={mockVerse}
           onComplete={onComplete}
-          voiceInput={mockVoiceInput as any}
+          voiceInput={mockVoiceInput}
         />
       );
 

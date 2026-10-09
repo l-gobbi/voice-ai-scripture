@@ -329,13 +329,13 @@ describe('HomeScreen Integration (Ticket 16)', () => {
       fireEvent.press(getByText('+ Type Custom Verse'));
     });
 
-    expect(getByText('Bíblia Livre (BLIVRE)')).toBeTruthy();
+    expect(getByText('BLIVRE (Bíblia Livre)')).toBeTruthy();
     expect(getByText('ONBV (Open Nova Bíblia Viva)')).toBeTruthy();
     expect(getByText('BSB (Berean Standard Bible)')).toBeTruthy();
     expect(getByText('WEB (World English Bible)')).toBeTruthy();
 
     await act(async () => {
-      fireEvent.press(getByText('Bíblia Livre (BLIVRE)'));
+      fireEvent.press(getByText('BLIVRE (Bíblia Livre)'));
     });
 
     const refInput = getByPlaceholderText('Reference (e.g. John 3:16)');
@@ -1534,6 +1534,22 @@ describe('HomeScreen Integration (Ticket 16)', () => {
       expect(isChipSelected(getByTestId, 'BLIVRE')).toBe(false);
     });
 
+    it("offers each language's bundled translations from the catalog, as code and name (Ticket 92)", async () => {
+      const screen = await render(<HomeScreen />);
+      await openAddVerse(screen);
+
+      for (const language of ['en', 'pt'] as const) {
+        const group = within(screen.getByTestId(`translation-group-${language}`));
+        const bundled = scriptureCatalog.getBundledTranslations(language);
+        expect(group.getAllByTestId(/^translation-chip-/).map((chip) => chip.props.testID)).toEqual(
+          bundled.map((meta) => `translation-chip-${meta.code}`)
+        );
+        for (const meta of bundled) {
+          expect(group.getByText(`${meta.code} (${meta.name})`)).toBeTruthy();
+        }
+      }
+    });
+
     it("offers the learner's own-text labels for Portuguese and English, apart from the bundled Bibles", async () => {
       const screen = await render(<HomeScreen />);
       await openAddVerse(screen);
@@ -1542,9 +1558,16 @@ describe('HomeScreen Integration (Ticket 16)', () => {
       expect(ownText.getByText('📋 Texto próprio / Your own text')).toBeTruthy();
       for (const label of [
         'ARA', 'ARC', 'ACF', 'NAA', 'NVI', 'NTLH', 'NVT', 'NBV', 'ALMEIDA',
-        'KJV', 'NIV', 'ESV', 'NKJV', 'NASB',
+        'KJV', 'NIV', 'ESV', 'NKJV', 'NASB', 'NLT', 'MSG', 'ASV',
       ]) {
         expect(ownText.getByText(label)).toBeTruthy();
+      }
+      // Every label the catalog recognizes without bundled text is offered (Ticket 92).
+      for (const label of [
+        ...scriptureCatalog.getUnbundledLabels('pt'),
+        ...scriptureCatalog.getUnbundledLabels('en'),
+      ]) {
+        expect(screen.getByTestId(`translation-chip-${label}`)).toBeTruthy();
       }
       expect(ownText.getByText('Outra (Personalizada)')).toBeTruthy();
       // The bundled Bibles are not among them.
@@ -1584,6 +1607,10 @@ describe('HomeScreen Integration (Ticket 16)', () => {
         'João 3:16',
         'Porque Deus amou tanto o mundo que deu o seu único Filho...',
       ],
+      // Recognized labels the picker once lacked, which a paste turned into CUSTOM (Ticket 92).
+      ['NLT', 'Psalm 23:1 NLT', 'Psalm 23:1', 'The LORD is my shepherd; I have all that I need.'],
+      ['MSG', 'Psalm 23:1 MSG', 'Psalm 23:1', 'God, my shepherd! I don’t need a thing.'],
+      ['ASV', 'Psalm 23:1 ASV', 'Psalm 23:1', 'Jehovah is my shepherd; I shall not want.'],
     ])('keeps the label and the pasted text of a verse pasted as %s', async (label, citation, reference, text) => {
       jest.useFakeTimers();
       (Clipboard.getStringAsync as jest.Mock).mockResolvedValue(

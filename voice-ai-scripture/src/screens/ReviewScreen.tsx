@@ -8,7 +8,7 @@ import {
   useColorScheme,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { SandboxAttempt, Verse } from '../services/VerseEngine';
+import { VerifiedAttempt, Verse } from '../services/VerseEngine';
 import { useRecitationSession, RecitationLevel } from '../hooks/useRecitationSession';
 import DiffView from '../components/DiffView';
 import FloatingMicButton from '../components/FloatingMicButton';
@@ -18,27 +18,39 @@ import SandboxOptInModal from '../components/SandboxOptInModal';
 import ScaffoldingLevelCard from '../components/ScaffoldingLevelCard';
 import { RecitationOutcome, VoiceInput, VoiceRecitationResult } from '../services/RecitationSession';
 import { scriptureCatalog } from '../services/ScriptureCatalog';
-import { getTheme } from '../theme/tokens';
+import { getTheme, ThemeColors } from '../theme/tokens';
 import { styles } from './ReviewScreen.styles';
+import type { Language } from '../utils/languageNormalizer';
 
 export type { RecitationLevel };
 
-type VerseLanguage = 'en' | 'pt';
-
-/** The Error Budget outcome, said plainly in the verse's language. */
-function outcomeLabel(outcome: RecitationOutcome, language: VerseLanguage): string {
-  if (language === 'pt') {
-    return outcome === 'clean'
-      ? 'Lembrado'
-      : outcome === 'slip'
-      ? 'Lembrado com um deslize'
-      : 'Precisa de mais prática';
-  }
-  return outcome === 'clean' ? 'Recalled' : outcome === 'slip' ? 'Recalled with a slip' : 'Needs work';
-}
+/**
+ * Each Recitation Outcome as the result shows it: said plainly in the verse's language, in the
+ * quiet diff tone of the matching theme colors (DESIGN.md).
+ */
+const OUTCOME_DISPLAY: Record<
+  RecitationOutcome,
+  { label: Record<Language, string>; background: keyof ThemeColors; text: keyof ThemeColors }
+> = {
+  clean: {
+    label: { en: 'Recalled', pt: 'Lembrado' },
+    background: 'diffMatchBg',
+    text: 'diffMatchText',
+  },
+  slip: {
+    label: { en: 'Recalled with a slip', pt: 'Lembrado com um deslize' },
+    background: 'diffAddedBg',
+    text: 'diffAddedText',
+  },
+  forgotten: {
+    label: { en: 'Needs work', pt: 'Precisa de mais prática' },
+    background: 'diffMissedBg',
+    text: 'diffMissedText',
+  },
+};
 
 /** The unaided errors against the Error Budget, e.g. "1 error · 2 allowed". */
-function errorBudgetLabel(errorCount: number, errorBudget: number, language: VerseLanguage): string {
+function errorBudgetLabel(errorCount: number, errorBudget: number, language: Language): string {
   return language === 'pt'
     ? `${errorCount} ${errorCount === 1 ? 'erro' : 'erros'} · ${errorBudget} ${
         errorBudget === 1 ? 'permitido' : 'permitidos'
@@ -46,30 +58,33 @@ function errorBudgetLabel(errorCount: number, errorBudget: number, language: Ver
     : `${errorCount} ${errorCount === 1 ? 'error' : 'errors'} · ${errorBudget} allowed`;
 }
 
-/** Whether the attempt moved the schedule, in the verse's language (sandbox copy stays as it is). */
+/**
+ * Whether the attempt moved the schedule, in the verse's language (sandbox copy stays in
+ * English). No emoji (DESIGN.md), and quota is never mentioned: it is not the learner's concern.
+ */
 function attemptLabel(
   result: VoiceRecitationResult,
   level: RecitationLevel,
   isSandbox: boolean,
-  language: VerseLanguage
+  language: Language
 ): string {
   const pt = language === 'pt';
   if (level !== 3) {
-    return pt ? '✅ Tentativa de prática (fora do limite diário)' : '✅ Practice Attempt (Unmetered)';
+    return pt ? 'Tentativa de prática' : 'Practice Attempt';
   }
-  if (isSandbox) return '🎉 Sandbox Recitation Complete!';
+  if (isSandbox) return 'Sandbox Recitation Complete!';
   if (result.kind === 'practice') {
-    return pt ? '✅ Tentativa de prática (agenda inalterada)' : '✅ Practice Attempt (Schedule Unchanged)';
+    return pt ? 'Tentativa de prática (agenda inalterada)' : 'Practice Attempt (Schedule Unchanged)';
   }
   if (result.passed) {
-    return pt ? '🎉 Revisão oficial registrada!' : '🎉 Official Review Recorded!';
+    return pt ? 'Revisão oficial registrada!' : 'Official Review Recorded!';
   }
-  return pt ? '🔄 Reforço agendado para amanhã' : '🔄 Reinforcement Scheduled for Tomorrow';
+  return pt ? 'Reforço agendado para amanhã' : 'Reinforcement Scheduled for Tomorrow';
 }
 
 /** Same-Day Relearning (ticket 78), in the verse's language. */
 const RELEARNING_COPY: Record<
-  VerseLanguage,
+  Language,
   { offer: string; accept: string; decline: string; restored: string }
 > = {
   en: {
@@ -98,9 +113,13 @@ interface ReviewScreenProps {
   onSandboxComplete?: (
     verse: Verse,
     saveRequested: boolean,
-    sandboxAttempt?: SandboxAttempt | null
+    sandboxAttempt?: VerifiedAttempt | null
   ) => void;
-  /** Skips the recitation quota. Whether a recitation is an Official Review is the Verse Engine's call. */
+  /**
+   * Skips the recitation quota (for a verse that is not due). Only a Blind Recitation of a Due
+   * Verse is ever metered, so `false` meters nothing else. Whether a recitation is an Official
+   * Review is the Verse Engine's call.
+   */
   isUnmetered?: boolean;
 }
 
@@ -162,13 +181,6 @@ export default function ReviewScreen({
       setShowSandboxOptIn(true);
     }
   }, [isSandbox, level, currentResult]);
-
-  const outcomeTone = (outcome: RecitationOutcome) =>
-    outcome === 'clean'
-      ? { backgroundColor: theme.colors.diffMatchBg, color: theme.colors.diffMatchText }
-      : outcome === 'slip'
-      ? { backgroundColor: theme.colors.diffAddedBg, color: theme.colors.diffAddedText }
-      : { backgroundColor: theme.colors.diffMissedBg, color: theme.colors.diffMissedText };
 
   return (
     <SafeAreaView
@@ -362,8 +374,16 @@ export default function ReviewScreen({
             {currentResult && (
               <View style={styles.resultContainer}>
                 <View style={styles.scoreHeader}>
-                  <Text style={[styles.scoreBadge, outcomeTone(currentResult.outcome)]}>
-                    {outcomeLabel(currentResult.outcome, language)}
+                  <Text
+                    style={[
+                      styles.scoreBadge,
+                      {
+                        backgroundColor: theme.colors[OUTCOME_DISPLAY[currentResult.outcome].background],
+                        color: theme.colors[OUTCOME_DISPLAY[currentResult.outcome].text],
+                      },
+                    ]}
+                  >
+                    {OUTCOME_DISPLAY[currentResult.outcome].label[language]}
                   </Text>
                   <Text
                     style={[
@@ -442,7 +462,7 @@ export default function ReviewScreen({
         ) : null}
 
         {errorMessage && transcriptionErrorCode ? (
-          // The app failed to hear the learner: a calm retry notice, never a grade (ticket 74).
+          // The app failed to hear the learner: a calm retry notice, never an outcome (ticket 74).
           <View
             testID="transcription-error-retry"
             style={[

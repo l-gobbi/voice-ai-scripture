@@ -12,6 +12,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { scriptureCatalog, TranslationMetadata } from '../services/ScriptureCatalog';
 import { getTheme, ThemeColors, typography, spacing, radius, touchTarget } from '../theme/tokens';
+import type { Language } from '../utils/languageNormalizer';
 
 export interface TranslationsCopyrightModalProps {
   visible: boolean;
@@ -19,30 +20,36 @@ export interface TranslationsCopyrightModalProps {
 }
 
 /** Field labels in the translation's own language, like the rest of its entry. */
-const ENTRY_LABELS: Record<'en' | 'pt', { license: string; notice: string; changes: string; source: string }> = {
+const ENTRY_LABELS: Record<
+  Language,
+  { license: string; notice: string; changes: string; originalWork: string; source: string }
+> = {
   pt: {
     license: 'Licença',
     notice: 'Aviso de direitos autorais',
     changes: 'Alterações no texto',
+    originalWork: 'Obra original',
     source: 'Fonte',
   },
   en: {
     license: 'License',
     notice: 'Copyright notice',
     changes: 'Changes to the text',
+    originalWork: 'Original work',
     source: 'Source',
   },
 };
 
-const LANGUAGE_NAMES: Record<'en' | 'pt', string> = {
+const LANGUAGE_NAMES: Record<Language, string> = {
   pt: 'Português',
   en: 'English',
 };
 
 /**
  * The Translations & Copyright screen (ADR 0018): every bundled Translation with its full
- * name, licence, the notice its licence requires and what was changed in its text. Everything
- * shown comes from the Scripture Catalog, so the notices exist in one place only.
+ * name, licence, the notice its licence requires, what was changed in its text and, where the
+ * licence asks it of a changed work, where the original is available. Everything shown comes
+ * from the Scripture Catalog, so the notices exist in one place only.
  */
 export default function TranslationsCopyrightModal({
   visible,
@@ -137,6 +144,16 @@ function TranslationEntry({ meta, colors: c }: { meta: TranslationMetadata; colo
           <Text style={[styles.fieldLabel, { color: c.textSecondary }]}>{labels.changes}</Text>
           <Text style={[styles.fieldValue, { color: c.textPrimary }]} selectable>
             {meta.changes}
+          </Text>
+        </>
+      ) : null}
+
+      {meta.originalWork ? (
+        <>
+          {/* A changed work's licence asks it to say where the original is: verbatim. */}
+          <Text style={[styles.fieldLabel, { color: c.textSecondary }]}>{labels.originalWork}</Text>
+          <Text style={[styles.fieldValue, { color: c.textPrimary }]} selectable>
+            {meta.originalWork}
           </Text>
         </>
       ) : null}

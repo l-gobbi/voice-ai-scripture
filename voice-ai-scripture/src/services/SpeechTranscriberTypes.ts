@@ -1,3 +1,5 @@
+import type { Language } from '../utils/languageNormalizer';
+
 export type TranscriptionErrorCode =
   | 'network_error'
   | 'unauthorized'
@@ -20,12 +22,12 @@ export class TranscriptionError extends Error {
    * What went wrong, said calmly in the verse's language (`language === 'pt'` for Portuguese
    * verses, English otherwise).
    */
-  getUserFacingMessage(language: 'en' | 'pt' = 'en'): string {
+  getUserFacingMessage(language: Language = 'en'): string {
     return USER_FACING_MESSAGES[language === 'pt' ? 'pt' : 'en'][this.code] ?? USER_FACING_MESSAGES.en.unknown;
   }
 }
 
-const USER_FACING_MESSAGES: Record<'en' | 'pt', Record<TranscriptionErrorCode, string>> = {
+const USER_FACING_MESSAGES: Record<Language, Record<TranscriptionErrorCode, string>> = {
   en: {
     network_error: 'Network connection failed. Please check your internet connection.',
     rate_limited: 'Transcription service is temporarily busy. Please try again shortly.',
@@ -46,7 +48,7 @@ const USER_FACING_MESSAGES: Record<'en' | 'pt', Record<TranscriptionErrorCode, s
   },
 };
 
-export type TranscriptionLanguage = 'en' | 'pt' | string;
+export type TranscriptionLanguage = Language | string;
 
 export interface TranscriptionOptions {
   prompt?: string;

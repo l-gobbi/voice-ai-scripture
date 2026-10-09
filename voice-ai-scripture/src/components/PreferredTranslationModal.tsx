@@ -9,14 +9,11 @@ import {
   useColorScheme,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import {
-  verseEngine,
-  PreferenceLanguage,
-  PreferredTranslations,
-} from '../services/VerseEngine';
+import { verseEngine, PreferredTranslations } from '../services/VerseEngine';
 import { scriptureCatalog, TranslationMetadata } from '../services/ScriptureCatalog';
 import TranslationsCopyrightModal from './TranslationsCopyrightModal';
 import { getTheme, ThemeColors, typography, spacing, radius, touchTarget } from '../theme/tokens';
+import type { Language } from '../utils/languageNormalizer';
 
 export interface PreferredTranslationModalProps {
   visible: boolean;
@@ -24,7 +21,7 @@ export interface PreferredTranslationModalProps {
 }
 
 /** Each language in its own name, with the word for the catalog default in that language. */
-const LANGUAGES: Array<{ language: PreferenceLanguage; name: string; defaultLabel: string }> = [
+const LANGUAGES: Array<{ language: Language; name: string; defaultLabel: string }> = [
   { language: 'pt', name: 'Português', defaultLabel: 'Padrão' },
   { language: 'en', name: 'English', defaultLabel: 'Default' },
 ];
@@ -62,7 +59,7 @@ export default function PreferredTranslationModal({
     };
   }, [visible]);
 
-  const choose = async (language: PreferenceLanguage, meta: TranslationMetadata) => {
+  const choose = async (language: Language, meta: TranslationMetadata) => {
     try {
       const code = await verseEngine.setPreferredTranslation(language, meta.code);
       setPreferred((current) => ({
@@ -163,7 +160,7 @@ function TranslationChoice({
   onPress,
 }: {
   meta: TranslationMetadata;
-  language: PreferenceLanguage;
+  language: Language;
   selected: boolean;
   isDefault: boolean;
   defaultLabel: string;

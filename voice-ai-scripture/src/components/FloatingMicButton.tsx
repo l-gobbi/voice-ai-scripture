@@ -8,13 +8,14 @@ import {
   Animated,
 } from 'react-native';
 import { getTheme, touchTarget } from '../theme/tokens';
+import type { Language } from '../utils/languageNormalizer';
 
 export interface FloatingMicButtonProps {
   isReciting: boolean;
   isVerifying?: boolean;
   volumeLevel?: number; // 0 to 1
   vadProgress?: number; // 0 to 1
-  language?: 'en' | 'pt';
+  language?: Language;
   onStart: () => void;
   onStop: () => void;
   onCancel: () => void;

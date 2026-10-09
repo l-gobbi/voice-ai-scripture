@@ -65,8 +65,11 @@ function matchBook(words: TranscriptWord[], at: number, patterns: string[][]): n
   });
 }
 
-/** The longest spelled-out number a chapter or verse can take ("cento e dezenove", "one hundred and nineteen"). */
-const MAX_NUMBER_WORDS = 6;
+/**
+ * The most words a spoken chapter or verse number can take: the largest is 176 (Psalm 119:176),
+ * "cento e setenta e seis" or "one hundred and seventy six", 5 words; one more for slack.
+ */
+const MAX_WORDS_IN_REFERENCE_NUMBER = 6;
 
 /** Optional words before the chapter and verse numbers ("capítulo 3, versículo 16"). */
 const CHAPTER_WORDS = new Set(['chapter', 'ch', 'capitulo', 'cap']);
@@ -90,7 +93,7 @@ function matchNumber(words: TranscriptWord[], at: number, value: number): number
   if (/^\d+$/.test(word.key)) return parseInt(word.key, 10) === value ? [at + 1] : [];
 
   const ends: number[] = [];
-  for (let end = at + 1; end <= Math.min(words.length, at + MAX_NUMBER_WORDS); end++) {
+  for (let end = at + 1; end <= Math.min(words.length, at + MAX_WORDS_IN_REFERENCE_NUMBER); end++) {
     const run = words.slice(at, end).map((w) => w.key);
     if (!isNumberWord(run[run.length - 1])) break;
     if (parseNumberWords(run) === value) ends.push(end);

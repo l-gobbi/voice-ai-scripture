@@ -1,5 +1,5 @@
 import { StudyDay, addStudyDays, compareStudyDays, readStudyDay, toStudyDay } from './studyDay';
-import type { RecitationOutcome } from './recitationEvaluator';
+import { isRecalled, RecitationOutcome } from './recitationEvaluator';
 
 export type { RecitationOutcome };
 
@@ -17,7 +17,7 @@ export interface SRSResult extends SRSState {
   passed: boolean;
 }
 
-/** SM-2 quality given for each outcome of a graded recitation (ADR 0017). */
+/** SM-2 quality given for each Recitation Outcome of an Official Review (ADR 0017). */
 export const SM2_QUALITY: Readonly<Record<RecitationOutcome, number>> = {
   clean: 5,
   slip: 4,
@@ -63,7 +63,7 @@ export const DEFAULT_SRS_STATE: SRSState = {
  * is the interval the next recall multiplies (as Anki stores its fuzzed interval).
  *
  * @param currentState Current repetition, interval and ease state
- * @param outcome The graded outcome of the recitation (Error Budget)
+ * @param outcome The Recitation Outcome of the Official Review (Error Budget)
  * @param now Instant of the review (defaults to current time); only its Study Day matters
  * @param random Random source for the fuzz (defaults to `Math.random`)
  */
@@ -74,7 +74,7 @@ export function calculateNextReview(
   random: RandomSource = Math.random
 ): SRSResult {
   const quality = SM2_QUALITY[outcome];
-  const recalled = outcome !== 'forgotten';
+  const recalled = isRecalled(outcome);
 
   let streak = currentState.streak !== undefined ? currentState.streak : (currentState.repetitions ?? 0);
   let intervalDays: number;

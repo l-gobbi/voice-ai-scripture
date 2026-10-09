@@ -124,7 +124,7 @@ describe('useRecitationSession hook (Ticket 08 & 12)', () => {
     expect(result.current.status).toBe('error');
     expect(result.current.transcriptionErrorCode).toBe('network_error');
     expect(result.current.errorMessage).toBe(
-      'Network connection failed. Please check your internet connection. Nothing was graded and no recitation was used.'
+      'Network connection failed. Please check your internet connection. Nothing was counted and no recitation was used.'
     );
     logSpy.mockRestore();
   });
