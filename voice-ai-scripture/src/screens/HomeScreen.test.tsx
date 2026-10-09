@@ -55,6 +55,10 @@ jest.mock('expo-clipboard', () => ({
   setStringAsync: jest.fn(),
 }));
 
+// The sandbox sample verse, from the bundled Berean Standard Bible (Ticket 81).
+const ACTS_2_38_BSB =
+  'Peter replied, “Repent and be baptized, every one of you, in the name of Jesus Christ for the forgiveness of your sins, and you will receive the gift of the Holy Spirit.';
+
 describe('HomeScreen Integration (Ticket 16)', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -119,9 +123,9 @@ describe('HomeScreen Integration (Ticket 16)', () => {
       expect(getByPlaceholderText('Reference (e.g. John 3:16)')).toBeTruthy();
     });
 
-    // Select KJV
+    // Select ESV, a label without bundled text, for the learner's own wording
     await act(async () => {
-      fireEvent.press(getByText(/KJV/i));
+      fireEvent.press(getByText('ESV'));
     });
 
     const refInput = getByPlaceholderText('Reference (e.g. John 3:16)');
@@ -138,7 +142,7 @@ describe('HomeScreen Integration (Ticket 16)', () => {
           id: '1',
           reference: 'Romans 8:28',
           text: 'And we know that all things work together for good...',
-          translation: 'KJV',
+          translation: 'ESV',
         },
       ],
       dueVerses: [],
@@ -153,8 +157,43 @@ describe('HomeScreen Integration (Ticket 16)', () => {
       expect(verseEngine.addVerse).toHaveBeenCalledWith({
         reference: 'Romans 8:28',
         text: 'And we know that all things work together for good...',
-        translation: 'KJV',
+        translation: 'ESV',
       });
+    });
+  });
+
+  it('offers only the open-licensed Bibles as bundled text and defaults to the BSB (Ticket 81)', async () => {
+    const { getByText, getByPlaceholderText, queryByText } = await render(<HomeScreen />);
+
+    await act(async () => {
+      fireEvent.press(getByText('+ Type Custom Verse'));
+    });
+
+    expect(queryByText(/KJV/)).toBeNull();
+    expect(queryByText(/Almeida/)).toBeNull();
+    // The default is bundled, so no copyright notice is shown.
+    expect(queryByText(/Esta tradução não está embutida offline/)).toBeNull();
+
+    const refInput = getByPlaceholderText('Reference (e.g. John 3:16)');
+    const textInput = getByPlaceholderText('Verse text...');
+    await act(async () => {
+      refInput.props.onChangeText('John 11:35');
+    });
+    await act(async () => {
+      fireEvent.press(getByText('🔍 Buscar Texto'));
+    });
+    await waitFor(() => {
+      expect(textInput.props.value).toBe('Jesus wept.');
+    });
+
+    await act(async () => {
+      fireEvent.press(getByText('Save Verse'));
+    });
+
+    expect(verseEngine.addVerse).toHaveBeenCalledWith({
+      reference: 'John 11:35',
+      text: 'Jesus wept.',
+      translation: 'BSB',
     });
   });
 
@@ -194,9 +233,9 @@ describe('HomeScreen Integration (Ticket 16)', () => {
       fireEvent.press(getByText('+ Type Custom Verse'));
     });
 
-    // Select Almeida
+    // Select ONBV
     await act(async () => {
-      fireEvent.press(getByText('Almeida (JFA)'));
+      fireEvent.press(getByText('ONBV (Open Nova Bíblia Viva)'));
     });
 
     const refInput = getByPlaceholderText('Reference (e.g. John 3:16)');
@@ -538,24 +577,23 @@ describe('HomeScreen Integration (Ticket 16)', () => {
             {
               id: 'saved-acts',
               reference: 'Acts 2:38',
-              text: 'Peter said to them...',
-              translation: 'WEB',
+              text: 'Peter replied...',
+              translation: 'BSB',
             },
           ],
           dueVerses: [
             {
               id: 'saved-acts',
               reference: 'Acts 2:38',
-              text: 'Peter said to them...',
-              translation: 'WEB',
+              text: 'Peter replied...',
+              translation: 'BSB',
             },
           ],
           dueCount: 1,
         });
 
       const mockVoiceInput = new SimulatedVoiceAdapter({
-        defaultTranscript:
-          'Peter said to them, “Repent, and be baptized, every one of you, in the name of Jesus Christ for the forgiveness of sins, and you will receive the gift of the Holy Spirit.”',
+        defaultTranscript: ACTS_2_38_BSB,
       });
 
       const { getByTestId, getByText, findByText } = await render(
@@ -604,7 +642,8 @@ describe('HomeScreen Integration (Ticket 16)', () => {
       expect(verseEngine.addVerse).toHaveBeenCalledWith(
         expect.objectContaining({
           reference: 'Acts 2:38',
-          translation: 'WEB',
+          translation: 'BSB',
+          text: ACTS_2_38_BSB,
         })
       );
 
@@ -633,8 +672,7 @@ describe('HomeScreen Integration (Ticket 16)', () => {
       });
 
       const mockVoiceInput = new SimulatedVoiceAdapter({
-        defaultTranscript:
-          'Peter said to them, “Repent, and be baptized, every one of you, in the name of Jesus Christ for the forgiveness of sins, and you will receive the gift of the Holy Spirit.”',
+        defaultTranscript: ACTS_2_38_BSB,
       });
 
       const { getByTestId, getByText, findByText } = await render(

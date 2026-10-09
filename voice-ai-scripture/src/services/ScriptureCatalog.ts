@@ -10,34 +10,37 @@ import blivreData from '../data/bibles/blivre.json';
 import onbvData from '../data/bibles/onbv.json';
 import bsbData from '../data/bibles/bsb.json';
 import webData from '../data/bibles/web.json';
-import almeidaData from '../data/bibles/almeida.json';
-import kjvData from '../data/bibles/kjv.json';
 
 export type { CanonBook };
-// ALMEIDA and KJV are removed in ticket 81 (ADR 0018).
-export type SupportedTranslation = 'BLIVRE' | 'ONBV' | 'BSB' | 'WEB' | 'ALMEIDA' | 'KJV';
+/** The bundled Translations: open-licensed texts only (ADR 0018). */
+export type SupportedTranslation = 'BLIVRE' | 'ONBV' | 'BSB' | 'WEB';
 
 export const BUNDLED_TRANSLATIONS: readonly SupportedTranslation[] = [
   'BLIVRE',
   'ONBV',
   'BSB',
   'WEB',
-  'ALMEIDA',
-  'KJV',
 ] as const;
 
+/**
+ * Portuguese Translation labels. Besides the bundled ones, these are labels the app has no
+ * text for (the learner's own wording, or verses saved in ALMEIDA before ADR 0018); they keep
+ * their language so Speech Synthesis and recognition still use Portuguese.
+ */
 export const PT_TRANSLATIONS: ReadonlySet<string> = new Set([
   'BLIVRE',
-  'ALMEIDA',
   'ONBV',
-  'NVI',
+  'ALMEIDA',
   'ARA',
-  'NAA',
-  'NTLH',
   'ARC',
+  'ACF',
+  'NAA',
+  'NVI',
+  'NTLH',
   'NVT',
 ]);
 
+/** English Translation labels: the bundled ones and labels without text, such as KJV. */
 export const EN_TRANSLATIONS: ReadonlySet<string> = new Set([
   'BSB',
   'WEB',
@@ -48,7 +51,14 @@ export const EN_TRANSLATIONS: ReadonlySet<string> = new Set([
   'NASB',
   'NLT',
   'MSG',
+  'ASV',
 ]);
+
+/** The per-language default Translation, used when no Preferred Translation applies. */
+const DEFAULT_TRANSLATIONS: Readonly<Record<'en' | 'pt', SupportedTranslation>> = {
+  pt: 'BLIVRE',
+  en: 'BSB',
+};
 
 const PT_MARKER_WORDS = new Set([
   'senhor', 'pastor', 'deus', 'jesus', 'porque', 'para', 'com', 'como',
@@ -95,8 +105,6 @@ const DATASETS: Record<SupportedTranslation, BibleDataset> = {
   ONBV: onbvData as BibleDataset,
   BSB: bsbData as BibleDataset,
   WEB: webData as BibleDataset,
-  ALMEIDA: almeidaData as BibleDataset,
-  KJV: kjvData as BibleDataset,
 };
 
 /** Spellings of each bundled Translation, compared after `compactTranslationName`. */
@@ -105,8 +113,6 @@ const TRANSLATION_ALIASES: Record<SupportedTranslation, readonly string[]> = {
   ONBV: ['onbv', 'nbv', 'novabibliaviva', 'opennovabibliaviva', 'biblicaopennovabibliaviva'],
   BSB: ['bsb', 'berean', 'bereanstandard', 'bereanstandardbible', 'bereanbible'],
   WEB: ['web', 'worldenglishbible'],
-  ALMEIDA: ['almeida', 'jfa', 'almeidarevista', 'joaoferreiradealmeida'],
-  KJV: ['kjv', 'kingjames', 'kingjamesversion'],
 };
 
 const TRANSLATION_BY_ALIAS = new Map<string, SupportedTranslation>(
@@ -341,17 +347,35 @@ export class ScriptureCatalog {
     return getVerseCount(bookId, chapter);
   }
 
+  /**
+   * The default Translation for a language, or for the language of a reference: Bíblia Livre
+   * in Portuguese and the Berean Standard Bible in English (ADR 0018). Unrecognized references
+   * get the English default.
+   */
   getDefaultTranslation(referenceOrLanguage: string): SupportedTranslation {
-    if (referenceOrLanguage === 'pt' || referenceOrLanguage === 'en') {
-      return referenceOrLanguage === 'pt' ? 'ALMEIDA' : 'WEB';
-    }
-    const norm = this.resolveReference(referenceOrLanguage);
-    return norm?.language === 'pt' ? 'ALMEIDA' : 'WEB';
+    const language =
+      referenceOrLanguage === 'pt' || referenceOrLanguage === 'en'
+        ? referenceOrLanguage
+        : this.resolveReference(referenceOrLanguage)?.language;
+    return language === 'pt' ? DEFAULT_TRANSLATIONS.pt : DEFAULT_TRANSLATIONS.en;
   }
 
   canonicalizeTranslation(raw?: string | null): SupportedTranslation | null {
     if (!raw || typeof raw !== 'string') return null;
     return TRANSLATION_BY_ALIAS.get(compactTranslationName(raw)) ?? null;
+  }
+
+  /**
+   * The label a Translation name stands for: the bundled code for any of its spellings
+   * ("Berean" → "BSB", "Bíblia Livre" → "BLIVRE"), or a known label without bundled text in
+   * upper case ("ara" → "ARA", "KJV"). Null when the name is not a known Translation.
+   */
+  recognizeTranslation(raw?: string | null): string | null {
+    if (!raw || typeof raw !== 'string') return null;
+    const code = this.canonicalizeTranslation(raw);
+    if (code) return code;
+    const upper = raw.trim().toUpperCase();
+    return PT_TRANSLATIONS.has(upper) || EN_TRANSLATIONS.has(upper) ? upper : null;
   }
 
   isBundledTranslation(raw?: string | null): boolean {
@@ -394,11 +418,12 @@ export class ScriptureCatalog {
     chapter: number,
     startVerse: number,
     endVerse?: number,
-    translation: string = 'WEB'
+    translation: string = DEFAULT_TRANSLATIONS.en
   ): string | null {
-    const cleanTrans = this.canonicalizeTranslation(translation) ?? (translation.trim().toUpperCase() as SupportedTranslation);
-    const dataset = DATASETS[cleanTrans];
-    if (!dataset) return null;
+    // Labels without bundled text (ALMEIDA, KJV, NVI, …) have nothing to look up.
+    const code = this.canonicalizeTranslation(translation);
+    if (!code) return null;
+    const dataset = DATASETS[code];
 
     const bookData = dataset.books[bookId];
     if (!bookData) return null;

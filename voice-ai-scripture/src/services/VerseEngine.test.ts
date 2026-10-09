@@ -267,7 +267,7 @@ describe('VerseEngine (Ticket 09)', () => {
       expect(all[0].translation).toBe('KJV');
     });
 
-    it('defaults translation to WEB for English references when omitted', async () => {
+    it('defaults translation to BSB for English references when omitted (Ticket 81)', async () => {
       const storage = new MapStorageAdapter();
       const engine = new VerseEngine(storage);
 
@@ -276,10 +276,10 @@ describe('VerseEngine (Ticket 09)', () => {
         text: 'And we know that all things work together for good...',
       });
 
-      expect(verse.translation).toBe('WEB');
+      expect(verse.translation).toBe('BSB');
     });
 
-    it('defaults translation to ALMEIDA for Portuguese references when omitted', async () => {
+    it('defaults translation to BLIVRE for Portuguese references when omitted (Ticket 81)', async () => {
       const storage = new MapStorageAdapter();
       const engine = new VerseEngine(storage);
 
@@ -288,7 +288,7 @@ describe('VerseEngine (Ticket 09)', () => {
         text: 'Porque Deus amou o mundo de tal maneira...',
       });
 
-      expect(verse.translation).toBe('ALMEIDA');
+      expect(verse.translation).toBe('BLIVRE');
     });
 
     it('allows updateVerse to switch translation and text while preserving SRS progression', async () => {
@@ -343,15 +343,58 @@ describe('VerseEngine (Ticket 09)', () => {
       const engine = new VerseEngine(storage);
       const all = await engine.getAllVerses();
 
-      expect(all[0].translation).toBe('WEB');
-      expect(all[1].translation).toBe('ALMEIDA');
+      expect(all[0].translation).toBe('BSB');
+      expect(all[1].translation).toBe('BLIVRE');
       expect(all[0].srs?.streak).toBe(3);
     });
 
-    it('exports resolveDefaultTranslation mapping references to canonical translations', () => {
-      expect(resolveDefaultTranslation('John 3:16')).toBe('WEB');
-      expect(resolveDefaultTranslation('João 3:16')).toBe('ALMEIDA');
-      expect(resolveDefaultTranslation('1 Jo 1:9')).toBe('ALMEIDA');
+    it('exports resolveDefaultTranslation mapping references to the language default (Ticket 81)', () => {
+      expect(resolveDefaultTranslation('John 3:16')).toBe('BSB');
+      expect(resolveDefaultTranslation('João 3:16')).toBe('BLIVRE');
+      expect(resolveDefaultTranslation('1 Jo 1:9')).toBe('BLIVRE');
+      expect(resolveDefaultTranslation('Not a reference')).toBe('BSB');
+    });
+
+    it('loads verses saved in ALMEIDA or KJV with their stored text and label (Ticket 81)', async () => {
+      const storage = new MapStorageAdapter();
+      await storage.setItem(
+        'verses',
+        JSON.stringify([
+          {
+            id: 'almeida-1',
+            reference: 'Salmos 23:1',
+            text: 'O Senhor é o meu pastor; nada me faltará.',
+            translation: 'ALMEIDA',
+            srs: { streak: 2, intervalDays: 6, easeFactor: 2.5, nextReviewDate: '2026-10-09' },
+          },
+          {
+            id: 'kjv-1',
+            reference: 'Psalm 23:1',
+            text: 'The LORD is my shepherd; I shall not want.',
+            translation: 'KJV',
+            srs: { streak: 1, intervalDays: 1, easeFactor: 2.5, nextReviewDate: '2026-10-09' },
+          },
+        ])
+      );
+
+      const engine = new VerseEngine(storage);
+      const [almeida, kjv] = await engine.getAllVerses();
+
+      expect(almeida).toMatchObject({
+        reference: 'Salmos 23:1',
+        text: 'O Senhor é o meu pastor; nada me faltará.',
+        translation: 'ALMEIDA',
+      });
+      expect(kjv).toMatchObject({
+        reference: 'Psalm 23:1',
+        text: 'The LORD is my shepherd; I shall not want.',
+        translation: 'KJV',
+      });
+
+      // Editing the verse's reference keeps its label.
+      const moved = await engine.updateVerse('almeida-1', { reference: 'Salmos 23:2' });
+      expect(moved.translation).toBe('ALMEIDA');
+      expect(moved.text).toBe('O Senhor é o meu pastor; nada me faltará.');
     });
 
     it('handles updateVerse with empty translation string by falling back to reference default', async () => {
@@ -368,7 +411,7 @@ describe('VerseEngine (Ticket 09)', () => {
         translation: '',
       });
 
-      expect(updated.translation).toBe('WEB');
+      expect(updated.translation).toBe('BSB');
     });
   });
 

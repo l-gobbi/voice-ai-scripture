@@ -63,6 +63,7 @@ describe('Reproduction: Mobile Expo Go Recitation without API Key', () => {
     expect(session.getState().status).toBe('verified');
     expect(result).not.toBeNull();
     // The dev fallback "hears" the acoustic prompt, which carries no verse text (ticket 67).
-    expect(result?.rawTranscript).toBe('Holy Bible. Translation: WEB. Reference: John 3:16.');
+    // The verse has no translation, so the prompt names the English default (ticket 81).
+    expect(result?.rawTranscript).toBe('Holy Bible. Translation: BSB. Reference: John 3:16.');
   });
 });

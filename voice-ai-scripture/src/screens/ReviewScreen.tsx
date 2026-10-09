@@ -257,7 +257,7 @@ export default function ReviewScreen({
                 { color: theme.colors.textSecondary },
               ]}
             >
-              {verse.translation || 'WEB'}
+              {verse.translation || scriptureCatalog.getDefaultTranslation(language)}
             </Text>
           </View>
 

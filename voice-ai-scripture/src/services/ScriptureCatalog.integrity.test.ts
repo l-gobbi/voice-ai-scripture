@@ -61,44 +61,7 @@ const VERSIFICATION_EXCEPTIONS: Record<SupportedTranslation, readonly string[]> 
     'ROM 16:26 missing',
     'ROM 16:27 missing',
   ],
-
-  // ALMEIDA and KJV are deleted in ticket 81. These entries are NOT legitimate differences of
-  // the translations themselves: they are defects of the thiagobodruk/bible source dataset,
-  // listed only so the test stays strict for every other text until then.
-  // ALMEIDA: Hebrew-style splits (the "extra" verses) and final verses merged into the
-  // previous one, which shifts the chapter (the "missing" verses).
-  ALMEIDA: [
-    'JDG 5:32 extra',
-    '1SA 20:43 extra',
-    '1KI 22:54 extra',
-    'MAT 2:23 missing',
-    'MAT 27:66 missing',
-    'LUK 22:71 missing',
-    '3JN 1:15 extra',
-    'REV 12:18 extra',
-  ],
-  // KJV: the same kind of source defects (e.g. Matthew 2:23 is merged into 2:22), although
-  // the King James Version itself numbers these chapters as the canon matrix does.
-  KJV: [
-    '1SA 20:43 extra',
-    '1KI 22:54 extra',
-    'MAT 2:23 missing',
-    'MAT 22:46 missing',
-    'MAT 26:75 missing',
-    'MRK 4:41 missing',
-    'MRK 7:37 missing',
-    'MRK 8:38 missing',
-    '3JN 1:15 extra',
-    'REV 12:18 extra',
-  ],
 };
-
-/**
- * ALMEIDA and KJV are removed from the bundle in ticket 81 (ADR 0018). Their source dataset
- * keeps `{…}` markers (about 17,000 KJV verses), so they are exempt from the marker check
- * until they are deleted. Every other bundled Bible must be marker-free.
- */
-const MARKER_CHECK_EXEMPT: ReadonlySet<SupportedTranslation> = new Set(['ALMEIDA', 'KJV']);
 
 const MARKER = /[{}[\]]/;
 
@@ -146,7 +109,7 @@ function scanDataset(code: SupportedTranslation): DatasetScan {
   return { booksWithText, gaps, markedVerses };
 }
 
-describe('Bundled Bible dataset integrity (Ticket 80)', () => {
+describe('Bundled Bible dataset integrity (Tickets 80 and 81)', () => {
   it('has an exception list for every bundled translation', () => {
     expect(Object.keys(VERSIFICATION_EXCEPTIONS).sort()).toEqual([...BUNDLED_TRANSLATIONS].sort());
   });
@@ -168,7 +131,6 @@ describe('Bundled Bible dataset integrity (Ticket 80)', () => {
     });
 
     it('has no { } [ ] markers in any verse', () => {
-      if (MARKER_CHECK_EXEMPT.has(code)) return;
       expect(scan.markedVerses.slice(0, 20)).toEqual([]);
       expect(scan.markedVerses).toHaveLength(0);
     });
