@@ -65,6 +65,46 @@ const VERSIFICATION_EXCEPTIONS: Record<SupportedTranslation, readonly string[]> 
 
 const MARKER = /[{}[\]]/;
 
+/**
+ * Psalm titles (superscriptions) are not verse text: learners recite only the verse (Ticket 85).
+ * eBible's verse-per-line export merges each title into verse 1, and the build cuts it off
+ * using the USFM `\d` title. A Psalm verse 1 that starts like a title means one slipped through.
+ *
+ * The openings below cover every title the bundled sources use, plus common ones from other
+ * Bibles, matched as whole words at the very start of verse 1, ignoring case.
+ */
+const PSALM_TITLE_OPENINGS: Record<'pt' | 'en', readonly string[]> = {
+  pt: [
+    'Salmo', 'Salmos', 'Cântico', 'Canção', 'Um cântico', 'Uma canção', 'Hino', 'Poema',
+    'Oração de', 'Oração do', 'Instrução', 'Memorial de', 'Confissão de', 'Mictão', 'Masquil',
+    'Para o regente', 'Para o mestre de', 'Ao mestre de canto', 'Ao regente', 'Para o cantor-mor',
+    'Ao músico-mor', 'Para Salomão', 'De Salomão', 'De Davi', 'De Asafe', 'Dos filhos de Corá',
+  ],
+  en: [
+    'A Psalm', 'A Psalms', 'Psalm of', 'For the choirmaster', 'To the choirmaster',
+    'For the director', 'To the chief Musician', 'For the leader', 'A song', 'A Maskil',
+    'A Miktam', 'A Michtam', 'A Shiggaion', 'A prayer of', 'Of David', 'Of Solomon', 'Of Asaph',
+    'Of the sons of Korah', 'Of Moses', 'A Davidic',
+  ],
+};
+
+const titleOpening = (language: 'pt' | 'en') =>
+  new RegExp(
+    `^(?:${PSALM_TITLE_OPENINGS[language].map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')})\\b`,
+    'i'
+  );
+
+/**
+ * Psalm verse 1s that legitimately start like a title, as "PSA chapter:1". None today. The list
+ * must match exactly, like VERSIFICATION_EXCEPTIONS.
+ */
+const PSALM_TITLE_EXCEPTIONS: Record<SupportedTranslation, readonly string[]> = {
+  BLIVRE: [],
+  ONBV: [],
+  BSB: [],
+  WEB: [],
+};
+
 interface DatasetScan {
   booksWithText: number;
   gaps: string[];
@@ -144,5 +184,50 @@ describe('Bundled Bible dataset integrity (Tickets 80 and 81)', () => {
         expect(meta![field].trim()).not.toBe('');
       }
     });
+  });
+});
+
+describe('Psalm titles are not verse text (Ticket 85)', () => {
+  it('has a Psalm title exception list for every bundled translation', () => {
+    expect(Object.keys(PSALM_TITLE_EXCEPTIONS).sort()).toEqual([...BUNDLED_TRANSLATIONS].sort());
+  });
+
+  it('recognises the titles the eBible verse-per-line sources merged into verse 1', () => {
+    expect(titleOpening('pt').test('Salmo de Davi: O SENHOR é meu pastor, nada me faltará.')).toBe(true);
+    expect(titleOpening('pt').test('Para o mestre de música. Salmo de Davi. Ó Deus, tenha misericórdia')).toBe(true);
+    expect(titleOpening('pt').test('Cântico dos degraus: Em minha angústia clamei ao SENHOR')).toBe(true);
+    expect(titleOpening('en').test('A Psalm of David. The LORD is my shepherd; I shall not want.')).toBe(true);
+    expect(titleOpening('en').test('For the choirmaster. A Psalm of David. Have mercy on me, O God')).toBe(true);
+    expect(titleOpening('en').test('Of David. The LORD is my light and my salvation')).toBe(true);
+
+    expect(titleOpening('pt').test('O SENHOR é meu pastor, nada me faltará.')).toBe(false);
+    expect(titleOpening('en').test('The LORD is my shepherd; I shall not want.')).toBe(false);
+  });
+
+  it.each([...BUNDLED_TRANSLATIONS])(
+    '%s: no Psalm verse 1 starts with a title, except the documented ones',
+    (code) => {
+      const language = scriptureCatalog.getTranslationMetadata(code)!.language as 'pt' | 'en';
+      const opening = titleOpening(language);
+      const titled: string[] = [];
+      for (let chapter = 1; chapter <= 150; chapter++) {
+        const verse1 = scriptureCatalog.fetchPassageText('PSA', chapter, 1, undefined, code);
+        expect(verse1).toBeTruthy();
+        if (opening.test(verse1!)) titled.push(`PSA ${chapter}:1`);
+      }
+      expect(titled).toEqual(PSALM_TITLE_EXCEPTIONS[code]);
+    }
+  );
+
+  it('Psalm 23:1 starts with the verse words in Bíblia Livre, ONBV and BSB', () => {
+    expect(scriptureCatalog.resolvePassage('Salmos 23:1', 'BLIVRE')?.text).toBe(
+      'O SENHOR é meu pastor, nada me faltará.'
+    );
+    expect(scriptureCatalog.resolvePassage('Salmos 23:1', 'ONBV')?.text).toBe(
+      'O Senhor é o meu pastor. Ele me dá tudo de que preciso!'
+    );
+    expect(scriptureCatalog.resolvePassage('Psalm 23:1', 'BSB')?.text).toBe(
+      'The LORD is my shepherd; I shall not want.'
+    );
   });
 });

@@ -18,9 +18,17 @@
  * BLIVRE, ONBV and BSB come from eBible.org in verse-per-line (VPL) format.
  * eBible's VPL export already drops notes, footnotes, cross-references and section titles.
  * The build maps eBible book codes to the canon ids, removes `{…}`/`[…]` markers while
- * keeping the words, and normalizes whitespace. It never changes wording. Psalm titles stay
- * merged into verse 1, as in the source. ONBV (CC BY-SA) is shipped verbatim: if its source
- * ever contains markers, the build refuses to rewrite it and fails loudly instead.
+ * keeping the words, and normalizes whitespace. It never changes wording. ONBV (CC BY-SA) is
+ * shipped verbatim: if its source ever contains markers, the build refuses to rewrite it and
+ * fails loudly instead.
+ *
+ * Psalm titles (Ticket 85). The VPL export merges each Psalm's title (superscription, e.g.
+ * "A Psalm of David.") into verse 1, but learners recite only the verse. eBible's USFM export
+ * of the same text keeps the title apart, as a `\d` paragraph before `\v 1`. The build reads
+ * only the Psalms file of the USFM export, takes each `\d` title as plain text, and cuts that
+ * exact title off the start of the VPL verse 1. Verse 1 keeps the rest of its VPL text, so no
+ * other wording changes. If a title is not exactly at the start of verse 1, or the USFM has a
+ * `\d` anywhere unexpected, the build fails instead of guessing. Titles are not stored.
  *
  * Needs Node 18+ and the `unzip` command.
  */
@@ -75,6 +83,7 @@ const TRANSLATION_METADATA = {
       'Reprodução permitida desde que devidamente mencionados fonte e autores.',
     changes:
       'Os colchetes [ ] do texto-fonte foram removidos, mantendo as palavras entre eles, ' +
+      'os títulos dos Salmos foram omitidos do texto dos versículos ' +
       'e os espaços foram normalizados. O texto não foi alterado de outra forma.',
     sourceUrl: 'https://ebible.org/find/details.php?id=porbr2018',
   },
@@ -93,7 +102,9 @@ const TRANSLATION_METADATA = {
       '“Biblica” é uma marca registrada na Oficina de Patentes e Marcas dos Estados Unidos por Biblica, Inc. Usado com permissão.',
       '“Biblica” is a trademark registered in the United States Patent and Trademark Office by Biblica, Inc. Used with permission.',
     ].join('\n'),
-    changes: 'Texto sem alterações; apenas os espaços foram normalizados.',
+    changes:
+      'Texto sem alterações, exceto que os títulos dos Salmos foram omitidos do texto dos ' +
+      'versículos e os espaços foram normalizados.',
     sourceUrl: 'https://ebible.org/find/details.php?id=poronbv',
   },
   BSB: {
@@ -106,7 +117,9 @@ const TRANSLATION_METADATA = {
       'The Holy Bible, Berean Standard Bible, BSB is produced in cooperation with Bible Hub, ' +
       'Discovery Bible, OpenBible.com, and the Berean Bible Translation Committee. ' +
       "This text of God's Word has been dedicated to the public domain.",
-    changes: 'Text unchanged; whitespace normalized only.',
+    changes:
+      'Text unchanged, except that Psalm titles are omitted from verse text and whitespace ' +
+      'is normalized.',
     sourceUrl: 'https://ebible.org/find/details.php?id=engbsb',
   },
   WEB: {
@@ -190,7 +203,7 @@ function writeDataset(code, books) {
 }
 
 /* ------------------------------------------------------------------------------------------ */
-/* eBible.org VPL sources                                                                      */
+/* eBible.org sources: VPL verse text, USFM Psalm titles                                     */
 /* ------------------------------------------------------------------------------------------ */
 
 const EBIBLE_SOURCES = {
@@ -268,21 +281,158 @@ function stripMarkers(text) {
   return text.replace(/([\]}])\s+(?=[,.;:!?])/g, '$1').replace(/[{}[\]]/g, '');
 }
 
+/* Psalm titles, read from eBible's USFM export (Ticket 85) --------------------------------- */
+
+/**
+ * Plain text of a piece of USFM. Footnotes (`\f … \f*`, `\fe … \fe*`) and cross-references
+ * (`\x … \x*`) are dropped with their content, `\w word|strong="…"\w*` keeps only the word,
+ * and every other marker (`\add`, `\nd`, `\wj`, `\it`, `\qs`, `\q1`, `\p`, …) is dropped while
+ * the words it marks are kept.
+ */
+function usfmToPlainText(usfm) {
+  return normalizeWhitespace(
+    usfm
+      .replace(/\\(f|fe|x)\s[\s\S]*?\\\1\*/g, '')
+      .replace(/\\\+?w\s([^|\\]*)(?:\|[^\\]*)?\\\+?w\*/g, '$1')
+      .replace(/\\\+?[a-z]+\d*\*/g, '') // a closing marker; the space after it is real text
+      .replace(/\\\+?[a-z]+\d*\s?/g, '') // an opening marker and the one space that ends it
+  );
+}
+
+/**
+ * Reads eBible's USFM Psalms file and returns, for each Psalm, the plain text of its title
+ * (the `\d` paragraph before `\v 1`, or '' when it has none) and of its verse 1.
+ * A `\d` that cannot be placed with certainty fails the build: one after the first verse,
+ * one with a verse inside it, an empty one, or a second one in the same Psalm.
+ */
+function parseUsfmPsalms(usfm, sourceId) {
+  const psalms = {};
+  let chapter = null;
+  let psalm = null;
+  let collecting = null; // 'title' or 'verse1': the part the current USFM lines belong to
+  const fail = (problem) => {
+    throw new Error(`${sourceId}: Psalm ${chapter} in the USFM has ${problem}`);
+  };
+
+  for (const line of usfm.split(/\r?\n/)) {
+    const chapterMatch = line.match(/^\\c\s+(\d+)/);
+    if (chapterMatch) {
+      chapter = chapterMatch[1];
+      psalm = psalms[chapter] = { title: [], verse1: [], hasTitle: false, verseSeen: false };
+      collecting = null;
+      continue;
+    }
+    if (!psalm) continue;
+    const marker = (line.match(/^\\([a-z]+\d*)/) || [])[1];
+
+    if (marker === 'd') {
+      if (psalm.verseSeen) fail('a \\d title after its first verse');
+      if (psalm.hasTitle) fail('more than one \\d title');
+      if (/\\v\s/.test(line)) fail('a verse inside its \\d title');
+      psalm.hasTitle = true;
+      psalm.title.push(line.slice(2));
+      collecting = 'title';
+    } else if (marker === 'v') {
+      if (collecting === 'title') fail('a verse inside its \\d title paragraph');
+      if (psalm.verseSeen) {
+        collecting = null;
+      } else {
+        if (!/^\\v 1\b/.test(line)) fail(`"${line.slice(0, 20)}" as its first verse`);
+        psalm.verseSeen = true;
+        psalm.verse1.push(line.replace(/^\\v 1\s?/, ''));
+        collecting = 'verse1';
+      }
+    } else if (marker === undefined) {
+      // A line without a leading marker continues the current paragraph.
+      if (collecting) psalm[collecting].push(line);
+    } else if (collecting === 'title') {
+      collecting = null; // any other paragraph marker ends the title paragraph
+    } else if (collecting === 'verse1') {
+      psalm.verse1.push(line); // verse 1 continues over poetry lines (\q2, \p, …)
+    }
+  }
+
+  const result = {};
+  for (const [number, { title, verse1, hasTitle }] of Object.entries(psalms)) {
+    chapter = number;
+    const titleText = usfmToPlainText(title.join(' '));
+    if (hasTitle && !titleText) fail('an empty \\d title');
+    result[number] = { title: titleText, verse1: usfmToPlainText(verse1.join(' ').split(/\\v\s/)[0]) };
+  }
+  if (Object.keys(result).length !== 150) {
+    throw new Error(`${sourceId}: the USFM Psalms file has ${Object.keys(result).length} Psalms, expected 150`);
+  }
+  return result;
+}
+
+/** The first words of a text, ignoring punctuation and `{…}`/`[…]` markers. */
+function firstWords(text) {
+  return (text.match(/[\p{L}\p{N}]+/gu) || []).slice(0, 4).join(' ');
+}
+
+/**
+ * Cuts each Psalm's USFM title off the start of its verse 1, in place. `psalms` holds the
+ * converted VPL chapters of the book (whitespace already normalized), so verse 1 keeps exactly
+ * the rest of its VPL text. Fails unless the title is exactly at the start of verse 1 and what
+ * is left starts with the same words as the USFM verse 1, which also catches a title the USFM
+ * does not mark. Returns the numbers of the Psalms whose title was removed.
+ */
+function removePsalmTitles(psalms, usfmPsalms, code) {
+  const vplCount = Object.keys(psalms).length;
+  if (vplCount !== Object.keys(usfmPsalms).length) {
+    throw new Error(`${code}: ${vplCount} Psalms in the VPL text, ${Object.keys(usfmPsalms).length} in the USFM`);
+  }
+  const removed = [];
+  for (const [chapter, { title, verse1 }] of Object.entries(usfmPsalms)) {
+    const ref = `PSA ${chapter}:1`;
+    let text = psalms[chapter] && psalms[chapter]['1'];
+    if (!text) {
+      throw new Error(`${code}: ${ref} is missing from the VPL text`);
+    }
+    if (title) {
+      if (!text.startsWith(`${title} `)) {
+        throw new Error(
+          `${code}: the title of Psalm ${chapter} is not at the start of ${ref}.\n` +
+            `  title:   ${title}\n  verse 1: ${text.slice(0, title.length + 40)}`
+        );
+      }
+      text = text.slice(title.length + 1);
+      removed.push(Number(chapter));
+    }
+    if (!text || firstWords(text) !== firstWords(verse1)) {
+      throw new Error(
+        `${code}: ${ref} does not start like the USFM verse 1.\n` +
+          `  VPL:  ${text.slice(0, 80)}\n  USFM: ${verse1.slice(0, 80)}`
+      );
+    }
+    psalms[chapter]['1'] = text;
+  }
+  return removed;
+}
+
 async function buildEbible(code) {
   const { id, markers } = EBIBLE_SOURCES[code];
-  const url = `https://ebible.org/Scriptures/${id}_vpl.zip`;
-  console.log(`Downloading ${code} from ${url}...`);
+  const vplUrl = `https://ebible.org/Scriptures/${id}_vpl.zip`;
+  const usfmUrl = `https://ebible.org/Scriptures/${id}_usfm.zip`;
+  console.log(`Downloading ${code} from ${vplUrl} and ${usfmUrl}...`);
 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), `ebible-${id}-`));
   let raw;
+  let psalmsUsfm;
   try {
-    const zipPath = path.join(tmpDir, `${id}_vpl.zip`);
-    fs.writeFileSync(zipPath, await fetchBuffer(url));
-    raw = readZipEntry(zipPath, `${id}_vpl.txt`);
+    const vplZip = path.join(tmpDir, `${id}_vpl.zip`);
+    fs.writeFileSync(vplZip, await fetchBuffer(vplUrl));
+    raw = readZipEntry(vplZip, `${id}_vpl.txt`);
+    // Only the Psalms file is read. In these sources `\d` appears elsewhere only as an empty
+    // marker (BSB Zechariah 12), never as a title.
+    const usfmZip = path.join(tmpDir, `${id}_usfm.zip`);
+    fs.writeFileSync(usfmZip, await fetchBuffer(usfmUrl));
+    psalmsUsfm = readZipEntry(usfmZip, `20-PSA${id}.usfm`);
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
   }
 
+  const usfmPsalms = parseUsfmPsalms(psalmsUsfm, id);
   const { books, emptyVerses } = parseVpl(raw, id);
   const markedVerses = [];
   let verseCount = 0;
@@ -315,11 +465,16 @@ async function buildEbible(code) {
     throw new Error(`${code}: markers found in a verbatim-only source`);
   }
 
+  const titledPsalms = removePsalmTitles(books.PSA, usfmPsalms, code);
+
   console.log(
     `${code}: ${verseCount} verses` +
       (markedVerses.length ? `, removed markers from ${markedVerses.length} verses (words kept)` : ', no markers') +
-      (emptyVerses.length ? `, skipped ${emptyVerses.length} empty verses (${emptyVerses.join(', ')})` : '')
+      (emptyVerses.length ? `, skipped ${emptyVerses.length} empty verses (${emptyVerses.join(', ')})` : '') +
+      `, removed ${titledPsalms.length} Psalm titles from verse 1`
   );
+  const untitled = Object.keys(usfmPsalms).map(Number).filter((n) => !titledPsalms.includes(n));
+  console.log(`${code}: Psalms without a title: ${untitled.join(', ')}`);
   writeDataset(code, books);
 }
 
