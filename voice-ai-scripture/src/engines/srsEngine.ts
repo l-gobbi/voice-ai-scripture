@@ -26,6 +26,18 @@ export const SM2_QUALITY: Readonly<Record<RecitationOutcome, number>> = {
 
 export const MIN_EASE_FACTOR = 1.3;
 
+/** No interval is longer than this, so every verse comes back at least once a year (ADR 0017). */
+export const MAX_INTERVAL_DAYS = 365;
+
+/** Intervals of at least this many days are fuzzed, and a fuzzed interval never falls below it. */
+export const MIN_FUZZED_INTERVAL_DAYS = 3;
+
+/** Fuzz moves an interval by up to this fraction either way: a factor in [0.95, 1.05]. */
+export const INTERVAL_FUZZ = 0.05;
+
+/** A source of random numbers in [0, 1), like `Math.random`. */
+export type RandomSource = () => number;
+
 export const DEFAULT_SRS_STATE: SRSState = {
   intervalDays: 0,
   streak: 0,
@@ -42,15 +54,24 @@ export const DEFAULT_SRS_STATE: SRSState = {
  * - A recall (`clean` or `slip`) schedules 1, then 6, then the previous interval × the ease
  *   before this review, rounded.
  * - `forgotten` resets the repetitions to 0 and the interval to 1 Study Day.
+ * - Fuzz: an interval of 3 days or more is multiplied by a factor in [0.95, 1.05] drawn from
+ *   `random` (0 gives 0.95, 0.5 gives exactly 1), rounded, and never brought below 3 days, so
+ *   verses learned together stop falling due together. Intervals of 1–2 days are never fuzzed.
+ * - Cap: after fuzz, the interval is capped at 365 days.
+ *
+ * The returned interval is the final one. It schedules the due Study Day and, once stored, it
+ * is the interval the next recall multiplies (as Anki stores its fuzzed interval).
  *
  * @param currentState Current repetition, interval and ease state
  * @param outcome The graded outcome of the recitation (Error Budget)
  * @param now Instant of the review (defaults to current time); only its Study Day matters
+ * @param random Random source for the fuzz (defaults to `Math.random`)
  */
 export function calculateNextReview(
   currentState: SRSState = DEFAULT_SRS_STATE,
   outcome: RecitationOutcome,
-  now: Date = new Date()
+  now: Date = new Date(),
+  random: RandomSource = Math.random
 ): SRSResult {
   const quality = SM2_QUALITY[outcome];
   const recalled = outcome !== 'forgotten';
@@ -77,6 +98,7 @@ export function calculateNextReview(
     currentState.easeFactor + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02))
   );
 
+  intervalDays = Math.min(MAX_INTERVAL_DAYS, fuzzInterval(intervalDays, random));
   const nextReviewDate = addStudyDays(toStudyDay(now), intervalDays);
 
   return {
@@ -87,6 +109,13 @@ export function calculateNextReview(
     nextReviewDate,
     passed: recalled,
   };
+}
+
+/** Spreads an interval of 3 days or more by up to ±5%. Shorter intervals are left alone. */
+function fuzzInterval(intervalDays: number, random: RandomSource): number {
+  if (intervalDays < MIN_FUZZED_INTERVAL_DAYS) return intervalDays;
+  const factor = 1 + INTERVAL_FUZZ * (2 * random() - 1);
+  return Math.max(MIN_FUZZED_INTERVAL_DAYS, Math.round(intervalDays * factor));
 }
 
 /**

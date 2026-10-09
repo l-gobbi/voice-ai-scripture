@@ -1,4 +1,7 @@
-import { SM2_QUALITY, calculateNextReview, isVerseDue, SRSState } from './srsEngine';
+import { MAX_INTERVAL_DAYS, SM2_QUALITY, calculateNextReview, isVerseDue, SRSState } from './srsEngine';
+
+/** A random source whose fuzz factor is exactly 1, for tests about anything but fuzz. */
+const noFuzz = () => 0.5;
 
 describe('srsEngine', () => {
   // Local components keep the Study Day (04:00 local rollover) independent of the machine's time zone.
@@ -37,7 +40,7 @@ describe('srsEngine', () => {
       streak: 2,
       easeFactor: 2.5,
     };
-    const result = calculateNextReview(state, 'clean', baseDate);
+    const result = calculateNextReview(state, 'clean', baseDate, noFuzz);
 
     expect(result.intervalDays).toBe(15); // round(6 * 2.5) = 15
     expect(result.streak).toBe(3);
@@ -52,7 +55,7 @@ describe('srsEngine', () => {
     });
 
     it('a clean recall is quality 5: the interval grows and ease rises by 0.10', () => {
-      const result = calculateNextReview(seasoned, 'clean', baseDate);
+      const result = calculateNextReview(seasoned, 'clean', baseDate, noFuzz);
 
       expect(result.passed).toBe(true);
       expect(result.intervalDays).toBe(38); // round(15 * 2.5), computed with the ease before the review
@@ -61,7 +64,7 @@ describe('srsEngine', () => {
     });
 
     it('a slip is quality 4: the interval grows just as far and ease is unchanged', () => {
-      const result = calculateNextReview(seasoned, 'slip', baseDate);
+      const result = calculateNextReview(seasoned, 'slip', baseDate, noFuzz);
 
       expect(result.passed).toBe(true);
       expect(result.intervalDays).toBe(38);
@@ -83,9 +86,9 @@ describe('srsEngine', () => {
 
     it('a forgotten verse grows more slowly afterwards: 1, 6, then the lowered ease', () => {
       const lapsed = calculateNextReview(seasoned, 'forgotten', baseDate);
-      const first = calculateNextReview(lapsed, 'slip', baseDate);
-      const second = calculateNextReview(first, 'slip', baseDate);
-      const third = calculateNextReview(second, 'slip', baseDate);
+      const first = calculateNextReview(lapsed, 'slip', baseDate, noFuzz);
+      const second = calculateNextReview(first, 'slip', baseDate, noFuzz);
+      const third = calculateNextReview(second, 'slip', baseDate, noFuzz);
 
       expect([first.intervalDays, second.intervalDays, third.intervalDays]).toEqual([1, 6, 13]); // round(6 * 2.18)
     });
@@ -106,6 +109,82 @@ describe('srsEngine', () => {
       expect(result.streak).toBe(2);
       expect(result.intervalDays).toBe(6);
       expect(result.easeFactor).toBe(1.3);
+    });
+  });
+
+  describe('interval fuzz and cap (Ticket 76)', () => {
+    // The fuzz factor is 0.95 + 0.10 × the random draw: 0 gives ×0.95, 0.5 gives ×1, just under 1 gives ×1.05.
+    const JUST_UNDER_ONE = 0.9999999;
+    const draw = (value: number) => () => value;
+    const mustNotDraw = () => {
+      throw new Error('the random source was consulted');
+    };
+    /** A recalled verse whose next SM-2 interval, before fuzz, is round(intervalDays × 2.5). */
+    const recalledFrom = (intervalDays: number): SRSState => ({ intervalDays, streak: 3, easeFactor: 2.5 });
+
+    it('multiplies an interval of 3 days or more by a factor from 0.95 to 1.05, rounded', () => {
+      const seasoned = recalledFrom(15); // round(15 × 2.5) = 38 before fuzz
+
+      expect(calculateNextReview(seasoned, 'slip', baseDate, draw(0)).intervalDays).toBe(36); // 38 × 0.95 = 36.1
+      expect(calculateNextReview(seasoned, 'slip', baseDate, draw(0.5)).intervalDays).toBe(38);
+      expect(calculateNextReview(seasoned, 'slip', baseDate, draw(JUST_UNDER_ONE)).intervalDays).toBe(40); // 38 × 1.05 = 39.9
+    });
+
+    it('schedules the due Study Day with the fuzzed interval', () => {
+      const result = calculateNextReview(recalledFrom(15), 'clean', baseDate, draw(0));
+
+      expect(result.intervalDays).toBe(36);
+      expect(result.nextReviewDate).toBe('2026-02-06'); // 2026-01-01 + 36
+    });
+
+    it('leaves ease growth alone: fuzz moves only the interval', () => {
+      const low = calculateNextReview(recalledFrom(15), 'clean', baseDate, draw(0));
+      const high = calculateNextReview(recalledFrom(15), 'clean', baseDate, draw(JUST_UNDER_ONE));
+
+      expect(low.easeFactor).toBe(2.6);
+      expect(high.easeFactor).toBe(2.6);
+      expect([low.streak, high.streak]).toEqual([4, 4]);
+    });
+
+    it('never brings a fuzzed interval below 3 days', () => {
+      const result = calculateNextReview({ intervalDays: 2, streak: 2, easeFactor: 1.5 }, 'slip', baseDate, draw(0));
+
+      expect(result.intervalDays).toBe(3); // round(2 × 1.5) = 3, and 3 × 0.95 = 2.85 rounds back to 3
+    });
+
+    it('never fuzzes an interval of 1 or 2 days, so the random source is not consulted', () => {
+      const firstRecall = calculateNextReview({ intervalDays: 0, streak: 0, easeFactor: 2.5 }, 'clean', baseDate, mustNotDraw);
+      const twoDays = calculateNextReview({ intervalDays: 1, streak: 2, easeFactor: 2.0 }, 'slip', baseDate, mustNotDraw);
+      const forgotten = calculateNextReview(recalledFrom(15), 'forgotten', baseDate, mustNotDraw);
+
+      expect(firstRecall.intervalDays).toBe(1);
+      expect(twoDays.intervalDays).toBe(2);
+      expect(forgotten.intervalDays).toBe(1);
+    });
+
+    it('caps the interval at 365 days, after fuzz', () => {
+      const longBase = recalledFrom(160); // round(160 × 2.5) = 400 before fuzz
+
+      // Capping first and fuzzing second would give 365 × 0.95 = 347 here.
+      expect(calculateNextReview(longBase, 'clean', baseDate, draw(0)).intervalDays).toBe(MAX_INTERVAL_DAYS);
+      expect(calculateNextReview(longBase, 'clean', baseDate, draw(0.5)).intervalDays).toBe(MAX_INTERVAL_DAYS);
+      expect(calculateNextReview(longBase, 'clean', baseDate, draw(JUST_UNDER_ONE)).intervalDays).toBe(MAX_INTERVAL_DAYS);
+      expect(calculateNextReview(longBase, 'clean', baseDate, draw(0.5)).nextReviewDate).toBe('2027-01-01');
+    });
+
+    it('caps an interval that fuzz pushes past 365 days, and lets fuzz pull one below it', () => {
+      expect(MAX_INTERVAL_DAYS).toBe(365);
+      // round(140 × 2.5) = 350, and 350 × 1.05 = 367.5
+      expect(calculateNextReview(recalledFrom(140), 'slip', baseDate, draw(JUST_UNDER_ONE)).intervalDays).toBe(365);
+      // round(146 × 2.5) = 365, and 365 × 0.95 = 346.75
+      expect(calculateNextReview(recalledFrom(146), 'slip', baseDate, draw(0)).intervalDays).toBe(347);
+    });
+
+    it('keeps a verse at the 365-day cap on every later recall', () => {
+      const capped: SRSState = { intervalDays: MAX_INTERVAL_DAYS, streak: 9, easeFactor: 2.8 };
+
+      expect(calculateNextReview(capped, 'clean', baseDate, draw(0)).intervalDays).toBe(MAX_INTERVAL_DAYS);
+      expect(calculateNextReview(capped, 'slip', baseDate, draw(JUST_UNDER_ONE)).intervalDays).toBe(MAX_INTERVAL_DAYS);
     });
   });
 

@@ -1076,7 +1076,7 @@ describe('VerseEngine (Ticket 09)', () => {
         recognizer: 'simulated',
         wasDue: true,
         gradingRuleId: 'error-budget-5pct@1',
-        schedulerId: 'sm2-app@2',
+        schedulerId: 'sm2-app@3',
         sm2Quality: 2,
         before: { intervalDays: 1, easeFactor: 2.5 },
         after: { intervalDays: 1, easeFactor: 2.18 },
@@ -1195,5 +1195,98 @@ describe('VerseEngine (Ticket 09)', () => {
       await expect(recite(engine, ghost, 3, ghost.text, morning)).rejects.toThrow('Verse not found');
       expect(await engine.getReviewLog('ghost')).toEqual([]);
     });
+  });
+});
+
+describe('VerseEngine: Interval Cap and Fuzz (Ticket 76)', () => {
+  const PSALM_23_1 = {
+    reference: 'Psalm 23:1',
+    text: 'The Lord is my shepherd; I shall not want.',
+    translation: 'WEB',
+  };
+  const morning = at(2026, 10, 9, 7, 30);
+  // The fuzz factor is 0.95 + 0.10 × the random draw: 0 gives ×0.95, 0.5 gives ×1, just under 1 gives ×1.05.
+  const JUST_UNDER_ONE = 0.9999999;
+  /** A Due Verse whose next interval, before fuzz, is round(15 × 2.5) = 38 Study Days. */
+  const SEASONED = { intervalDays: 15, streak: 3, easeFactor: 2.5, nextReviewDate: '2026-10-09' };
+
+  /** A stored verse on an engine whose random source returns `draws` in turn. */
+  async function storedVerse(srs: typeof SEASONED, ...draws: number[]) {
+    const engine = new VerseEngine(new MapStorageAdapter(), { random: () => draws.shift() ?? 0.5 });
+    const added = await engine.addVerse(PSALM_23_1);
+    const verse = await engine.updateVerse(added.id, { srs });
+    return { engine, verse };
+  }
+
+  const reciteClean = (engine: VerseEngine, verse: Verse, now: Date) =>
+    engine.recordAttempt({
+      verseId: verse.id,
+      level: 3,
+      evaluation: evaluateRecitation({ expectedText: verse.text, transcribedText: verse.text }),
+      recognizer: 'simulated',
+      now,
+    });
+
+  const storedSrs = async (engine: VerseEngine) => (await engine.getAllVerses())[0].srs;
+
+  it.each([
+    [0, 36, '2026-11-14'], // 38 × 0.95 = 36.1
+    [0.5, 38, '2026-11-16'],
+    [JUST_UNDER_ONE, 40, '2026-11-18'], // 38 × 1.05 = 39.9
+  ])(
+    'with random %p, an Official Review schedules, stores and logs the fuzzed interval of %p days',
+    async (draw, intervalDays, dueStudyDay) => {
+      const { engine, verse } = await storedVerse(SEASONED, draw);
+
+      const attempt = await reciteClean(engine, verse, morning);
+
+      expect(attempt.kind).toBe('official');
+      expect(attempt.srsResult).toMatchObject({ intervalDays, nextReviewDate: dueStudyDay, easeFactor: 2.6 });
+      expect(await storedSrs(engine)).toMatchObject({ intervalDays, nextReviewDate: dueStudyDay, easeFactor: 2.6 });
+      expect(attempt.entry).toMatchObject({
+        before: { intervalDays: 15, easeFactor: 2.5 },
+        after: { intervalDays, easeFactor: 2.6 },
+        dueStudyDayAfter: dueStudyDay,
+      });
+    }
+  );
+
+  it('caps the interval at 365 days after fuzz, so even a 400-day interval comes back within a year', async () => {
+    // round(160 × 2.5) = 400; fuzzed down to 380, still over the cap.
+    const { engine, verse } = await storedVerse({ ...SEASONED, intervalDays: 160 }, 0);
+
+    const attempt = await reciteClean(engine, verse, morning);
+
+    expect(attempt.srsResult).toMatchObject({ intervalDays: 365, nextReviewDate: '2027-10-09' });
+    expect(attempt.memoryTier).toBe('hidden_in_the_heart');
+    expect(await storedSrs(engine)).toMatchObject({ intervalDays: 365, nextReviewDate: '2027-10-09' });
+    const [row] = await engine.getReviewLog(verse.id);
+    expect(row).toMatchObject({ after: { intervalDays: 365, easeFactor: 2.6 }, dueStudyDayAfter: '2027-10-09' });
+  });
+
+  it('the next recall multiplies the stored, fuzzed interval', async () => {
+    const { engine, verse } = await storedVerse(SEASONED, 0, 0.5);
+
+    await reciteClean(engine, verse, morning); // 38 fuzzed to 36, ease to 2.6, due 2026-11-14
+    const next = await reciteClean(engine, verse, at(2026, 11, 14, 7, 30));
+
+    // round(36 × 2.6) = 94; the unfuzzed 38 would have given round(38 × 2.6) = 99.
+    expect(next.srsResult).toMatchObject({ intervalDays: 94, nextReviewDate: '2027-02-16' });
+    expect(next.entry).toMatchObject({ before: { intervalDays: 36, easeFactor: 2.6 }, after: { intervalDays: 94 } });
+  });
+
+  it('draws the fuzz from Math.random when no random source is injected', async () => {
+    const random = jest.spyOn(Math, 'random').mockReturnValue(0);
+    try {
+      const engine = new VerseEngine(new MapStorageAdapter());
+      const added = await engine.addVerse(PSALM_23_1);
+      const verse = await engine.updateVerse(added.id, { srs: SEASONED });
+
+      const attempt = await reciteClean(engine, verse, morning);
+
+      expect(attempt.srsResult.intervalDays).toBe(36);
+    } finally {
+      random.mockRestore();
+    }
   });
 });

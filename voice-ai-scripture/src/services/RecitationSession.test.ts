@@ -1910,9 +1910,12 @@ describe('RecitationSession: Error Budget Grading (Ticket 73)', () => {
   };
   const DUE_TODAY = { intervalDays: 6, streak: 2, easeFactor: 2.5, nextReviewDate: '2026-10-09' };
 
-  /** A stored Due Verse, a real Verse Engine and Subscription Service on in-memory storage, and a fixed clock. */
+  /**
+   * A stored Due Verse, a real Verse Engine and Subscription Service on in-memory storage, and a
+   * fixed clock. The engine's random source gives a fuzz factor of exactly 1 (Ticket 76).
+   */
   async function setup(verseData: { reference: string; translation: string; text: string }) {
-    const engine = new VerseEngine(new MapStorageAdapter());
+    const engine = new VerseEngine(new MapStorageAdapter(), { random: () => 0.5 });
     const added = await engine.addVerse(verseData);
     const verse = await engine.updateVerse(added.id, { srs: DUE_TODAY });
     const clock = { now: new Date(2026, 9, 9, 7, 30) };

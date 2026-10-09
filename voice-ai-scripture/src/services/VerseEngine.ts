@@ -1,5 +1,6 @@
 import {
   DEFAULT_SRS_STATE,
+  RandomSource,
   SM2_QUALITY,
   SRSResult,
   SRSState,
@@ -42,9 +43,11 @@ export const GRADING_RULE_ID = 'error-budget-5pct@1';
 /**
  * The scheduler behind each logged Official Review: the app's SM-2 in Study Days, taking the
  * outcome as quality 5/4/2 with Woźniak's ease formula for every quality (forgotten lowers ease
- * by 0.32). It replaced `sm2-app@1`, which left ease alone on a failure.
+ * by 0.32), fuzzing intervals of 3 days or more by up to ±5% and capping them at 365 days.
+ * It replaced `sm2-app@2` (no fuzz, no cap), which replaced `sm2-app@1`, which left ease
+ * alone on a failure.
  */
-export const SCHEDULER_ID = 'sm2-app@2';
+export const SCHEDULER_ID = 'sm2-app@3';
 
 export type VerseTranslation = SupportedTranslation | 'CUSTOM' | string;
 
@@ -233,13 +236,20 @@ const createVerseRecord = (verseData: Omit<Verse, 'id' | 'srs'>): Verse => {
   };
 };
 
+export interface VerseEngineOptions {
+  /** Random source for the interval fuzz (defaults to `Math.random`). */
+  random?: RandomSource;
+}
+
 export class VerseEngine {
   private storage: StorageAdapter;
   private reviewLog: ReviewLog;
+  private random: RandomSource;
 
-  constructor(storage?: StorageAdapter) {
+  constructor(storage?: StorageAdapter, options: VerseEngineOptions = {}) {
     this.storage = storage ?? new AsyncStorageAdapter();
     this.reviewLog = new ReviewLog(this.storage);
+    this.random = options.random ?? Math.random;
   }
 
   private async persistVerses(verses: Verse[]): Promise<void> {
@@ -623,7 +633,7 @@ export class VerseEngine {
   ): Promise<SRSResult> {
     const current = verses[index].srs;
     const currentSRS: SRSState = current || DEFAULT_SRS_STATE;
-    const srsResult = calculateNextReview(currentSRS, outcome, now);
+    const srsResult = calculateNextReview(currentSRS, outcome, now, this.random);
     const lastScore = rawScore ?? current?.lastScore;
 
     verses[index].srs = {

@@ -10,9 +10,9 @@ See spec and ADR 0017.
 
 **Blocked by:** 71: Study Day for Due Dates, Quota and Habit Streak
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] The Verse Engine accepts an injectable random source (default `Math.random`) and the SM-2 engine applies fuzz with it.
-- [ ] Intervals of 1–2 days are never fuzzed.
-- [ ] No interval exceeds 365 days.
-- [ ] Tests with a seeded random source cover the fuzz bounds and the cap.
+- [x] The Verse Engine accepts an injectable random source (default `Math.random`) and the SM-2 engine applies fuzz with it.
+- [x] Intervals of 1–2 days are never fuzzed.
+- [x] No interval exceeds 365 days.
+- [x] Tests with a seeded random source cover the fuzz bounds and the cap.
