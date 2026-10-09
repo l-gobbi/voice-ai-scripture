@@ -16,6 +16,7 @@ import { verseEngine, VerseTranslation } from '../services/VerseEngine';
 import { scriptureCatalog } from '../services/ScriptureCatalog';
 import { parseScriptureClipboard } from '../utils/clipboardParser';
 import ReferencePickerModal from './ReferencePickerModal';
+import TranslationsCopyrightModal from './TranslationsCopyrightModal';
 import { colors, typography, spacing, radius, touchTarget } from '../theme/tokens';
 
 export interface AddVerseModalProps {
@@ -73,6 +74,7 @@ export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVe
   const [isFetching, setIsFetching] = useState(false);
   const [fetchNotice, setFetchNotice] = useState<string | null>(null);
   const [pickerVisible, setPickerVisible] = useState(false);
+  const [copyrightVisible, setCopyrightVisible] = useState(false);
 
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const textAreaRef = useRef<TextInput | null>(null);
@@ -205,6 +207,7 @@ export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVe
     setDeck('');
     setFetchNotice(null);
     setPickerVisible(false);
+    setCopyrightVisible(false);
     onClose();
   };
 
@@ -238,7 +241,18 @@ export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVe
           <Text style={styles.modalHeader}>Add New Verse</Text>
 
           {/* Translation Selection Section */}
-          <Text style={styles.sectionLabel}>Tradução / Translation</Text>
+          <View style={styles.translationHeaderRow}>
+            <Text style={styles.sectionLabel}>Tradução / Translation</Text>
+            <TouchableOpacity
+              testID="open-translations-copyright-add-verse"
+              style={styles.copyrightLink}
+              onPress={() => setCopyrightVisible(true)}
+              activeOpacity={0.7}
+              accessibilityRole="link"
+            >
+              <Text style={styles.copyrightLinkText}>Direitos autorais / Copyright</Text>
+            </TouchableOpacity>
+          </View>
           <View style={styles.translationSection}>
             {TRANSLATION_GROUPS.map((group) => (
               <View key={group.groupName} style={styles.groupContainer}>
@@ -369,6 +383,11 @@ export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVe
         onClose={() => setPickerVisible(false)}
         onSelectReference={handleSelectReference}
       />
+
+      <TranslationsCopyrightModal
+        visible={copyrightVisible}
+        onClose={() => setCopyrightVisible(false)}
+      />
     </Modal>
   );
 }
@@ -389,12 +408,32 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
     color: colors.parchment.textPrimary,
   },
+  translationHeaderRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    columnGap: spacing.sm,
+  },
   sectionLabel: {
     fontFamily: typography.fontFamily.ui,
     fontSize: typography.subheading.fontSize,
     fontWeight: typography.subheading.fontWeight,
     color: colors.parchment.textPrimary,
     marginBottom: spacing.xs,
+  },
+  copyrightLink: {
+    minHeight: touchTarget.min,
+    justifyContent: 'center',
+    marginLeft: 'auto',
+  },
+  copyrightLinkText: {
+    fontFamily: typography.fontFamily.ui,
+    fontSize: typography.caption.fontSize,
+    lineHeight: typography.caption.lineHeight,
+    fontWeight: '600',
+    color: colors.parchment.accentSacred,
+    textDecorationLine: 'underline',
   },
   translationSection: {
     marginBottom: spacing.md,

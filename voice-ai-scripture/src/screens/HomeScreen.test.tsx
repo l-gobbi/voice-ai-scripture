@@ -1,12 +1,13 @@
 import React from 'react';
 import { Share } from 'react-native';
-import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
+import { render, fireEvent, waitFor, act, getDefaultNormalizer } from '@testing-library/react-native';
 import HomeScreen from './HomeScreen';
 import { verseEngine, VerseEngine, MapStorageAdapter } from '../services/VerseEngine';
 import { SimulatedVoiceAdapter } from '../services/VoiceInput';
 import * as Clipboard from 'expo-clipboard';
 import { encodeDeckPayload } from '../utils/deckSharing';
 import { toStudyDay } from '../engines/studyDay';
+import { scriptureCatalog } from '../services/ScriptureCatalog';
 
 // Mock the verseEngine instance; the pure helpers (Memory Tier) stay real.
 jest.mock('../services/VerseEngine', () => {
@@ -1059,6 +1060,63 @@ describe('HomeScreen Integration (Ticket 16)', () => {
           translation: 'WEB',
         },
       ]);
+    });
+  });
+
+  describe('Translations & Copyright entry points (Ticket 84)', () => {
+    const onbvNotice = scriptureCatalog.getTranslationMetadata('ONBV')!.notice;
+    // Exact text, line breaks and all.
+    const VERBATIM = {
+      normalizer: getDefaultNormalizer({ trim: false, collapseWhitespace: false }),
+    };
+
+    it('opens from the Home Screen menu, next to the reminder settings', async () => {
+      const { getByTestId, queryByTestId, getByText } = await render(<HomeScreen />);
+
+      expect(getByText('⏰ Reminders')).toBeTruthy();
+      expect(queryByTestId('translation-entry-ONBV')).toBeNull();
+
+      await act(async () => {
+        fireEvent.press(getByTestId('open-translations-copyright-home'));
+      });
+
+      expect(getByTestId('translation-entry-ONBV')).toBeTruthy();
+      expect(getByText(onbvNotice, VERBATIM)).toBeTruthy();
+
+      await act(async () => {
+        fireEvent.press(getByTestId('close-translations-copyright'));
+      });
+
+      expect(queryByTestId('translation-entry-ONBV')).toBeNull();
+    });
+
+    it('opens from the link next to the translation options when adding a verse', async () => {
+      const { getByText, getByTestId, queryByTestId, getByPlaceholderText } = await render(
+        <HomeScreen />
+      );
+
+      await act(async () => {
+        fireEvent.press(getByText('+ Type Custom Verse'));
+      });
+      await act(async () => {
+        getByPlaceholderText('Reference (e.g. John 3:16)').props.onChangeText('Romanos 8:28');
+      });
+      expect(queryByTestId('translation-entry-ONBV')).toBeNull();
+
+      await act(async () => {
+        fireEvent.press(getByTestId('open-translations-copyright-add-verse'));
+      });
+
+      expect(getByTestId('translation-entry-BLIVRE')).toBeTruthy();
+      expect(getByText(onbvNotice, VERBATIM)).toBeTruthy();
+
+      await act(async () => {
+        fireEvent.press(getByTestId('close-translations-copyright'));
+      });
+
+      // Back in the add-verse form, with what was typed still there.
+      expect(queryByTestId('translation-entry-ONBV')).toBeNull();
+      expect(getByPlaceholderText('Reference (e.g. John 3:16)').props.value).toBe('Romanos 8:28');
     });
   });
 });
