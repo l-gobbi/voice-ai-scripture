@@ -95,3 +95,35 @@ João 1:1`;
     expect(parseScriptureClipboard('   \n  ')).toBeNull();
   });
 });
+
+describe('Scripture Clipboard Parser translation labels (Ticket 81)', () => {
+  it.each([
+    ['João 3:16 BLIVRE', 'BLIVRE'],
+    ['João 3:16 blivre', 'BLIVRE'],
+    ['John 3:16 BSB', 'BSB'],
+    ['John 3:16 Berean', 'BSB'],
+    ['João 3:16 ONBV', 'ONBV'],
+    ['John 3:16 WEB', 'WEB'],
+  ])('recognizes the bundled translation in "%s" as %s', (citation, code) => {
+    const result = parseScriptureClipboard(`Texto do versículo\n${citation}`);
+    expect(result?.reference).toBe(citation.replace(/ \S+$/, ''));
+    expect(result?.translation).toBe(code);
+    expect(result?.text).toBe('Texto do versículo');
+  });
+
+  it.each([
+    ['Salmos 23:1 ALMEIDA', 'ALMEIDA'],
+    ['Salmos 23:1 ACF', 'ACF'],
+    ['Salmos 23:1 ARC', 'ARC'],
+    ['Salmos 23:1 naa', 'NAA'],
+    ['Psalm 23:1 KJV', 'KJV'],
+    ['Psalm 23:1 NKJV', 'NKJV'],
+  ])('keeps recognizing the label without bundled text in "%s" as %s', (citation, label) => {
+    const result = parseScriptureClipboard(`The verse\n${citation}`);
+    expect(result?.translation).toBe(label);
+  });
+
+  it('leaves an unknown version tag unlabelled', () => {
+    expect(parseScriptureClipboard('The verse\nPsalm 23:1 XYZ')?.translation).toBeUndefined();
+  });
+});

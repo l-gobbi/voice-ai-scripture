@@ -6,8 +6,8 @@ import {
 } from './ScriptureCatalog';
 
 describe('ScriptureCatalog (Ticket 44)', () => {
-  it('resolves Portuguese passage with canonicalRef, metadata, and bundled Almeida text', () => {
-    const passage = scriptureCatalog.resolvePassage('Salmos 23:1', 'ALMEIDA');
+  it('resolves Portuguese passage with canonicalRef, metadata, and bundled Bíblia Livre text', () => {
+    const passage = scriptureCatalog.resolvePassage('Salmos 23:1', 'BLIVRE');
 
     expect(passage).not.toBeNull();
     expect(passage?.canonicalRef).toBe('Salmos 23:1');
@@ -16,15 +16,15 @@ describe('ScriptureCatalog (Ticket 44)', () => {
     expect(passage?.startVerse).toBe(1);
     expect(passage?.language).toBe('pt');
     expect(passage?.isBundled).toBe(true);
-    expect(passage?.text).toContain('O Senhor é o meu pastor');
+    expect(passage?.text).toContain('O SENHOR é meu pastor');
   });
 
   it('resolves Portuguese passage from colloquial abbreviations (e.g. Sl 23:1, Jo 3:16)', () => {
-    const psalm = scriptureCatalog.resolvePassage('sl 23:1', 'ALMEIDA');
+    const psalm = scriptureCatalog.resolvePassage('sl 23:1', 'BLIVRE');
     expect(psalm?.canonicalRef).toBe('Salmos 23:1');
     expect(psalm?.bookId).toBe('PSA');
 
-    const john = scriptureCatalog.resolvePassage('jo 3:16', 'ALMEIDA');
+    const john = scriptureCatalog.resolvePassage('jo 3:16', 'BLIVRE');
     expect(john?.canonicalRef).toBe('João 3:16');
     expect(john?.bookId).toBe('JHN');
   });
@@ -43,7 +43,7 @@ describe('ScriptureCatalog (Ticket 44)', () => {
   });
 
   it('resolves English passage from common abbreviations (e.g. Ps 23:1, Jn 3:16)', () => {
-    const passage = scriptureCatalog.resolvePassage('ps 23:1', 'KJV');
+    const passage = scriptureCatalog.resolvePassage('ps 23:1', 'BSB');
     expect(passage?.canonicalRef).toBe('Psalms 23:1');
     expect(passage?.bookId).toBe('PSA');
 
@@ -108,11 +108,8 @@ describe('ScriptureCatalog (Ticket 44)', () => {
 });
 
 describe('ScriptureCatalog open-licensed Bibles (Ticket 80)', () => {
-  it('bundles BLIVRE, the full ONBV, BSB and WEB alongside ALMEIDA and KJV', () => {
-    expect(BUNDLED_TRANSLATIONS).toEqual(
-      expect.arrayContaining(['BLIVRE', 'ONBV', 'BSB', 'WEB', 'ALMEIDA', 'KJV'])
-    );
-    for (const code of ['BLIVRE', 'ONBV', 'BSB', 'WEB', 'ALMEIDA', 'KJV']) {
+  it('bundles BLIVRE, the full ONBV, BSB and WEB', () => {
+    for (const code of ['BLIVRE', 'ONBV', 'BSB', 'WEB']) {
       expect(scriptureCatalog.isBundledTranslation(code)).toBe(true);
     }
     expect(scriptureCatalog.isBundledTranslation('NVI')).toBe(false);
@@ -242,5 +239,108 @@ describe('ScriptureCatalog open-licensed Bibles (Ticket 80)', () => {
     expect(scriptureCatalog.getBundledTranslations().map((m) => m.code)).toEqual([
       ...BUNDLED_TRANSLATIONS,
     ]);
+  });
+});
+
+describe('ScriptureCatalog ships only open-licensed Bibles (Ticket 81)', () => {
+  it('bundles exactly BLIVRE, ONBV, BSB and WEB, with no ALMEIDA or KJV text', () => {
+    expect([...BUNDLED_TRANSLATIONS]).toEqual(['BLIVRE', 'ONBV', 'BSB', 'WEB']);
+    expect(scriptureCatalog.getBundledTranslations().map((m) => m.code)).toEqual([
+      'BLIVRE',
+      'ONBV',
+      'BSB',
+      'WEB',
+    ]);
+  });
+
+  it('defaults to Bíblia Livre in Portuguese and to the Berean Standard Bible in English', () => {
+    expect(scriptureCatalog.getDefaultTranslation('pt')).toBe('BLIVRE');
+    expect(scriptureCatalog.getDefaultTranslation('en')).toBe('BSB');
+    expect(scriptureCatalog.getDefaultTranslation('João 3:16')).toBe('BLIVRE');
+    expect(scriptureCatalog.getDefaultTranslation('John 3:16')).toBe('BSB');
+  });
+
+  it('resolves a passage without a translation in the default for its language', () => {
+    const joao = scriptureCatalog.resolvePassage('João 3:16');
+    expect(joao?.translation).toBe('BLIVRE');
+    expect(joao?.isBundled).toBe(true);
+    expect(joao?.text).toBe(
+      'Porque Deus amou ao mundo de tal maneira, que deu o seu Filho unigênito; para que todo aquele que nele crê não pereça, mas tenha a vida eterna.'
+    );
+
+    const john = scriptureCatalog.resolvePassage('John 11:35');
+    expect(john?.translation).toBe('BSB');
+    expect(john?.text).toBe('Jesus wept.');
+  });
+
+  it.each(['ALMEIDA', 'KJV', 'ARA', 'ARC', 'ACF', 'NAA', 'NVI', 'NTLH', 'NVT', 'NIV', 'ESV', 'NKJV'])(
+    'keeps %s as a label without bundled text or metadata',
+    (label) => {
+      expect(scriptureCatalog.isBundledTranslation(label)).toBe(false);
+      expect(scriptureCatalog.canonicalizeTranslation(label)).toBeNull();
+      expect(scriptureCatalog.getTranslationMetadata(label)).toBeNull();
+    }
+  );
+
+  it.each([
+    ['ALMEIDA', 'pt'],
+    ['almeida', 'pt'],
+    ['ARA', 'pt'],
+    ['ARC', 'pt'],
+    ['ACF', 'pt'],
+    ['NAA', 'pt'],
+    ['NVI', 'pt'],
+    ['NTLH', 'pt'],
+    ['NVT', 'pt'],
+    ['KJV', 'en'],
+    ['kjv', 'en'],
+    ['NIV', 'en'],
+    ['ESV', 'en'],
+    ['NKJV', 'en'],
+  ] as const)('still knows the language of the label %s (%s)', (label, language) => {
+    // The reference is in the other language, so only the label can decide.
+    const reference = language === 'pt' ? 'John 3:16' : 'João 3:16';
+    expect(scriptureCatalog.detectLanguage({ translation: label, reference })).toBe(language);
+    expect(scriptureCatalog.isPortugueseTranslation(label)).toBe(language === 'pt');
+  });
+
+  it('returns the reference but no text when asked for ALMEIDA or KJV text', () => {
+    const almeida = scriptureCatalog.resolvePassage('Salmos 23:1', 'ALMEIDA');
+    expect(almeida).toMatchObject({
+      canonicalRef: 'Salmos 23:1',
+      language: 'pt',
+      translation: 'ALMEIDA',
+      isBundled: false,
+    });
+    expect(almeida?.text).toBeUndefined();
+
+    const kjv = scriptureCatalog.resolvePassage('John 3:16', 'KJV');
+    expect(kjv).toMatchObject({ canonicalRef: 'John 3:16', translation: 'KJV', isBundled: false });
+    expect(kjv?.text).toBeUndefined();
+
+    expect(scriptureCatalog.fetchPassageText('PSA', 23, 1, undefined, 'ALMEIDA')).toBeNull();
+    expect(scriptureCatalog.fetchPassageText('JHN', 3, 16, undefined, 'KJV')).toBeNull();
+  });
+
+  it('recognizes bundled names and labels without text, and nothing else', () => {
+    expect(scriptureCatalog.recognizeTranslation('Berean')).toBe('BSB');
+    expect(scriptureCatalog.recognizeTranslation('Bíblia Livre')).toBe('BLIVRE');
+    expect(scriptureCatalog.recognizeTranslation('almeida')).toBe('ALMEIDA');
+    expect(scriptureCatalog.recognizeTranslation('kjv')).toBe('KJV');
+    expect(scriptureCatalog.recognizeTranslation('ACF')).toBe('ACF');
+    expect(scriptureCatalog.recognizeTranslation('XYZ')).toBeNull();
+    expect(scriptureCatalog.recognizeTranslation(undefined)).toBeNull();
+  });
+
+  it('no longer reads the old ALMEIDA and KJV aliases as bundled translations', () => {
+    for (const alias of ['Almeida', 'JFA', 'João Ferreira de Almeida', 'King James', 'King James Version']) {
+      expect(scriptureCatalog.canonicalizeTranslation(alias)).toBeNull();
+    }
+  });
+
+  it('looks text up in the English default when no translation is given', () => {
+    expect(scriptureCatalog.fetchPassageText('JHN', 3, 16)).toBe(
+      'For God so loved the world that He gave His one and only Son, that everyone who believes in Him shall not perish but have eternal life.'
+    );
   });
 });

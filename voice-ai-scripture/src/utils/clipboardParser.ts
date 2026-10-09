@@ -7,26 +7,6 @@ export interface ParsedScriptureClipboard {
   translation?: VerseTranslation;
 }
 
-const KNOWN_TRANSLATIONS = new Set([
-  'NVI',
-  'ARA',
-  'NIV',
-  'ESV',
-  'KJV',
-  'ALMEIDA',
-  'ONBV',
-  'WEB',
-  'NAA',
-  'NTLH',
-  'ARC',
-  'MSG',
-  'ASV',
-  'NVT',
-  'NKJV',
-  'NASB',
-  'NLT',
-]);
-
 /**
  * Strips invisible formatting characters (bidi markers, zero-width spaces)
  * frequently injected by YouVersion and mobile share sheets.
@@ -85,10 +65,9 @@ export function parseScriptureClipboard(rawText: string): ParsedScriptureClipboa
       if (norm) {
         citationLineIndex = i;
         detectedRef = candidateRef;
-        const candidateTrans = match[2]?.trim().toUpperCase();
-        if (candidateTrans && KNOWN_TRANSLATIONS.has(candidateTrans)) {
-          detectedTranslation = candidateTrans;
-        }
+        // A bundled Translation under any of its names (BLIVRE, BSB, "Berean", …) or a label
+        // without bundled text (ARA, NVI, KJV, ALMEIDA, …).
+        detectedTranslation = scriptureCatalog.recognizeTranslation(match[2]) ?? undefined;
         break;
       }
     }

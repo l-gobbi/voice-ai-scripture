@@ -72,7 +72,7 @@ export function inferVerseLanguage(verse: { translation?: string; reference: str
 
 export function formatAcousticPrompt(verse: { translation?: string; reference: string; text?: string }): string {
   const language = inferVerseLanguage(verse);
-  const translation = verse.translation || (language === 'pt' ? 'ALMEIDA' : 'WEB');
+  const translation = verse.translation || scriptureCatalog.getDefaultTranslation(language);
   return language === 'pt'
     ? `Bíblia Sagrada. Tradução: ${translation}. Referência: ${verse.reference}.`
     : `Holy Bible. Translation: ${translation}. Reference: ${verse.reference}.`;

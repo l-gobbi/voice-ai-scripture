@@ -1,5 +1,7 @@
 # 0007: Multi-Translation Strategy & Pluggable BibleProvider Seam
 
+**Status:** Superseded in part by ADR 0018 (bundled translations are open-licensed only).
+
 We decided to introduce a formalized `BibleProvider` adapter seam with explicit `translation` metadata on `Verse`, and establish a commercial-compliant translation catalog supporting English (`WEB`, `KJV`) and Brazilian Portuguese (`ALMEIDA`, `ONBV`), while dynamically conditioning Whisper speech-to-text language on the active translation.
 
 Previously, verses had no explicit translation metadata, topical packs were hardcoded in English, Whisper speech transcription was statically hardcoded to `language: 'en'`, and adding verses required manual copy-pasting of text.

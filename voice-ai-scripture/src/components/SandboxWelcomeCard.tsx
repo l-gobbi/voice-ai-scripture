@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, useColorScheme } from 'react-native';
 import { Verse } from '../services/VerseEngine';
+import { scriptureCatalog } from '../services/ScriptureCatalog';
 import { getTheme, touchTarget } from '../theme/tokens';
 
 export interface SandboxWelcomeCardProps {
@@ -8,20 +9,24 @@ export interface SandboxWelcomeCardProps {
   initialLanguage?: 'en' | 'pt';
 }
 
-export const SANDBOX_PASSAGES: Record<
-  'en' | 'pt',
-  { reference: string; translation: string; text: string }
-> = {
-  en: {
-    reference: 'Acts 2:38',
-    translation: 'WEB',
-    text: 'Peter said to them, “Repent, and be baptized, every one of you, in the name of Jesus Christ for the forgiveness of sins, and you will receive the gift of the Holy Spirit.”',
-  },
-  pt: {
-    reference: 'Atos 2:38',
-    translation: 'ALMEIDA',
-    text: 'Pedro então lhes respondeu: Arrependei-vos, e cada um de vós seja batizado em nome de Jesus Cristo, para remissão de vossos pecados; e recebereis o dom do Espírito Santo.',
-  },
+export interface SandboxPassage {
+  reference: string;
+  translation: string;
+  text: string;
+}
+
+/** The sample verse, read from the bundled Bible in the default Translation of its language. */
+function sandboxPassage(reference: string): SandboxPassage {
+  const passage = scriptureCatalog.resolvePassage(reference);
+  if (!passage?.text) {
+    throw new Error(`Sandbox verse ${reference} has no text in the bundled default translation`);
+  }
+  return { reference: passage.canonicalRef, translation: passage.translation, text: passage.text };
+}
+
+export const SANDBOX_PASSAGES: Record<'en' | 'pt', SandboxPassage> = {
+  en: sandboxPassage('Acts 2:38'),
+  pt: sandboxPassage('Atos 2:38'),
 };
 
 export default function SandboxWelcomeCard({
@@ -125,7 +130,7 @@ export default function SandboxWelcomeCard({
               },
             ]}
           >
-            English (WEB)
+            English ({SANDBOX_PASSAGES.en.translation})
           </Text>
         </TouchableOpacity>
         <TouchableOpacity
@@ -152,7 +157,7 @@ export default function SandboxWelcomeCard({
               },
             ]}
           >
-            Português (Almeida)
+            Português ({SANDBOX_PASSAGES.pt.translation})
           </Text>
         </TouchableOpacity>
       </View>

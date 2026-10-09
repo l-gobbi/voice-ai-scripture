@@ -12,12 +12,12 @@ ADRs 0003 and 0007 get a status line saying they are superseded in part by ADR 0
 
 **Blocked by:** 80: Add the Open-Licensed Bibles
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Only BLIVRE, ONBV, BSB and WEB are bundled. The ALMEIDA and KJV dataset files and builders are removed.
-- [ ] Per-language defaults are BLIVRE and BSB everywhere the app previously defaulted to ALMEIDA or WEB.
-- [ ] Stored verses labelled ALMEIDA or KJV still load, show their stored text and label, and are recited and spoken in the right language.
-- [ ] The clipboard parser recognizes BLIVRE and BSB and keeps recognizing non-bundled labels.
-- [ ] The sandbox welcome card's verses come from the catalog in the language default.
-- [ ] ADRs 0003 and 0007 carry a "superseded in part by ADR 0018" status line.
-- [ ] Tests that treated ALMEIDA or KJV text as bundled are rewritten (they may keep those codes as labels on stored verses).
+- [x] Only BLIVRE, ONBV, BSB and WEB are bundled. The ALMEIDA and KJV dataset files and builders are removed.
+- [x] Per-language defaults are BLIVRE and BSB everywhere the app previously defaulted to ALMEIDA or WEB.
+- [x] Stored verses labelled ALMEIDA or KJV still load, show their stored text and label, and are recited and spoken in the right language.
+- [x] The clipboard parser recognizes BLIVRE and BSB and keeps recognizing non-bundled labels.
+- [x] The sandbox welcome card's verses come from the catalog in the language default.
+- [x] ADRs 0003 and 0007 carry a "superseded in part by ADR 0018" status line.
+- [x] Tests that treated ALMEIDA or KJV text as bundled are rewritten (they may keep those codes as labels on stored verses).

@@ -406,6 +406,46 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
     recordSpy.mockRestore();
   });
 
+  describe('Version label (Ticket 81)', () => {
+    it('shows the verse’s own translation, including a label without bundled text', async () => {
+      const { getByText, queryByText } = await render(
+        <ReviewScreen
+          verse={{
+            id: 'almeida-1',
+            reference: 'Salmos 23:1',
+            text: 'O Senhor é o meu pastor; nada me faltará.',
+            translation: 'ALMEIDA',
+          }}
+          onComplete={jest.fn()}
+        />
+      );
+
+      expect(getByText('ALMEIDA')).toBeTruthy();
+      expect(queryByText('BLIVRE')).toBeNull();
+    });
+
+    it('shows Bíblia Livre for a Portuguese verse that has no translation', async () => {
+      const { getByText, queryByText } = await render(
+        <ReviewScreen
+          verse={{ id: 'pt-1', reference: 'Salmos 23:1', text: 'O SENHOR é meu pastor, nada me faltará.' }}
+          onComplete={jest.fn()}
+        />
+      );
+
+      expect(getByText('BLIVRE')).toBeTruthy();
+      expect(queryByText('WEB')).toBeNull();
+    });
+
+    it('shows the BSB for an English verse that has no translation', async () => {
+      const { getByText, queryByText } = await render(
+        <ReviewScreen verse={mockVerse} onComplete={jest.fn()} />
+      );
+
+      expect(getByText('BSB')).toBeTruthy();
+      expect(queryByText('WEB')).toBeNull();
+    });
+  });
+
   describe('Official Review vs Practice Attempt (Ticket 72)', () => {
     const OFFICIAL = '🎉 Official Review Recorded!';
     const PRACTICE = '✅ Practice Attempt (Schedule Unchanged)';

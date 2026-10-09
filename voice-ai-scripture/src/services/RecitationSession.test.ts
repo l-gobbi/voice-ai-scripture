@@ -322,9 +322,10 @@ describe('RecitationSession (Ticket 07)', () => {
       await session.startReciting();
       await session.stopAndVerify();
 
+      // The verse has no translation, so the prompt names the English default (Ticket 81).
       expect(startSpy).toHaveBeenCalledWith(
         expect.objectContaining({
-          prompt: 'Holy Bible. Translation: WEB. Reference: John 3:16.',
+          prompt: 'Holy Bible. Translation: BSB. Reference: John 3:16.',
           language: 'en',
         })
       );
@@ -1245,6 +1246,55 @@ describe('RecitationSession (Ticket 07)', () => {
         expect(prompt).toBe('Holy Bible. Translation: WEB. Reference: Psalm 23:1.');
         expect(prompt).not.toContain(enVerse.text);
         expect(prompt).not.toContain('The Lord');
+      });
+
+      it('names the default translation of the verse’s language when the verse has none (Ticket 81)', () => {
+        expect(formatAcousticPrompt({ reference: 'Salmos 23:1', text: 'O SENHOR é meu pastor, nada me faltará.' })).toBe(
+          'Bíblia Sagrada. Tradução: BLIVRE. Referência: Salmos 23:1.'
+        );
+        expect(formatAcousticPrompt({ reference: 'Psalm 23:1', text: 'The LORD is my shepherd; I shall not want.' })).toBe(
+          'Holy Bible. Translation: BSB. Reference: Psalm 23:1.'
+        );
+        expect(formatAcousticPrompt({ reference: 'Psalm 23:1', translation: '' })).toBe(
+          'Holy Bible. Translation: BSB. Reference: Psalm 23:1.'
+        );
+      });
+
+      it('speaks, primes and prompts a verse saved in ALMEIDA or KJV in its own language and label (Ticket 81)', async () => {
+        const cases = [
+          {
+            verse: { id: 'almeida-1', reference: 'João 11:35', text: 'Jesus chorou.', translation: 'ALMEIDA' },
+            speech: 'pt-BR',
+            recognizer: 'pt',
+            prompt: 'Bíblia Sagrada. Tradução: ALMEIDA. Referência: João 11:35.',
+          },
+          {
+            verse: { id: 'kjv-1', reference: 'John 11:35', text: 'Jesus wept.', translation: 'KJV' },
+            speech: 'en-US',
+            recognizer: 'en',
+            prompt: 'Holy Bible. Translation: KJV. Reference: John 11:35.',
+          },
+        ];
+
+        for (const { verse, speech, recognizer, prompt } of cases) {
+          stubRecordAttempt();
+          const synthesizer = new MockSpeechSynthesizer();
+          const voiceInput = new SimulatedVoiceAdapter({ defaultTranscript: verse.text });
+          const startSpy = jest.spyOn(voiceInput, 'start');
+          const session = createTestSession(verse, { voiceInput, synthesizer, autoVocalizeOnLevel1: false });
+
+          await session.vocalize();
+          expect(synthesizer.getSpokenUtterances()[0]).toMatchObject({
+            text: verse.text,
+            options: { language: speech },
+          });
+
+          await session.startReciting();
+          expect(startSpy).toHaveBeenCalledWith(expect.objectContaining({ language: recognizer, prompt }));
+          const result = await session.stopAndVerify();
+          expect(result?.score).toBe(100);
+          session.dispose();
+        }
       });
 
       it('passes metadata prompt to voiceInput.start and verifies verbatim text accurately', async () => {

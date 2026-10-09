@@ -36,7 +36,6 @@ export const TRANSLATION_GROUPS: Array<{ groupName: string; options: Translation
     options: [
       { code: 'BSB', label: 'BSB (Berean Standard Bible)', isBundled: true },
       { code: 'WEB', label: 'WEB (World English Bible)', isBundled: true },
-      { code: 'KJV', label: 'KJV (King James Version)', isBundled: true },
     ],
   },
   {
@@ -45,7 +44,6 @@ export const TRANSLATION_GROUPS: Array<{ groupName: string; options: Translation
       { code: 'BLIVRE', label: 'Bíblia Livre (BLIVRE)', isBundled: true },
       // "Open" is part of the licensed title; plain Nova Bíblia Viva is a different text.
       { code: 'ONBV', label: 'ONBV (Open Nova Bíblia Viva)', isBundled: true },
-      { code: 'ALMEIDA', label: 'Almeida (JFA)', isBundled: true },
     ],
   },
   {
@@ -63,11 +61,15 @@ const KNOWN_MODAL_CODES = new Set(
   TRANSLATION_GROUPS.flatMap((group) => group.options.map((opt) => opt.code))
 );
 
+// Until the Preferred Translation exists (ticket 82), new verses start in the catalog's
+// English default, as they did with the WEB.
+const DEFAULT_TRANSLATION: VerseTranslation = scriptureCatalog.getDefaultTranslation('en');
+
 export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVerseModalProps) {
   const [reference, setReference] = useState('');
   const [text, setText] = useState('');
   const [deck, setDeck] = useState('');
-  const [selectedTranslation, setSelectedTranslation] = useState<VerseTranslation>('WEB');
+  const [selectedTranslation, setSelectedTranslation] = useState<VerseTranslation>(DEFAULT_TRANSLATION);
   const [isFetching, setIsFetching] = useState(false);
   const [fetchNotice, setFetchNotice] = useState<string | null>(null);
   const [pickerVisible, setPickerVisible] = useState(false);
@@ -191,7 +193,7 @@ export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVe
     setReference('');
     setText('');
     setDeck('');
-    setSelectedTranslation('WEB');
+    setSelectedTranslation(DEFAULT_TRANSLATION);
     setFetchNotice(null);
     onSaveSuccess();
     onClose();

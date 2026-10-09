@@ -286,10 +286,9 @@ const createInitialSRS = () => ({
   nextReviewDate: toStudyDay(new Date()),
 });
 
-export const resolveDefaultTranslation = (reference: string): VerseTranslation => {
-  const norm = scriptureCatalog.resolveReference(reference);
-  return norm?.language === 'pt' ? 'ALMEIDA' : 'WEB';
-};
+/** The catalog's default Translation for the reference's language (BLIVRE or BSB). */
+export const resolveDefaultTranslation = (reference: string): VerseTranslation =>
+  scriptureCatalog.getDefaultTranslation(reference);
 
 const createVerseRecord = (verseData: Omit<Verse, 'id' | 'srs'>): Verse => {
   const translation = verseData.translation || resolveDefaultTranslation(verseData.reference);

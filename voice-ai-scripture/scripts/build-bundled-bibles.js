@@ -12,7 +12,10 @@
  * and the Scripture Catalog reads its metadata from there. The dataset integrity test
  * (src/services/ScriptureCatalog.integrity.test.ts) guards the output.
  *
- * Open-licensed sources (ADR 0018) come from eBible.org in verse-per-line (VPL) format.
+ * Only open-licensed texts are bundled (ADR 0018): Bíblia Livre, ONBV, BSB and WEB. The AA
+ * "ALMEIDA" and KJV datasets and their builders were removed in ticket 81.
+ *
+ * BLIVRE, ONBV and BSB come from eBible.org in verse-per-line (VPL) format.
  * eBible's VPL export already drops notes, footnotes, cross-references and section titles.
  * The build maps eBible book codes to the canon ids, removes `{…}`/`[…]` markers while
  * keeping the words, and normalizes whitespace. It never changes wording. Psalm titles stay
@@ -118,33 +121,6 @@ const TRANSLATION_METADATA = {
       'However, "World English Bible" is a Trademark of eBible.org.',
     changes: 'Text unchanged; formatting removed and whitespace normalized only.',
     sourceUrl: 'https://github.com/TehShrike/world-english-bible',
-  },
-  // ALMEIDA and KJV are removed in ticket 81 (ADR 0018). Their metadata records why.
-  ALMEIDA: {
-    name: 'João Ferreira de Almeida',
-    fullName: 'Almeida Revisada Imprensa Bíblica (AA)',
-    language: 'pt',
-    license:
-      'Copyrighted text (Imprensa Bíblica Brasileira), from a CC BY-NC dataset. ' +
-      'Not cleared for distribution; removed in ticket 81 (ADR 0018).',
-    notice:
-      'Almeida Revisada Imprensa Bíblica (AA), propriedade intelectual da Imprensa Bíblica Brasileira. ' +
-      'Todos os direitos reservados aos autores.',
-    changes: 'Text unchanged; surrounding whitespace trimmed only. The source keeps {…} markers.',
-    sourceUrl: 'https://github.com/thiagobodruk/bible',
-  },
-  KJV: {
-    name: 'King James Version',
-    fullName: 'King James Version (Authorized Version)',
-    language: 'en',
-    license:
-      'Public domain except in the United Kingdom, where the Crown holds perpetual rights. ' +
-      'Removed in ticket 81 (ADR 0018).',
-    notice:
-      'King James Version (Authorized Version). Public domain outside the United Kingdom; ' +
-      'in the United Kingdom, rights in the Authorized Version are vested in the Crown.',
-    changes: 'Text unchanged; surrounding whitespace trimmed only. The source keeps {…} markers.',
-    sourceUrl: 'https://github.com/thiagobodruk/bible',
   },
 };
 
@@ -351,36 +327,6 @@ async function buildEbible(code) {
 /* Other sources                                                                               */
 /* ------------------------------------------------------------------------------------------ */
 
-function booksFromThiagobodruk(booksArray) {
-  const books = {};
-  booksArray.forEach((b, idx) => {
-    const bookId = CANON_66[idx];
-    books[bookId] = {};
-    b.chapters.forEach((ch, chIdx) => {
-      const chNum = String(chIdx + 1);
-      books[bookId][chNum] = {};
-      ch.forEach((verseText, vIdx) => {
-        books[bookId][chNum][String(vIdx + 1)] = verseText.trim();
-      });
-    });
-  });
-  return books;
-}
-
-// Removed in ticket 81 (ADR 0018): copyrighted text from a CC BY-NC dataset.
-async function buildAlmeida() {
-  console.log('Downloading Almeida (pt_aa.json)...');
-  const raw = await fetchUrl('https://raw.githubusercontent.com/thiagobodruk/bible/master/json/pt_aa.json');
-  writeDataset('ALMEIDA', booksFromThiagobodruk(JSON.parse(raw)));
-}
-
-// Removed in ticket 81 (ADR 0018): Crown rights in the UK and {…} markers.
-async function buildKjv() {
-  console.log('Downloading KJV (en_kjv.json)...');
-  const raw = await fetchUrl('https://raw.githubusercontent.com/thiagobodruk/bible/master/json/en_kjv.json');
-  writeDataset('KJV', booksFromThiagobodruk(JSON.parse(raw)));
-}
-
 async function buildWeb() {
   console.log('Downloading WEB (66 books from TehShrike/world-english-bible)...');
   const books = {};
@@ -437,8 +383,6 @@ const BUILDERS = {
   ONBV: () => buildEbible('ONBV'),
   BSB: () => buildEbible('BSB'),
   WEB: buildWeb,
-  ALMEIDA: buildAlmeida,
-  KJV: buildKjv,
 };
 
 async function main() {
