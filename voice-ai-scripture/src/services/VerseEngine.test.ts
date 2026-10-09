@@ -520,32 +520,6 @@ describe('VerseEngine (Ticket 09)', () => {
     });
   });
 
-  describe('Slice 9: Deck Import (Ticket 33)', () => {
-    it('imports verses with deck tags and skips duplicates', async () => {
-      const storage = new MapStorageAdapter();
-      const engine = new VerseEngine(storage);
-
-      const existing = await engine.addVerse({
-        reference: 'John 3:16',
-        text: 'For God so loved...',
-        translation: 'WEB',
-      });
-
-      const imported = await engine.importDeck('Gospel Basics', [
-        { reference: 'John 3:16', text: 'For God so loved...', translation: 'WEB' },
-        { reference: 'Romans 10:9', text: 'If you declare with your mouth...', translation: 'WEB' },
-      ]);
-
-      expect(imported).toHaveLength(1);
-      expect(imported[0].reference).toBe('Romans 10:9');
-      expect(imported[0].deck).toBe('Gospel Basics');
-
-      const all = await engine.getAllVerses();
-      expect(all).toHaveLength(2);
-      expect(all.find((v) => v.reference === 'Romans 10:9')?.deck).toBe('Gospel Basics');
-    });
-  });
-
   describe('Slice 10: Review Message Helper', () => {
     it('computes next review message correctly', () => {
       const storage = new MapStorageAdapter();
@@ -1616,6 +1590,7 @@ describe('VerseEngine: Preferred Translation (Ticket 82)', () => {
     ]);
   });
 
+  // Shared decks imported through the Deck Library get it the same way (DeckLibrary suite).
   it('gives imported verses without a translation the Preferred Translation too', async () => {
     const engine = new VerseEngine(new MapStorageAdapter());
     await engine.setPreferredTranslation('pt', 'ONBV');
@@ -1624,18 +1599,8 @@ describe('VerseEngine: Preferred Translation (Ticket 82)', () => {
       { reference: 'Romanos 8:28', text: 'Sabemos que Deus age em todas as coisas' },
       { reference: 'Romans 8:28', text: 'And we know', translation: 'NIV' },
     ]);
-    const deck = await engine.importDeck('Paz', [
-      { reference: 'Filipenses 4:6', text: 'Não se preocupem com nada' },
-      { reference: 'Filipenses 4:7', text: 'E a paz de Deus', translation: 'NVI' },
-    ]);
 
-    expect(deck.map((v) => v.translation)).toEqual(['ONBV', 'NVI']);
-    expect((await engine.getAllVerses()).map((v) => v.translation)).toEqual([
-      'ONBV',
-      'NIV',
-      'ONBV',
-      'NVI',
-    ]);
+    expect((await engine.getAllVerses()).map((v) => v.translation)).toEqual(['ONBV', 'NIV']);
   });
 
   it('never rewrites saved verses when the preference changes', async () => {

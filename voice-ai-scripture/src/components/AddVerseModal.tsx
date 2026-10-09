@@ -13,6 +13,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
 import { verseEngine, VerseTranslation, PreferredTranslations } from '../services/VerseEngine';
+import { deckLibrary } from '../services/DeckLibrary';
 import { scriptureCatalog } from '../services/ScriptureCatalog';
 import { parseScriptureClipboard } from '../utils/clipboardParser';
 import ReferencePickerModal from './ReferencePickerModal';
@@ -251,12 +252,20 @@ export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVe
 
   const handleSave = async () => {
     if (!reference || !text) return;
-    await verseEngine.addVerse({
+    const saved = await verseEngine.addVerse({
       reference,
       text,
       translation: selectedTranslation,
-      deck: deck.trim() ? deck.trim().replace(/^#/, '') : undefined,
     });
+    // The Deck named here gets the verse, and is made if the learner has none by that name.
+    const deckName = deck.trim().replace(/^#/, '').trim();
+    if (deckName) {
+      try {
+        await deckLibrary.addVersesToDeckNamed(deckName, [saved.id]);
+      } catch {
+        // The verse is saved either way.
+      }
+    }
     setReference('');
     setText('');
     setDeck('');
@@ -422,11 +431,11 @@ export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVe
             multiline
           />
 
-          {/* Deck Tag */}
-          <Text style={styles.inputLabel}># Tag / Deck (opcional)</Text>
+          {/* Deck */}
+          <Text style={styles.inputLabel}>Deck (opcional)</Text>
           <TextInput
             style={styles.input}
-            placeholder="#Deck (ex: Peace, Romans Road)"
+            placeholder="Nome do deck (ex: Paz, Romans Road)"
             value={deck}
             onChangeText={setDeck}
             testID="add-verse-deck-input"

@@ -12,7 +12,8 @@ import HomeScreen from './HomeScreen';
 import { verseEngine, VerseEngine, MapStorageAdapter } from '../services/VerseEngine';
 import { SimulatedVoiceAdapter } from '../services/VoiceInput';
 import * as Clipboard from 'expo-clipboard';
-import { encodeDeckPayload } from '../utils/deckSharing';
+import { encodeDeckPayload, extractDeckFromClipboard } from '../utils/deckSharing';
+import { deckLibrary, DeckSummary, ResolvedDeck } from '../services/DeckLibrary';
 import { toStudyDay } from '../engines/studyDay';
 import { scriptureCatalog } from '../services/ScriptureCatalog';
 
@@ -50,13 +51,36 @@ jest.mock('../services/VerseEngine', () => {
         translation: 'WEB',
       }),
       deleteVerse: jest.fn().mockResolvedValue(true),
-      importDeck: jest.fn().mockResolvedValue([]),
       getNextReviewMessage: jest.fn().mockReturnValue('Next review due tomorrow'),
       updateVerse: jest.fn().mockResolvedValue({}),
       getPreferredTranslations: jest.fn().mockResolvedValue({ pt: 'BLIVRE', en: 'BSB' }),
       setPreferredTranslation: jest.fn(async (_language: string, code: string) => code),
     },
   };
+});
+
+// Mock the Deck Library instance; the Deck Library suite runs the real one headless.
+jest.mock('../services/DeckLibrary', () => ({
+  deckLibrary: {
+    listDecks: jest.fn().mockResolvedValue([]),
+    getDeck: jest.fn().mockResolvedValue(null),
+    addVersesToDeckNamed: jest.fn(),
+    importSharedDeck: jest.fn(),
+  },
+}));
+
+const NO_TIERS = { seed: 0, growing: 0, rooted: 0, hidden_in_the_heart: 0 };
+
+/** A listed Deck, as the Deck Library returns it. */
+const deckSummary = (
+  deck: Pick<DeckSummary, 'id' | 'name'> & Partial<DeckSummary>
+): DeckSummary => ({
+  origin: 'own',
+  updatedAt: '2026-10-09T12:00:00.000Z',
+  verseIds: [],
+  tierCounts: { ...NO_TIERS },
+  language: 'en',
+  ...deck,
 });
 
 /**
@@ -114,8 +138,12 @@ describe('HomeScreen Integration (Ticket 16)', () => {
       summary: await verseEngine.getVersesSummary(),
       habitStats: await (verseEngine as any).getHabitStats(),
     }));
-    (verseEngine.importDeck as jest.Mock).mockReset();
-    (verseEngine.importDeck as jest.Mock).mockResolvedValue([]);
+    (deckLibrary.listDecks as jest.Mock).mockReset();
+    (deckLibrary.listDecks as jest.Mock).mockResolvedValue([]);
+    (deckLibrary.getDeck as jest.Mock).mockReset();
+    (deckLibrary.getDeck as jest.Mock).mockResolvedValue(null);
+    (deckLibrary.addVersesToDeckNamed as jest.Mock).mockReset();
+    (deckLibrary.importSharedDeck as jest.Mock).mockReset();
     (Clipboard.getStringAsync as jest.Mock).mockReset();
     (Clipboard.getStringAsync as jest.Mock).mockResolvedValue('');
     jest.spyOn(Share, 'share').mockResolvedValue({ action: 'sharedAction' } as any);
@@ -944,122 +972,167 @@ describe('HomeScreen Integration (Ticket 16)', () => {
     });
   });
 
-  describe('HomeScreen Deck Tags and Viral Deck Sharing (Ticket 33)', () => {
-    it('displays deck filter chips, filters verses by deck, and displays deck tag badge', async () => {
+  describe('Deck filter, sharing and import through Deck membership (Ticket 86)', () => {
+    const peaceVerse = {
+      id: 'v1',
+      reference: 'John 14:27',
+      text: 'Peace I leave with you; my peace I give you.',
+      translation: 'WEB',
+    };
+    const hopeVerse = {
+      id: 'v2',
+      reference: 'Romans 15:13',
+      text: 'May the God of hope fill you with all joy and peace.',
+      translation: 'WEB',
+    };
+    const shepherdVerse = {
+      id: 'v3',
+      reference: 'Psalm 23:1',
+      text: 'The Lord is my shepherd...',
+      translation: 'WEB',
+    };
+    const guardVerse = {
+      id: 'v4',
+      reference: 'Philippians 4:7',
+      text: 'And the peace of God will guard your hearts.',
+      translation: 'WEB',
+    };
+    const library = [peaceVerse, hopeVerse, shepherdVerse, guardVerse];
+    const peaceDeck = deckSummary({ id: 'peace', name: 'Peace', verseIds: ['v4', 'v1'] });
+    // John 14:27 is in both decks.
+    const hopeDeck = deckSummary({ id: 'hope', name: 'Hope', verseIds: ['v2', 'v1'] });
+
+    const visibleCards = (getAllByTestId: (id: RegExp) => any[]) =>
+      getAllByTestId(/^verse-card-/).map((card) => card.props.testID);
+
+    beforeEach(() => {
       (verseEngine.getVersesSummary as jest.Mock).mockResolvedValue({
-        allVerses: [
-          {
-            id: 'v1',
-            reference: 'John 14:27',
-            text: 'Peace I leave with you...',
-            translation: 'WEB',
-            deck: 'Peace',
-          },
-          {
-            id: 'v2',
-            reference: 'Romans 15:13',
-            text: 'May the God of hope...',
-            translation: 'WEB',
-            deck: 'Hope',
-          },
-          {
-            id: 'v3',
-            reference: 'Psalm 23:1',
-            text: 'The Lord is my shepherd...',
-            translation: 'WEB',
-          },
-        ],
+        allVerses: library,
         dueVerses: [],
         dueCount: 0,
       });
+      (deckLibrary.listDecks as jest.Mock).mockResolvedValue([peaceDeck, hopeDeck]);
+    });
 
-      const { getByTestId, queryByTestId, getByText, queryByText } = await render(
+    it('shows a chip per Deck and filters the verses by membership, in deck order', async () => {
+      const { getByTestId, getAllByTestId, getByText, queryByText } = await render(
         <HomeScreen />
       );
 
-      // Deck chips should be present
       await waitFor(() => {
-        expect(getByTestId('deck-filter-Peace')).toBeTruthy();
-        expect(getByTestId('deck-filter-Hope')).toBeTruthy();
-        expect(getByText('#Peace')).toBeTruthy();
-        expect(getByText('#Hope')).toBeTruthy();
+        expect(getByTestId('deck-filter-peace')).toBeTruthy();
+        expect(getByTestId('deck-filter-hope')).toBeTruthy();
       });
+      expect(getByText('Peace')).toBeTruthy();
+      expect(getByText('Hope')).toBeTruthy();
 
-      // Switch to All tab to see all verses
+      await act(async () => {
+        fireEvent.press(getByText(/📚 All/i));
+      });
+      expect(visibleCards(getAllByTestId)).toEqual([
+        'verse-card-v1',
+        'verse-card-v2',
+        'verse-card-v3',
+        'verse-card-v4',
+      ]);
+
+      await act(async () => {
+        fireEvent.press(getByTestId('deck-filter-peace'));
+      });
+      expect(visibleCards(getAllByTestId)).toEqual(['verse-card-v4', 'verse-card-v1']);
+      expect(getByText('Deck: Peace')).toBeTruthy();
+      expect(getByTestId('share-deck-button')).toBeTruthy();
+      expect(getByTestId('deck-filter-peace').props.accessibilityState).toEqual({ selected: true });
+
+      // A verse in several decks shows under each of them.
+      await act(async () => {
+        fireEvent.press(getByTestId('deck-filter-hope'));
+      });
+      expect(visibleCards(getAllByTestId)).toEqual(['verse-card-v2', 'verse-card-v1']);
+      expect(getByText('Deck: Hope')).toBeTruthy();
+
+      await act(async () => {
+        fireEvent.press(getByTestId('deck-filter-hope'));
+      });
+      expect(visibleCards(getAllByTestId)).toHaveLength(4);
+      expect(queryByText(/^Deck: /)).toBeNull();
+    });
+
+    it('no longer reads the legacy tag on verses', async () => {
+      (verseEngine.getVersesSummary as jest.Mock).mockResolvedValue({
+        allVerses: [{ ...shepherdVerse, deck: 'Legacy' }],
+        dueVerses: [],
+        dueCount: 0,
+      });
+      (deckLibrary.listDecks as jest.Mock).mockResolvedValue([]);
+
+      const { getByText, queryByText, queryByTestId } = await render(<HomeScreen />);
       await act(async () => {
         fireEvent.press(getByText(/📚 All/i));
       });
 
-      expect(getByTestId('verse-card-v1')).toBeTruthy();
-      expect(getByTestId('verse-card-v2')).toBeTruthy();
-      expect(getByTestId('verse-card-v3')).toBeTruthy();
-
-      // Tap Peace deck filter chip
-      await act(async () => {
-        fireEvent.press(getByTestId('deck-filter-Peace'));
-      });
-
-      // Only Peace deck verses should remain visible
-      expect(getByTestId('verse-card-v1')).toBeTruthy();
-      expect(queryByTestId('verse-card-v2')).toBeNull();
-      expect(queryByTestId('verse-card-v3')).toBeNull();
-
-      // Deck banner with share button appears
-      expect(getByText('Deck: #Peace')).toBeTruthy();
-      expect(getByTestId('share-deck-button')).toBeTruthy();
-
-      // Tap Peace deck filter chip again to deselect
-      await act(async () => {
-        fireEvent.press(getByTestId('deck-filter-Peace'));
-      });
-
-      // All verses visible again
-      expect(getByTestId('verse-card-v1')).toBeTruthy();
-      expect(getByTestId('verse-card-v2')).toBeTruthy();
-      expect(getByTestId('verse-card-v3')).toBeTruthy();
-      expect(queryByText('Deck: #Peace')).toBeNull();
+      expect(getByText('Psalm 23:1')).toBeTruthy();
+      expect(queryByTestId('deck-filter-Legacy')).toBeNull();
+      expect(queryByText(/Legacy/)).toBeNull();
     });
 
-    it('invokes Share.share with formatted message when tapping "Share Deck"', async () => {
-      (verseEngine.getVersesSummary as jest.Mock).mockResolvedValue({
-        allVerses: [
-          {
-            id: 'v1',
-            reference: 'John 14:27',
-            text: 'Peace I leave with you; my peace I give you.',
-            translation: 'WEB',
-            deck: 'Peace',
-          },
-        ],
-        dueVerses: [],
-        dueCount: 0,
-      });
+    it('shares the Deck with its verses in deck order', async () => {
+      (deckLibrary.getDeck as jest.Mock).mockImplementation(async (id: string) =>
+        id === 'peace'
+          ? ({
+              ...peaceDeck,
+              description: 'For anxious days',
+              entries: [
+                { kind: 'section', id: 's1', title: 'Promises' },
+                { kind: 'verse', verse: guardVerse },
+                { kind: 'verse', verse: peaceVerse },
+              ],
+            } as ResolvedDeck)
+          : null
+      );
 
       const { getByTestId } = await render(<HomeScreen />);
+      await waitFor(() => expect(getByTestId('deck-filter-peace')).toBeTruthy());
 
-      await waitFor(() => {
-        expect(getByTestId('deck-filter-Peace')).toBeTruthy();
-      });
-
-      // Select Peace deck filter
       await act(async () => {
-        fireEvent.press(getByTestId('deck-filter-Peace'));
+        fireEvent.press(getByTestId('deck-filter-peace'));
       });
-
-      // Tap Share Deck
       await act(async () => {
         fireEvent.press(getByTestId('share-deck-button'));
       });
 
-      expect(Share.share).toHaveBeenCalledWith({
-        message: expect.stringContaining('Deck: Peace'),
+      expect(deckLibrary.getDeck).toHaveBeenCalledWith('peace');
+      const message = (Share.share as jest.Mock).mock.calls[0][0].message as string;
+      expect(message).toContain('Deck: Peace (2 verses)');
+      expect(message.indexOf('Philippians 4:7')).toBeLessThan(message.indexOf('John 14:27'));
+      // The recipient's app reads the same deck back.
+      expect(extractDeckFromClipboard(message)).toEqual({
+        name: 'Peace',
+        note: 'For anxious days',
+        verses: [
+          { ref: 'Philippians 4:7', text: guardVerse.text, trans: 'WEB' },
+          { ref: 'John 14:27', text: peaceVerse.text, trans: 'WEB' },
+        ],
       });
-      const shareArg = (Share.share as jest.Mock).mock.calls[0][0].message;
-      expect(shareArg).toContain('John 14:27');
-      expect(shareArg).toContain('https://voice-scripture.app/i#');
     });
 
-    it('detects shared deck from clipboard on mount, displays SharedDeckModal, and imports verses', async () => {
+    it('offers no sharing for a Deck without verses', async () => {
+      (deckLibrary.listDecks as jest.Mock).mockResolvedValue([
+        deckSummary({ id: 'empty', name: 'Empty' }),
+      ]);
+
+      const { getByTestId, getByText, queryByTestId } = await render(<HomeScreen />);
+      await waitFor(() => expect(getByTestId('deck-filter-empty')).toBeTruthy());
+      await act(async () => {
+        fireEvent.press(getByTestId('deck-filter-empty'));
+      });
+
+      expect(getByText('Deck: Empty')).toBeTruthy();
+      expect(queryByTestId('share-deck-button')).toBeNull();
+    });
+
+    it('imports a shared deck from the clipboard as a new Deck, and shows its chip', async () => {
+      (deckLibrary.listDecks as jest.Mock).mockResolvedValue([]);
       const payload = {
         name: 'Faith',
         verses: [
@@ -1071,14 +1144,12 @@ describe('HomeScreen Integration (Ticket 16)', () => {
         ],
         note: 'Encouraging verses',
       };
-      const encoded = encodeDeckPayload(payload);
       (Clipboard.getStringAsync as jest.Mock).mockResolvedValue(
-        `https://voice-scripture.app/i#${encoded}`
+        `https://voice-scripture.app/i#${encodeDeckPayload(payload)}`
       );
 
       const { getByTestId, getByText } = await render(<HomeScreen />);
 
-      // SharedDeckModal should appear
       await waitFor(() => {
         expect(getByTestId('shared-deck-modal')).toBeTruthy();
         expect(getByText('Faith')).toBeTruthy();
@@ -1086,18 +1157,221 @@ describe('HomeScreen Integration (Ticket 16)', () => {
         expect(getByText('Hebrews 11:1')).toBeTruthy();
       });
 
-      // Tap Import Selected (1)
+      (deckLibrary.listDecks as jest.Mock).mockResolvedValue([
+        deckSummary({ id: 'faith', name: 'Faith', verseIds: ['n1'] }),
+      ]);
       await act(async () => {
         fireEvent.press(getByTestId('import-shared-deck-button'));
       });
 
-      expect(verseEngine.importDeck).toHaveBeenCalledWith('Faith', [
-        {
-          reference: 'Hebrews 11:1',
-          text: 'Now faith is the assurance of things hoped for.',
-          translation: 'WEB',
-        },
+      expect(deckLibrary.importSharedDeck).toHaveBeenCalledWith({
+        name: 'Faith',
+        description: 'Encouraging verses',
+        verses: [
+          {
+            reference: 'Hebrews 11:1',
+            text: 'Now faith is the assurance of things hoped for.',
+            translation: 'WEB',
+          },
+        ],
+      });
+      await waitFor(() => expect(getByTestId('deck-filter-faith')).toBeTruthy());
+    });
+
+    it('files a new verse under the Deck named in the add-verse form', async () => {
+      const { getByText, getByPlaceholderText, getByTestId } = await render(<HomeScreen />);
+
+      await act(async () => {
+        fireEvent.press(getByText('+ Type Custom Verse'));
+      });
+      await act(async () => {
+        getByPlaceholderText('Reference (e.g. John 3:16)').props.onChangeText('John 3:16');
+        getByPlaceholderText('Verse text...').props.onChangeText('For God so loved the world...');
+        getByTestId('add-verse-deck-input').props.onChangeText(' #Peace ');
+      });
+      await act(async () => {
+        fireEvent.press(getByText('Save Verse'));
+      });
+
+      expect(verseEngine.addVerse).toHaveBeenCalledWith(
+        expect.not.objectContaining({ deck: expect.anything() })
+      );
+      expect(deckLibrary.addVersesToDeckNamed).toHaveBeenCalledWith('Peace', ['1']);
+    });
+  });
+
+  describe('Decks screen (Ticket 86)', () => {
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const joao1 = {
+      id: 'v1',
+      reference: 'João 1:1',
+      text: 'No princípio era o Verbo, e o Verbo estava com Deus, e o Verbo era Deus.',
+      translation: 'BLIVRE',
+      srs: { intervalDays: 40, streak: 4, easeFactor: 2.5, nextReviewDate: tomorrow },
+    };
+    const joao14 = {
+      id: 'v2',
+      reference: 'João 1:14',
+      text: 'E o Verbo se fez carne, e habitou entre nós.',
+      translation: 'NVI',
+      srs: { intervalDays: 0, streak: 0, easeFactor: 2.5 },
+    };
+    const atos = {
+      id: 'v3',
+      reference: 'Atos 1:8',
+      text: '… mas recebereis poder, ao descer sobre vós o Espírito Santo…',
+      translation: 'ARA',
+      srs: { intervalDays: 10, streak: 2, easeFactor: 2.5, nextReviewDate: tomorrow },
+    };
+    const catecismo = deckSummary({
+      id: 'cat',
+      name: 'Catecismo',
+      description: 'Versículos da igreja',
+      verseIds: ['v2', 'v1', 'v3'],
+      tierCounts: { seed: 1, growing: 1, rooted: 1, hidden_in_the_heart: 0 },
+      language: 'pt',
+    });
+
+    const openDecks = async (getByTestId: (id: string) => any) => {
+      await waitFor(() => expect(getByTestId('open-decks-home')).toBeTruthy());
+      await act(async () => {
+        fireEvent.press(getByTestId('open-decks-home'));
+      });
+    };
+
+    it('lists the Decks with their Memory Tier progress, and goes back Home', async () => {
+      (deckLibrary.listDecks as jest.Mock).mockResolvedValue([
+        deckSummary({
+          id: 'cat',
+          name: 'Catecismo',
+          description: 'Versículos da igreja',
+          verseIds: ['a', 'b', 'c', 'd', 'e'],
+          tierCounts: { seed: 2, growing: 1, rooted: 1, hidden_in_the_heart: 1 },
+          language: 'pt',
+        }),
+        deckSummary({
+          id: 'gospel',
+          name: 'Gospel',
+          verseIds: ['f', 'g', 'h'],
+          tierCounts: { seed: 2, growing: 0, rooted: 1, hidden_in_the_heart: 0 },
+        }),
+        deckSummary({ id: 'new', name: 'New deck' }),
       ]);
+
+      const { getByTestId, getAllByTestId, getByText, queryByTestId } = await render(
+        <HomeScreen />
+      );
+      await openDecks(getByTestId);
+
+      expect(getByTestId('decks-screen')).toBeTruthy();
+      expect(getAllByTestId(/^deck-card-/).map((card) => card.props.testID)).toEqual([
+        'deck-card-cat',
+        'deck-card-gospel',
+        'deck-card-new',
+      ]);
+      expect(getByText('Versículos da igreja')).toBeTruthy();
+      // Rooted counts the verses Rooted or Hidden in the Heart.
+      expect(getByTestId('deck-progress-cat')).toHaveTextContent('2 de 5 Enraizados');
+      expect(getByTestId('deck-tiers-cat')).toHaveTextContent(
+        'Semente 2 · Crescendo 1 · Enraizado 1 · Guardado no coração 1'
+      );
+      expect(getByTestId('deck-progress-gospel')).toHaveTextContent('1 of 3 Rooted');
+      expect(getByTestId('deck-tiers-gospel')).toHaveTextContent('Seed 2 · Rooted 1');
+      expect(getByTestId('deck-progress-new')).toHaveTextContent('No verses yet');
+
+      await act(async () => {
+        fireEvent.press(getByTestId('close-decks'));
+      });
+      expect(queryByTestId('decks-screen')).toBeNull();
+      expect(getByText('My Memory Verses')).toBeTruthy();
+    });
+
+    it('says so when there are no Decks yet', async () => {
+      const { getByTestId, getByText } = await render(<HomeScreen />);
+      await openDecks(getByTestId);
+
+      expect(getByText('Nenhum deck ainda. / No decks yet.')).toBeTruthy();
+    });
+
+    it('opens a deck detail with its verses in order under their sections, and tapping one opens recitation', async () => {
+      (verseEngine.getVersesSummary as jest.Mock).mockResolvedValue({
+        allVerses: [joao1, joao14, atos],
+        dueVerses: [joao14],
+        dueCount: 1,
+      });
+      (deckLibrary.listDecks as jest.Mock).mockResolvedValue([catecismo]);
+      (deckLibrary.getDeck as jest.Mock).mockResolvedValue({
+        ...catecismo,
+        entries: [
+          { kind: 'section', id: 's1', title: '1º Tópico – Jesus, sua vida e sua obra' },
+          { kind: 'verse', verse: joao14 },
+          { kind: 'verse', verse: joao1 },
+          { kind: 'section', id: 's2', title: '2º Tópico – O Espírito Santo' },
+          { kind: 'verse', verse: atos },
+        ],
+      } as ResolvedDeck);
+
+      const { getByTestId, getAllByTestId, getByText, queryByTestId } = await render(
+        <HomeScreen />
+      );
+      await openDecks(getByTestId);
+      await act(async () => {
+        fireEvent.press(getByTestId('deck-card-cat'));
+      });
+
+      await waitFor(() => expect(getByTestId('deck-detail-screen')).toBeTruthy());
+      expect(deckLibrary.getDeck).toHaveBeenCalledWith('cat');
+      expect(getByText('Catecismo')).toBeTruthy();
+      expect(getByTestId('deck-detail-progress')).toHaveTextContent('1 de 3 Enraizado');
+      expect(
+        getAllByTestId(/^deck-(section|verse)-/).map((row) => row.props.testID)
+      ).toEqual(['deck-section-s1', 'deck-verse-v2', 'deck-verse-v1', 'deck-section-s2', 'deck-verse-v3']);
+      expect(getByText('1º Tópico – Jesus, sua vida e sua obra')).toBeTruthy();
+      expect(within(getByTestId('deck-verse-v2')).getByText('[NVI]')).toBeTruthy();
+      expect(within(getByTestId('deck-verse-v2')).getByText('Semente')).toBeTruthy();
+      expect(within(getByTestId('deck-verse-v1')).getByText('Enraizado')).toBeTruthy();
+      expect(within(getByTestId('deck-verse-v3')).getByText('Crescendo')).toBeTruthy();
+
+      // Tapping a verse opens recitation, as a verse card on Home does.
+      await act(async () => {
+        fireEvent.press(getByTestId('deck-verse-v1'));
+      });
+      await waitFor(() => {
+        expect(getByText('1. Echo')).toBeTruthy();
+        expect(getByText('João 1:1')).toBeTruthy();
+      });
+      expect(queryByTestId('deck-detail-screen')).toBeNull();
+
+      // Leaving recitation returns to the deck, reloaded.
+      await act(async () => {
+        fireEvent.press(getByText('← Back'));
+      });
+      await waitFor(() => expect(getByTestId('deck-detail-screen')).toBeTruthy());
+      expect(deckLibrary.getDeck).toHaveBeenCalledTimes(2);
+
+      await act(async () => {
+        fireEvent.press(getByTestId('close-deck-detail'));
+      });
+      expect(getByTestId('decks-screen')).toBeTruthy();
+    });
+
+    it('shows an empty deck plainly', async () => {
+      const empty = deckSummary({ id: 'empty', name: 'Empty' });
+      (deckLibrary.listDecks as jest.Mock).mockResolvedValue([empty]);
+      (deckLibrary.getDeck as jest.Mock).mockResolvedValue({ ...empty, entries: [] });
+
+      const { getByTestId, getByText } = await render(<HomeScreen />);
+      await openDecks(getByTestId);
+      await act(async () => {
+        fireEvent.press(getByTestId('deck-card-empty'));
+      });
+
+      await waitFor(() =>
+        expect(
+          getByText('Este deck ainda não tem versículos. / This deck has no verses yet.')
+        ).toBeTruthy()
+      );
+      expect(getByTestId('deck-detail-progress')).toHaveTextContent('No verses yet');
     });
   });
 
@@ -1427,7 +1701,7 @@ describe('HomeScreen Integration (Ticket 16)', () => {
       // Saved verses are left alone.
       expect(verseEngine.updateVerse).not.toHaveBeenCalled();
       expect(verseEngine.addVerse).not.toHaveBeenCalled();
-      expect(verseEngine.importDeck).not.toHaveBeenCalled();
+      expect(deckLibrary.importSharedDeck).not.toHaveBeenCalled();
 
       await act(async () => {
         fireEvent.press(getByTestId('close-preferred-translation'));

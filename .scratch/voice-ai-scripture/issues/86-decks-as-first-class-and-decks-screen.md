@@ -10,11 +10,11 @@ See `spec-decks.md` and CONTEXT.md (Deck, Own Deck, Received Deck, Deck Section)
 
 **Blocked by:** None (can start immediately). Schedule it after tickets 82 and 83, because they edit the same Home Screen.
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] A Deck Library module (headless, map-storage testable) stores Decks with an ordered entries list (section headings and verse ids), origin, and `updatedAt`. It lists Decks with Memory Tier counts and gets one Deck with resolved verses.
-- [ ] Legacy `deck` tags migrate to Own Decks on first load (idempotent, creation order), and the tag is cleared.
-- [ ] A verse can be in several Decks.
-- [ ] The Decks screen lists Decks with progress, opens a deck detail in order, and tapping a verse opens recitation.
-- [ ] The Home deck filter uses Deck membership.
-- [ ] Deck Library tests and screen tests cover the above.
+- [x] A Deck Library module (headless, map-storage testable) stores Decks with an ordered entries list (section headings and verse ids), origin, and `updatedAt`. It lists Decks with Memory Tier counts and gets one Deck with resolved verses.
+- [x] Legacy `deck` tags migrate to Own Decks on first load (idempotent, creation order), and the tag is cleared.
+- [x] A verse can be in several Decks.
+- [x] The Decks screen lists Decks with progress, opens a deck detail in order, and tapping a verse opens recitation.
+- [x] The Home deck filter uses Deck membership.
+- [x] Deck Library tests and screen tests cover the above.

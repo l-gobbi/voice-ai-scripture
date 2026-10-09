@@ -22,6 +22,9 @@ import {
 } from '../services/VerseEngine';
 import { scriptureCatalog } from '../services/ScriptureCatalog';
 import ReviewScreen from './ReviewScreen';
+import DecksScreen from './DecksScreen';
+import DeckDetailScreen from './DeckDetailScreen';
+import { deckLibrary, DeckSummary } from '../services/DeckLibrary';
 import ReminderSettingsModal from '../components/ReminderSettingsModal';
 import TranslationsCopyrightModal from '../components/TranslationsCopyrightModal';
 import PreferredTranslationModal from '../components/PreferredTranslationModal';
@@ -74,10 +77,24 @@ export default function HomeScreen({ voiceInput }: HomeScreenProps = {}) {
   const [activeReviewVerse, setActiveReviewVerse] = useState<Verse | null>(null);
   const [sandboxVerse, setSandboxVerse] = useState<Verse | null>(null);
   const [filterMode, setFilterMode] = useState<'all' | 'due'>('due');
+  // The id of the Deck whose verses the Home Screen shows, if any.
   const [selectedDeckFilter, setSelectedDeckFilter] = useState<string | null>(null);
   const [detectedSharedDeck, setDetectedSharedDeck] = useState<SharedDeckPayload | null>(null);
+  const [decks, setDecks] = useState<DeckSummary[]>([]);
+  const [decksScreenVisible, setDecksScreenVisible] = useState(false);
+  const [openDeckId, setOpenDeckId] = useState<string | null>(null);
+
+  const loadDecks = async () => {
+    try {
+      // The first listing of a launch also migrates legacy #tag decks (ticket 86).
+      setDecks(await deckLibrary.listDecks());
+    } catch {
+      // Keep the Decks already shown.
+    }
+  };
 
   const loadVerses = async () => {
+    await loadDecks();
     const { summary: dashboardSummary, habitStats: dashboardStats } =
       await verseEngine.getDashboard();
     setSummary(dashboardSummary);
@@ -121,16 +138,24 @@ export default function HomeScreen({ voiceInput }: HomeScreenProps = {}) {
     };
   }, []);
 
+  const selectedDeck = decks.find((deck) => deck.id === selectedDeckFilter) ?? null;
+
+  // Ticket 89 replaces the payload and the message; the verses now come from the Deck, in order.
   const handleShareCurrentDeck = async () => {
-    if (!selectedDeckFilter) return;
-    const deckVerses = summary.allVerses.filter((v) => v.deck === selectedDeckFilter);
+    if (!selectedDeck) return;
+    const deck = await deckLibrary.getDeck(selectedDeck.id);
+    const deckVerses = (deck?.entries ?? []).flatMap((entry) =>
+      entry.kind === 'verse' ? [entry.verse] : []
+    );
+    if (!deck || deckVerses.length === 0) return;
     const payload: SharedDeckPayload = {
-      name: selectedDeckFilter,
+      name: deck.name,
       verses: deckVerses.map((v) => ({
         ref: v.reference,
         text: v.text,
         trans: v.translation,
       })),
+      ...(deck.description ? { note: deck.description } : {}),
     };
     const message = generateShareMessage(payload);
     await Share.share({ message });
@@ -140,14 +165,15 @@ export default function HomeScreen({ voiceInput }: HomeScreenProps = {}) {
     deckName: string,
     selectedVerses: SharedDeckVerse[]
   ) => {
-    await verseEngine.importDeck(
-      deckName,
-      selectedVerses.map((v) => ({
+    await deckLibrary.importSharedDeck({
+      name: deckName,
+      description: detectedSharedDeck?.note,
+      verses: selectedVerses.map((v) => ({
         reference: v.ref,
         text: v.text,
         translation: v.trans,
-      }))
-    );
+      })),
+    });
     await loadVerses();
   };
 
@@ -197,12 +223,32 @@ export default function HomeScreen({ voiceInput }: HomeScreenProps = {}) {
     );
   }
 
-  const uniqueDecks = Array.from(
-    new Set(summary.allVerses.map((v) => v.deck).filter((d): d is string => !!d))
-  );
+  if (openDeckId) {
+    return (
+      <DeckDetailScreen
+        deckId={openDeckId}
+        onRecite={(verse) => setActiveReviewVerse(verse)}
+        onBack={() => setOpenDeckId(null)}
+      />
+    );
+  }
 
-  const displayedVerses = selectedDeckFilter
-    ? summary.allVerses.filter((v) => v.deck === selectedDeckFilter)
+  if (decksScreenVisible) {
+    return (
+      <DecksScreen
+        decks={decks}
+        onOpenDeck={(deckId) => setOpenDeckId(deckId)}
+        onBack={() => setDecksScreenVisible(false)}
+      />
+    );
+  }
+
+  const versesById = new Map(summary.allVerses.map((v) => [v.id, v]));
+  const displayedVerses = selectedDeck
+    ? selectedDeck.verseIds.flatMap((id) => {
+        const verse = versesById.get(id);
+        return verse ? [verse] : [];
+      })
     : filterMode === 'due'
     ? summary.dueVerses
     : summary.allVerses;
@@ -227,6 +273,29 @@ export default function HomeScreen({ voiceInput }: HomeScreenProps = {}) {
           My Memory Verses
         </Text>
         <View style={styles.headerActions}>
+          <TouchableOpacity
+            style={[
+              styles.reminderHeaderButton,
+              {
+                backgroundColor: theme.colors.surfaceMuted,
+                borderColor: theme.colors.border,
+              },
+            ]}
+            onPress={() => setDecksScreenVisible(true)}
+            activeOpacity={0.7}
+            testID="open-decks-home"
+            accessibilityRole="button"
+            accessibilityLabel="Decks"
+          >
+            <Text
+              style={[
+                styles.reminderButtonText,
+                { color: theme.colors.textPrimary },
+              ]}
+            >
+              Decks
+            </Text>
+          </TouchableOpacity>
           <TouchableOpacity
             style={[
               styles.reminderHeaderButton,
@@ -363,18 +432,18 @@ export default function HomeScreen({ voiceInput }: HomeScreenProps = {}) {
         </TouchableOpacity>
       </View>
 
-      {uniqueDecks.length > 0 ? (
+      {decks.length > 0 ? (
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
           style={styles.deckFilterScrollView}
           contentContainerStyle={styles.deckFilterContainer}
         >
-          {uniqueDecks.map((deck) => {
-            const isSelected = selectedDeckFilter === deck;
+          {decks.map((deck) => {
+            const isSelected = selectedDeck?.id === deck.id;
             return (
               <TouchableOpacity
-                key={deck}
+                key={deck.id}
                 style={[
                   styles.deckChip,
                   {
@@ -386,8 +455,8 @@ export default function HomeScreen({ voiceInput }: HomeScreenProps = {}) {
                       : theme.colors.border,
                   },
                 ]}
-                onPress={() => setSelectedDeckFilter(isSelected ? null : deck)}
-                testID={`deck-filter-${deck}`}
+                onPress={() => setSelectedDeckFilter(isSelected ? null : deck.id)}
+                testID={`deck-filter-${deck.id}`}
                 accessibilityRole="button"
                 accessibilityState={{ selected: isSelected }}
               >
@@ -402,7 +471,7 @@ export default function HomeScreen({ voiceInput }: HomeScreenProps = {}) {
                     },
                   ]}
                 >
-                  #{deck}
+                  {deck.name}
                 </Text>
               </TouchableOpacity>
             );
@@ -410,7 +479,7 @@ export default function HomeScreen({ voiceInput }: HomeScreenProps = {}) {
         </ScrollView>
       ) : null}
 
-      {selectedDeckFilter ? (
+      {selectedDeck ? (
         <View
           style={[
             styles.deckBannerRow,
@@ -426,20 +495,22 @@ export default function HomeScreen({ voiceInput }: HomeScreenProps = {}) {
               { color: theme.colors.textPrimary },
             ]}
           >
-            Deck: #{selectedDeckFilter}
+            Deck: {selectedDeck.name}
           </Text>
-          <TouchableOpacity
-            style={[
-              styles.shareDeckButton,
-              { backgroundColor: theme.colors.accentSacred },
-            ]}
-            testID="share-deck-button"
-            onPress={handleShareCurrentDeck}
-            accessibilityRole="button"
-            accessibilityLabel={`Share deck ${selectedDeckFilter}`}
-          >
-            <Text style={styles.shareDeckButtonText}>📤 Share Deck</Text>
-          </TouchableOpacity>
+          {selectedDeck.verseIds.length > 0 ? (
+            <TouchableOpacity
+              style={[
+                styles.shareDeckButton,
+                { backgroundColor: theme.colors.accentSacred },
+              ]}
+              testID="share-deck-button"
+              onPress={handleShareCurrentDeck}
+              accessibilityRole="button"
+              accessibilityLabel={`Share deck ${selectedDeck.name}`}
+            >
+              <Text style={styles.shareDeckButtonText}>📤 Share Deck</Text>
+            </TouchableOpacity>
+          ) : null}
         </View>
       ) : null}
 
@@ -492,19 +563,6 @@ export default function HomeScreen({ voiceInput }: HomeScreenProps = {}) {
                         ]}
                       >
                         [{item.translation}]
-                      </Text>
-                    ) : null}
-                    {item.deck ? (
-                      <Text
-                        style={[
-                          styles.deckTagBadge,
-                          {
-                            backgroundColor: theme.colors.surfaceMuted,
-                            color: theme.colors.accentSacred,
-                          },
-                        ]}
-                      >
-                        #{item.deck}
                       </Text>
                     ) : null}
                   </View>
@@ -609,7 +667,7 @@ export default function HomeScreen({ voiceInput }: HomeScreenProps = {}) {
         ListEmptyComponent={
           summary.allVerses.length === 0 ? (
             <SandboxWelcomeCard onStartSandbox={(verse) => setSandboxVerse(verse)} />
-          ) : !selectedDeckFilter && filterMode === 'due' && summary.dueCount === 0 ? (
+          ) : !selectedDeck && filterMode === 'due' && summary.dueCount === 0 ? (
             <DailyDoneCard
               nextReviewText={getNextReviewText(summary.allVerses)}
               onPracticeAhead={() => setFilterMode('all')}
@@ -759,13 +817,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   translationBadge: {
-    fontSize: 11,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-    fontWeight: '600',
-  },
-  deckTagBadge: {
     fontSize: 11,
     paddingHorizontal: 6,
     paddingVertical: 2,

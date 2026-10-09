@@ -58,6 +58,10 @@ export interface Verse {
   reference: string;
   text: string;
   translation?: VerseTranslation;
+  /**
+   * The legacy `#tag` deck of verses saved before Decks were first-class. The Deck Library
+   * migrates it into an Own Deck and clears it (ticket 86); nothing writes it anymore.
+   */
   deck?: string;
   lastScore?: number;
   srs?: SRSState & {
@@ -703,39 +707,23 @@ export class VerseEngine {
     return newVerses.length;
   }
 
-  async importDeck(
-    deckName: string,
-    versesToImport: Array<{ reference: string; text: string; translation?: string }>
-  ): Promise<Verse[]> {
-    const existing = await this.getAllVerses();
-    const existingRefs = new Set(existing.map((verse) => verse.reference.trim().toLowerCase()));
-    const preferred = await this.getPreferredTranslations();
-
-    const newVerses: Verse[] = [];
-
-    for (const verse of versesToImport) {
-      const normalized = verse.reference.trim().toLowerCase();
-      if (!existingRefs.has(normalized)) {
-        const record = createVerseRecord(
-          {
-            reference: verse.reference,
-            text: verse.text,
-            translation: verse.translation,
-            deck: deckName,
-          },
-          preferred
-        );
-        newVerses.push(record);
-        existingRefs.add(normalized);
-      }
+  /**
+   * Removes the legacy `#tag` deck from these verses once the Deck Library has migrated it
+   * (ticket 86). Writes nothing when none of them has one.
+   */
+  async clearLegacyDeckTags(verseIds: string[]): Promise<void> {
+    const ids = new Set(verseIds);
+    const verses = await this.getAllVerses();
+    let cleared = false;
+    const untagged = verses.map((verse) => {
+      if (!ids.has(verse.id) || !('deck' in verse)) return verse;
+      cleared = true;
+      const { deck: _legacyTag, ...rest } = verse;
+      return rest;
+    });
+    if (cleared) {
+      await this.persistVerses(untagged);
     }
-
-    if (newVerses.length > 0) {
-      const combined = [...existing, ...newVerses];
-      await this.persistVerses(combined);
-    }
-
-    return newVerses;
   }
 
   async updateVerse(id: string, updates: Partial<Omit<Verse, 'id'>>): Promise<Verse> {
