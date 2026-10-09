@@ -5,6 +5,9 @@
 **Governing Documents:** `CONTEXT.md` (Translation, Preferred Translation, Topical Pack, Deck, Bible Provider), `docs/adr/0003-public-domain-translations-and-premium-api-expansion.md`, `docs/adr/0007-multi-translation-and-bible-provider.md`, `docs/adr/0018-open-licensed-bundled-translations-only.md`  
 **Research:** `docs/research/feature-and-improvement-opportunities.md` §6 (L1–L5, L7)
 
+
+> **Amendment (2026-10-09, deck grilling):** the product owner decided to **retire Topical Packs** and keep only Decks. Every Topical Pack item below (reference lists, pack import in the Preferred Translation, the pack browser preview, pack tests) is superseded by ticket 83, "Retire Topical Packs". Preferred Translation applies to new verses only.
+
 ---
 
 ## Problem Statement

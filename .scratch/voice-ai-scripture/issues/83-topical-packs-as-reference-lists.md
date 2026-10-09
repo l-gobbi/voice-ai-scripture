@@ -1,14 +1,13 @@
-# 83: Topical Packs as Reference Lists
+# 83: Retire Topical Packs
 
 **What to build:**
-Topical Packs stop carrying text. Each pack becomes an id, a language, a title, a description and an ordered list of references; the current themes and references are kept. Importing moves from the pack browser into the Verse Engine: it resolves every reference in the learner's Preferred Translation for the pack's language, skips references already in the library, and reports how many were added. The pack browser previews each verse in the Preferred Translation and imports through the Verse Engine. See `spec-open-translations.md` and CONTEXT.md (Topical Pack).
+The product owner decided (deck grilling, 2026-10-09) to **remove Topical Packs** and keep only Decks. Remove the pack browser, its entry point on the Home Screen, the pack data and their tests. Verses already imported from a pack stay in the learner's library like any other verse. The original plan for this ticket (packs as reference lists resolved in the Preferred Translation) is superseded. CONTEXT.md no longer defines Topical Pack, and Decks replace it. See `spec-open-translations.md` (amended) and CONTEXT.md (Deck).
 
 **Blocked by:** 82: Preferred Translation
 
 **Status:** ready-for-agent
 
-- [ ] Pack data has no text or translation fields.
-- [ ] The Verse Engine imports a pack in the Preferred Translation, skipping duplicates and returning the count added.
-- [ ] Changing the Preferred Translation changes what a later import (and the preview) shows, and never rewrites verses already saved.
-- [ ] A test resolves every pack reference in every bundled translation of the pack's language.
-- [ ] Pack browser tests cover the preview and the import.
+- [ ] The pack browser modal, its Home Screen entry point, the Topical Pack data module and their tests are removed, with no dead imports left.
+- [ ] Verses previously imported from packs remain and work normally. No migration is needed (the app has no users).
+- [ ] Remaining references to "Topical Pack" in code comments and user-facing copy are removed or reworded to Decks where relevant.
+- [ ] The full suite passes.

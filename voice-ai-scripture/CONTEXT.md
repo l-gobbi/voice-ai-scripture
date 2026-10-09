@@ -96,13 +96,17 @@ _Avoid_: Billing service, purchase controller, paywall state
 A real-time animated graphic representing live microphone audio volume and frequency while the user is actively speaking their recitation.
 _Avoid_: Audio meter, volume bar, recording indicator
 
-**Topical Pack**:
-A curated list of verse references grouped by theme (e.g. Peace, Faith, Strength). It carries no text: importing it fetches each verse in the learner's Preferred Translation.
-_Avoid_: Verse deck, category list, collection
-
 **Deck**:
-A named, ordered set of verses that a learner puts together to organize their own memorization, or that a church shares so everyone recites the same wording. Each verse carries its exact text (possibly an excerpt, or a range of several verses recited as one) and the name of its version. A verse can belong to several Decks.
-_Avoid_: Pack, playlist, list, collection, tag
+A named, ordered set of verses that a learner puts together to organize their own memorization, or that a church shares so everyone recites the same wording. Each verse carries its exact text (possibly an excerpt, or a range of several verses recited as one) and the name of its version. A verse can belong to several Decks. Decks replace the retired Topical Packs.
+_Avoid_: Pack, Topical Pack, playlist, list, collection, tag
+
+**Own Deck**:
+A Deck the learner created (or duplicated) on their device; they can edit, reorder and share it.
+_Avoid_: Local deck, my list, custom deck
+
+**Received Deck**:
+A Deck imported from someone else that follows its source: its order, sections, wording and notes change only when an update from the same source is imported. The learner can forward it or duplicate it as an Own Deck.
+_Avoid_: Shared deck (ambiguous), imported list, church deck
 
 **Deck Section**:
 A named group of consecutive verses inside a Deck, such as a catechism topic ("1º Tópico – Jesus, sua vida e sua obra").
@@ -157,7 +161,7 @@ A recognized textual and linguistic edition of the Bible, such as the bundled op
 _Avoid_: Bible version string, text dialect, bible flavor
 
 **Preferred Translation**:
-The Translation a learner chooses for each language. New verses and imported Topical Packs use it.
+The Translation a learner chooses for each language. New verses use it unless the learner picks another.
 _Avoid_: Default version, my bible, selected translation
 
 **Bible Provider**:
