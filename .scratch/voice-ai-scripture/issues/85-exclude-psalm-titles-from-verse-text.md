@@ -5,9 +5,9 @@ Learners recite only the verse itself, never a reference or a heading. In all th
 
 **Blocked by:** 81: Remove ALMEIDA and KJV and Switch the Defaults
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] The build script reads Psalm titles as separate elements and excludes them from verse text for BLIVRE, ONBV and BSB. All other wording is identical to the current datasets (verify by diffing the rebuilt output against the committed datasets: only Psalm verse-1 texts change).
-- [ ] Psalm 23:1 in BLIVRE, ONBV and BSB starts with the verse words, not the title.
-- [ ] The dataset integrity test gains a check that no Psalm verse 1 starts with a known title pattern (e.g. "Salmo de", "A Psalm of", "Para o regente", "For the choirmaster"), with any legitimate exceptions listed explicitly.
-- [ ] The rebuilt datasets are committed.
+- [x] The build script reads Psalm titles as separate elements and excludes them from verse text for BLIVRE, ONBV and BSB. All other wording is identical to the current datasets (verify by diffing the rebuilt output against the committed datasets: only Psalm verse-1 texts change).
+- [x] Psalm 23:1 in BLIVRE, ONBV and BSB starts with the verse words, not the title.
+- [x] The dataset integrity test gains a check that no Psalm verse 1 starts with a known title pattern (e.g. "Salmo de", "A Psalm of", "Para o regente", "For the choirmaster"), with any legitimate exceptions listed explicitly.
+- [x] The rebuilt datasets are committed.
