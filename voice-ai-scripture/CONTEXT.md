@@ -97,8 +97,12 @@ A real-time animated graphic representing live microphone audio volume and frequ
 _Avoid_: Audio meter, volume bar, recording indicator
 
 **Topical Pack**:
-A curated bundle of thematically related verses (e.g. Peace, Faith, Strength) pre-loaded with public domain translations to eliminate manual input friction.
+A curated list of verse references grouped by theme (e.g. Peace, Faith, Strength). It carries no text: importing it fetches each verse in the learner's Preferred Translation.
 _Avoid_: Verse deck, category list, collection
+
+**Deck**:
+A named set of verses put together by a learner or a church, where each verse carries its exact wording (possibly an excerpt) and the name of its version, and which can be shared so a whole group memorizes the same text.
+_Avoid_: Pack, playlist, list, collection
 
 **Quiet-Time Reminder**:
 A daily scheduled local push notification sent at a user-specified hour reminding them of pending due verses.
@@ -141,8 +145,12 @@ _Avoid_: Whisper system prompt, text conditioning, verse priming
 ### Scripture & Translation Infrastructure
 
 **Translation**:
-A recognized textual and linguistic edition of the Bible (such as `WEB`, `KJV`, `ASV`, `ALMEIDA`, `ONBV`, or `CUSTOM`).
+A recognized textual and linguistic edition of the Bible, such as the bundled open-licensed `BLIVRE` (Bíblia Livre), `ONBV`, `BSB` and `WEB`, or `CUSTOM` for wording the learner supplies.
 _Avoid_: Bible version string, text dialect, bible flavor
+
+**Preferred Translation**:
+The Translation a learner chooses for each language. New verses and imported Topical Packs use it.
+_Avoid_: Default version, my bible, selected translation
 
 **Bible Provider**:
 The pluggable adapter seam responsible for querying and resolving canonical scripture passages by reference and translation.
