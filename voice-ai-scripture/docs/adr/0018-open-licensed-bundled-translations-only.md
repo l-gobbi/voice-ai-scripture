@@ -20,7 +20,7 @@ Licensed alternatives are slow or narrow:
 - **Removed:** `ALMEIDA` (the AA text) and `KJV`.
 - **Text markers:** `{…}` and `[…]` markers are removed at import and the words are kept.
 - **Preferred Translation:** each learner picks a Preferred Translation per language.
-- **Topical Packs:** they become reference lists whose text is fetched in that translation, so no hand-copied wording ships.
+- **Topical Packs:** they become reference lists whose text is fetched in that translation, so no hand-copied wording ships. *(Amended 2026-10-09: Topical Packs were retired altogether in favour of Decks; see ticket 83 and ADR 0020.)*
 - **Credits:** a "Translations & Copyright" screen carries every required notice.
 
 ## Consequences

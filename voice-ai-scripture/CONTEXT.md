@@ -37,8 +37,8 @@ The adaptive scheduling algorithm (SuperMemo-2 based) that determines the next r
 _Avoid_: Leitner box, schedule engine, flashcard timer
 
 **Streak**:
-The count of consecutive successful review sessions completed for an individual verse without failing or resetting.
-_Avoid_: Score, level, repetitions count
+The count of consecutive days on which the learner completed at least one recitation (the daily habit streak shown on the Home Screen). Per-verse repetition counts are internal to Spaced Repetition and are shown to the learner as a Memory Tier, never as a streak.
+_Avoid_: Score, level, repetitions count, verse streak
 
 **Study Day**:
 The learner's local calendar day, starting at 04:00 local time rather than midnight, so late-night and early-morning recitations belong to the same day.
@@ -47,6 +47,10 @@ _Avoid_: 24-hour window, UTC day, session day
 **Due Verse**:
 A verse whose scheduled review Study Day is today or earlier.
 _Avoid_: Expired verse, pending card, review queue item
+
+**Recitation Outcome**:
+The result of verifying a Blind Recitation against its Error Budget: `clean` (no unaided errors), `slip` (errors within the budget) or `forgotten` (over the budget). Only an Official Review's outcome advances the schedule.
+_Avoid_: Grade, pass/fail, score band
 
 **Error Budget**:
 The number of unaided errors (missed words, Word-Peeked words, and added words beyond a small allowance) a Blind Recitation may contain and still count as recalled: 5% of the verse's words, never less than one. Synonyms and reordered words are errors.
@@ -77,7 +81,7 @@ An aggregate snapshot of a user's memory repository containing all stored verses
 _Avoid_: Verse list payload, due stats, cards summary
 
 **Review Recording**:
-The domain operation of recording a completed study session (manual pass/fail or voice recitation score) against a verse, advancing its Spaced Repetition interval and streak.
+The domain operation of recording a recitation attempt against a verse: every attempt is appended to the Review Log, and only an Official Review advances the verse's Spaced Repetition schedule according to its Recitation Outcome.
 _Avoid_: SRS sync, score save, update progress
 
 ### Monetization & Rate Limiting
