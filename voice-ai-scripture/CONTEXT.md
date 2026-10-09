@@ -151,7 +151,7 @@ The background pre-initialization mechanism that routes audio channels (`setAudi
 _Avoid_: Audio cache, pre-recorder, mic daemon
 
 **Acoustic Translation Metadata Prompting**:
-The practice of supplying only canonical metadata (e.g., `Bíblia Sagrada. Tradução: ALMEIDA. Referência: Salmos 23:1.`) into Whisper's prompt parameter while strictly omitting verbatim verse text, guiding vocabulary and theological register while preventing autoregressive repetition loops over initial audio noise.
+The practice of supplying only canonical metadata (e.g., `Bíblia Sagrada. Tradução: BLIVRE. Referência: Salmos 23:1.`) into Whisper's prompt parameter while strictly omitting verbatim verse text, guiding vocabulary and theological register while preventing autoregressive repetition loops over initial audio noise.
 _Avoid_: Whisper system prompt, text conditioning, verse priming
 
 ### Scripture & Translation Infrastructure
