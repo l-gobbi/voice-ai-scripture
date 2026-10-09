@@ -1,4 +1,5 @@
 import { DEFAULT_SRS_STATE, SRSResult, SRSState, calculateNextReview, isVerseDue } from '../engines/srsEngine';
+import { DiffToken } from '../engines/diffEngine';
 import {
   StudyDay,
   addStudyDays,
@@ -11,8 +12,25 @@ import {
   scriptureCatalog,
   SupportedTranslation,
 } from './ScriptureCatalog';
+import {
+  AttemptKind,
+  AttemptLevel,
+  Recognizer,
+  REVIEW_LOG_SCHEMA_VERSION,
+  ReviewLog,
+  ReviewLogEntry,
+  hashCanonicalText,
+} from './ReviewLog';
 
-export { SRSResult };
+export { SRSResult, AttemptKind, AttemptLevel, Recognizer, ReviewLogEntry };
+
+/**
+ * The grading rule behind each logged grade: a word-level F1 of 80 passes, and a Word Peek
+ * caps the score at 75 (an "assisted pass"). Error Budget grading replaces it (ticket 73).
+ */
+export const GRADING_RULE_ID = 'f1-80-peek-cap-75@1';
+/** The scheduler behind each logged Official Review: the app's SM-2 in Study Days. */
+export const SCHEDULER_ID = 'sm2-app@1';
 
 export type VerseTranslation = SupportedTranslation | 'CUSTOM' | string;
 
@@ -30,7 +48,41 @@ export interface Verse {
      */
     nextReviewDate?: StudyDay | string;
     lastScore?: number;
+    /** Study Day of the verse's most recent Official Review: at most one per Study Day. */
+    lastOfficialReviewDay?: StudyDay;
   };
+}
+
+/** The evaluated outcome of one recitation, as the Recitation Session graded it. */
+export interface AttemptEvaluation {
+  tokens: DiffToken[];
+  /** Word-level F1 score, 0–100. */
+  rawScore: number;
+  /** The score the grading rule uses (today: `rawScore`, capped at 75 after a Word Peek). */
+  score: number;
+  passed: boolean;
+}
+
+export interface RecordAttemptInput {
+  verseId: string;
+  level: AttemptLevel;
+  evaluation: AttemptEvaluation;
+  /** Words revealed with the Word Peek Lifeline during the attempt. */
+  peekedWordPositions?: number[];
+  /** Words revealed during Cloze Practice. */
+  clozeRevealCount?: number;
+  recognizer?: Recognizer;
+  durationMs?: number;
+  /** Instant of the attempt (defaults to now); its Study Day decides due-ness. */
+  now?: Date;
+}
+
+export interface RecordedAttempt {
+  kind: AttemptKind;
+  /** The verse's SRS state after the attempt: moved by an Official Review, unchanged by practice. */
+  srsResult: SRSResult;
+  memoryTier: MemoryTier;
+  entry: ReviewLogEntry;
 }
 
 export interface VerseSummary {
@@ -105,6 +157,40 @@ export function memoryTierLabel(tier: MemoryTier, language: 'en' | 'pt'): string
   return MEMORY_TIER_LABELS[language][tier];
 }
 
+/**
+ * The verse's SRS state as it stands, reported as an SRS result. This is what a Practice
+ * Attempt returns, since practice never moves the schedule.
+ */
+export function currentSrsResult(srs: Verse['srs'], passed: boolean, now = new Date()): SRSResult {
+  const streak = srs?.streak ?? srs?.repetitions ?? 0;
+  return {
+    streak,
+    repetitions: streak,
+    intervalDays: srs?.intervalDays ?? DEFAULT_SRS_STATE.intervalDays,
+    easeFactor: srs?.easeFactor ?? DEFAULT_SRS_STATE.easeFactor,
+    // A verse with no readable due date is due today.
+    nextReviewDate: readStudyDay(srs?.nextReviewDate) ?? toStudyDay(now),
+    passed,
+  };
+}
+
+/**
+ * Whether the verse is a Due Verse at `now`. A verse never reviewed is due: it was due on the
+ * Study Day it was added.
+ */
+function isDueAt(verse: Verse, now: Date): boolean {
+  const neverReviewed = (verse.srs?.streak ?? 0) === 0 && (verse.srs?.intervalDays ?? 0) === 0;
+  return neverReviewed || isVerseDue(verse.srs?.nextReviewDate, now);
+}
+
+function countTokens(tokens: DiffToken[]) {
+  const count = (status: DiffToken['status']) => tokens.filter((t) => t.status === status).length;
+  return { correct: count('correct'), missed: count('missed'), added: count('added') };
+}
+
+const createAttemptId = (now: Date) =>
+  `${now.getTime()}-${Math.random().toString(36).substring(2, 10)}`;
+
 import {
   StorageAdapter,
   MapStorageAdapter,
@@ -139,9 +225,11 @@ const createVerseRecord = (verseData: Omit<Verse, 'id' | 'srs'>): Verse => {
 
 export class VerseEngine {
   private storage: StorageAdapter;
+  private reviewLog: ReviewLog;
 
   constructor(storage?: StorageAdapter) {
     this.storage = storage ?? new AsyncStorageAdapter();
+    this.reviewLog = new ReviewLog(this.storage);
   }
 
   private async persistVerses(verses: Verse[]): Promise<void> {
@@ -408,44 +496,129 @@ export class VerseEngine {
     return updated;
   }
 
+  /** Permanently removes the verse and its whole Review Log history (ADR 0009). */
   async deleteVerse(verseId: string): Promise<boolean> {
     const verses = await this.getAllVerses();
     const filtered = verses.filter((verse) => verse.id !== verseId);
-    if (filtered.length === verses.length) {
-      return false;
+    const found = filtered.length !== verses.length;
+    if (found) {
+      await this.persistVerses(filtered);
     }
-    await this.persistVerses(filtered);
-    return true;
+    // Also clears rows orphaned by an interrupted earlier deletion.
+    await this.reviewLog.deleteForVerse(verseId);
+    return found;
   }
 
+  /** The verse's Review Log rows, oldest first. */
+  async getReviewLog(verseId: string): Promise<ReviewLogEntry[]> {
+    return this.reviewLog.listForVerse(verseId);
+  }
+
+  /**
+   * Records one completed recitation attempt. This is the single entry point for recitations:
+   * the engine, not the caller, decides whether the attempt is an Official Review.
+   *
+   * An attempt is an Official Review when it is a Blind Recitation (Level 3) of a Due Verse
+   * and the verse has had no Official Review on the current Study Day. Only Official Reviews
+   * move the SRS schedule and the daily habit streak. Every attempt, official or practice, is
+   * appended to the Review Log.
+   */
+  async recordAttempt(input: RecordAttemptInput): Promise<RecordedAttempt> {
+    const now = input.now ?? new Date();
+    const studyDay = toStudyDay(now);
+    const verses = await this.getAllVerses();
+    const index = verses.findIndex((verse) => verse.id === input.verseId);
+    if (index === -1) {
+      throw new Error(`Verse not found: ${input.verseId}`);
+    }
+
+    const verse = verses[index];
+    const before = {
+      intervalDays: verse.srs?.intervalDays ?? DEFAULT_SRS_STATE.intervalDays,
+      easeFactor: verse.srs?.easeFactor ?? DEFAULT_SRS_STATE.easeFactor,
+    };
+    const wasDue = isDueAt(verse, now);
+    const kind: AttemptKind =
+      input.level === 3 && wasDue && verse.srs?.lastOfficialReviewDay !== studyDay
+        ? 'official'
+        : 'practice';
+
+    // The verse is persisted before the row is appended, and it alone records the day's
+    // Official Review, so a failed append can never let a second one through.
+    const srsResult =
+      kind === 'official'
+        ? await this.applyOfficialReview(verses, index, input.evaluation.score, now, true)
+        : currentSrsResult(verse.srs, input.evaluation.passed, now);
+
+    const { tokens, rawScore, score } = input.evaluation;
+    const counts = countTokens(tokens);
+    const entry: ReviewLogEntry = {
+      id: createAttemptId(now),
+      schemaVersion: REVIEW_LOG_SCHEMA_VERSION,
+      verseId: verse.id,
+      reviewedAt: now.toISOString(),
+      utcOffsetMinutes: -now.getTimezoneOffset(),
+      studyDay,
+      durationMs: input.durationMs,
+      kind,
+      level: input.level,
+      translation: verse.translation || resolveDefaultTranslation(verse.reference),
+      textHash: hashCanonicalText(verse.text),
+      wordCount: counts.correct + counts.missed,
+      ...counts,
+      rawScore,
+      score,
+      peekedWordPositions: [...(input.peekedWordPositions ?? [])],
+      clozeRevealCount: input.clozeRevealCount,
+      recognizer: input.recognizer,
+      wasDue,
+      gradingRuleId: GRADING_RULE_ID,
+      schedulerId: SCHEDULER_ID,
+      before,
+      after: { intervalDays: srsResult.intervalDays, easeFactor: srsResult.easeFactor },
+      dueStudyDayAfter: srsResult.nextReviewDate,
+    };
+    await this.reviewLog.append(entry);
+
+    return { kind, srsResult, memoryTier: getMemoryTier(verses[index]), entry };
+  }
+
+  /**
+   * Applies a review to the SRS schedule directly, with no classification and no Review Log
+   * row. The app records recitations through `recordAttempt`; nothing in the app calls this.
+   */
   async recordReview(verseId: string, score: number, now = new Date()): Promise<SRSResult> {
     const verses = await this.getAllVerses();
     const index = verses.findIndex((verse) => verse.id === verseId);
     if (index === -1) {
       throw new Error(`Verse not found: ${verseId}`);
     }
+    return this.applyOfficialReview(verses, index, score, now, isDueAt(verses[index], now));
+  }
 
-    const currentVerse = verses[index];
-    const previousReviewDate = currentVerse.srs?.nextReviewDate;
-    const wasUnreviewed =
-      (currentVerse.srs?.streak ?? 0) === 0 && (currentVerse.srs?.intervalDays ?? 0) === 0;
-    const wasDue = wasUnreviewed || isVerseDue(previousReviewDate, now);
-
-    const currentSRS: SRSState = currentVerse.srs || DEFAULT_SRS_STATE;
+  /** Moves the schedule and the daily habit streak for an Official Review, and persists both. */
+  private async applyOfficialReview(
+    verses: Verse[],
+    index: number,
+    score: number,
+    now: Date,
+    wasDue: boolean
+  ): Promise<SRSResult> {
+    const currentSRS: SRSState = verses[index].srs || DEFAULT_SRS_STATE;
     const srsResult = calculateNextReview(currentSRS, score, now);
 
-    const streak = srsResult.streak ?? 0;
     verses[index].srs = {
-      streak,
+      streak: srsResult.streak ?? 0,
       intervalDays: srsResult.intervalDays,
       easeFactor: srsResult.easeFactor,
       nextReviewDate: srsResult.nextReviewDate,
       lastScore: score,
+      lastOfficialReviewDay: toStudyDay(now),
     };
     verses[index].lastScore = score;
 
     await this.persistVerses(verses);
-    await this.updateHabitStreak(verseId, wasDue, now);
+    await this.updateHabitStreak(verses[index].id, wasDue, now);
 
     return srsResult;
   }

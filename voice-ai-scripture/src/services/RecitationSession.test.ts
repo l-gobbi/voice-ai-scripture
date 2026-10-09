@@ -1,20 +1,49 @@
 import {
   RecitationSession,
+  RecitationSessionOptions,
   RecitationState,
   inferVerseLanguage,
   calculateMaxRecitationDurationSeconds,
   formatAcousticPrompt,
 } from './RecitationSession';
-import { Verse, VerseEngine, verseEngine } from './VerseEngine';
-import { SubscriptionService } from './SubscriptionService';
+import { AttemptKind, SRSResult, Verse, VerseEngine, verseEngine } from './VerseEngine';
+import { ReviewLogEntry } from './ReviewLog';
+import { DAILY_LIMIT, SubscriptionService } from './SubscriptionService';
 import { VoiceInput, SimulatedVoiceAdapter } from './VoiceInput';
 import { TranscriptionError } from './SpeechTranscriber';
 import { MockSpeechSynthesizer } from './SpeechSynthesizer';
 import { MapStorageAdapter } from './StorageAdapter';
+import { addStudyDays, toStudyDay } from '../engines/studyDay';
 
 jest.mock('@react-native-async-storage/async-storage', () =>
   require('@react-native-async-storage/async-storage/jest/async-storage-mock')
 );
+
+// Spies never leak from one test into the next.
+afterEach(() => {
+  jest.restoreAllMocks();
+});
+
+/**
+ * Stubs the singleton Verse Engine's attempt operation for tests about other concerns, whose
+ * verses are not stored. Classification itself is covered with a real engine (Ticket 72 below).
+ */
+function stubRecordAttempt(kind: AttemptKind = 'official', srs: Partial<SRSResult> = {}) {
+  return jest.spyOn(verseEngine, 'recordAttempt').mockImplementation(async (input) => ({
+    kind,
+    srsResult: {
+      streak: 1,
+      repetitions: 1,
+      intervalDays: 1,
+      easeFactor: 2.5,
+      nextReviewDate: '2026-10-10',
+      passed: input.evaluation.passed,
+      ...srs,
+    },
+    memoryTier: 'seed',
+    entry: {} as ReviewLogEntry,
+  }));
+}
 
 describe('RecitationSession (Ticket 07)', () => {
   const mockVerse: Verse = {
@@ -147,15 +176,8 @@ describe('RecitationSession (Ticket 07)', () => {
   });
 
   describe('Slice 3: Verification, Myers Diffing, and SRS Updates', () => {
-    it('stops recording, runs diff verification, updates SRS, and transitions to verified', async () => {
-      const recordSpy = jest.spyOn(verseEngine, 'recordReview').mockResolvedValueOnce({
-        streak: 1,
-        repetitions: 1,
-        intervalDays: 1,
-        easeFactor: 2.5,
-        nextReviewDate: '2026-10-10',
-        passed: true,
-      });
+    it('stops recording, runs diff verification, records the attempt, and transitions to verified', async () => {
+      const recordSpy = stubRecordAttempt('official', { streak: 1 });
 
       const session = createTestSession(mockVerse);
       await session.startReciting();
@@ -166,20 +188,20 @@ describe('RecitationSession (Ticket 07)', () => {
       expect(result?.passed).toBe(true);
       expect(result?.score).toBe(100);
       expect(result?.srsResult.streak).toBe(1);
-      expect(recordSpy).toHaveBeenCalledWith('1', 100);
+      expect(result?.kind).toBe('official');
+      expect(recordSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          verseId: '1',
+          level: 3,
+          evaluation: expect.objectContaining({ score: 100, passed: true }),
+        })
+      );
       expect(session.getState().status).toBe('verified');
       expect(session.getState().result).toEqual(result);
     });
 
     it('handles recitation failure: score below threshold resets streak to 0', async () => {
-      const recordSpy = jest.spyOn(verseEngine, 'recordReview').mockResolvedValueOnce({
-        streak: 0,
-        repetitions: 0,
-        intervalDays: 1,
-        easeFactor: 2.5,
-        nextReviewDate: '2026-10-10',
-        passed: false,
-      });
+      const recordSpy = stubRecordAttempt('official', { streak: 0, repetitions: 0 });
 
       const voiceInput = new SimulatedVoiceAdapter({
         defaultTranscript: 'Totally different words',
@@ -193,19 +215,14 @@ describe('RecitationSession (Ticket 07)', () => {
       expect(result?.passed).toBe(false);
       expect(result?.score).toBeLessThan(80);
       expect(result?.srsResult.streak).toBe(0);
-      expect(recordSpy).toHaveBeenCalledWith('1', expect.any(Number));
+      expect(recordSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ verseId: '1', evaluation: expect.objectContaining({ passed: false }) })
+      );
       expect(session.getState().status).toBe('verified');
     });
 
     it('transitions to verifying status during stopAndVerify before resolution', async () => {
-      jest.spyOn(verseEngine, 'recordReview').mockResolvedValueOnce({
-        streak: 1,
-        repetitions: 1,
-        intervalDays: 1,
-        easeFactor: 2.5,
-        nextReviewDate: '2026-10-10',
-        passed: true,
-      });
+      stubRecordAttempt();
 
       let statusDuringVerification: string | null = null;
       let sessionInstance: RecitationSession | null = null;
@@ -282,14 +299,7 @@ describe('RecitationSession (Ticket 07)', () => {
 
   describe('Slice 5: VoiceInput Seam Integration & Error Transitions', () => {
     it('passes canonical reference and verse text as prompt conditioning to VoiceInput', async () => {
-      jest.spyOn(verseEngine, 'recordReview').mockResolvedValueOnce({
-        streak: 1,
-        repetitions: 1,
-        intervalDays: 1,
-        easeFactor: 2.5,
-        nextReviewDate: '2026-10-10',
-        passed: true,
-      });
+      stubRecordAttempt();
 
       const voiceInput = new SimulatedVoiceAdapter({ defaultTranscript: mockVerse.text });
       const startSpy = jest.spyOn(voiceInput, 'start');
@@ -307,14 +317,7 @@ describe('RecitationSession (Ticket 07)', () => {
     });
 
     it('achieves 100% verified recitation score when transcribed speech matches verse text', async () => {
-      jest.spyOn(verseEngine, 'recordReview').mockResolvedValueOnce({
-        streak: 1,
-        repetitions: 1,
-        intervalDays: 1,
-        easeFactor: 2.5,
-        nextReviewDate: '2026-10-10',
-        passed: true,
-      });
+      stubRecordAttempt();
 
       const voiceInput = new SimulatedVoiceAdapter({
         defaultTranscript: mockVerse.text,
@@ -330,14 +333,7 @@ describe('RecitationSession (Ticket 07)', () => {
     });
 
     it('calculates imperfect score when transcribed speech only partially matches verse text', async () => {
-      jest.spyOn(verseEngine, 'recordReview').mockResolvedValueOnce({
-        streak: 0,
-        repetitions: 0,
-        intervalDays: 1,
-        easeFactor: 2.5,
-        nextReviewDate: '2026-10-10',
-        passed: false,
-      });
+      stubRecordAttempt();
 
       const voiceInput = new SimulatedVoiceAdapter({
         defaultTranscript: 'For God loved the world',
@@ -354,7 +350,7 @@ describe('RecitationSession (Ticket 07)', () => {
     });
 
     it('maps network_error TranscriptionError to friendly message without recording review', async () => {
-      const recordSpy = jest.spyOn(verseEngine, 'recordReview');
+      const recordSpy = stubRecordAttempt();
 
       const failingVoiceInput = new SimulatedVoiceAdapter({
         handler: () => {
@@ -407,13 +403,7 @@ describe('RecitationSession (Ticket 07)', () => {
 
   describe('Slice 6: Speech Transcriber Language Priming (Ticket 15)', () => {
     it('passes language: pt when verse translation is ALMEIDA or ONBV', async () => {
-      jest.spyOn(verseEngine, 'recordReview').mockResolvedValue({
-        passed: true,
-        streak: 1,
-        intervalDays: 1,
-        easeFactor: 2.5,
-        nextReviewDate: '2026-10-10',
-      });
+      stubRecordAttempt();
 
       const ptVerse: Verse = {
         id: 'pt-1',
@@ -437,13 +427,7 @@ describe('RecitationSession (Ticket 07)', () => {
     });
 
     it('passes language: en when verse translation is WEB or KJV', async () => {
-      jest.spyOn(verseEngine, 'recordReview').mockResolvedValue({
-        passed: true,
-        streak: 1,
-        intervalDays: 1,
-        easeFactor: 2.5,
-        nextReviewDate: '2026-10-10',
-      });
+      stubRecordAttempt();
 
       const enVerse: Verse = {
         id: 'en-1',
@@ -467,13 +451,7 @@ describe('RecitationSession (Ticket 07)', () => {
     });
 
     it('passes language: pt when verse translation is NVI or ARA', async () => {
-      jest.spyOn(verseEngine, 'recordReview').mockResolvedValue({
-        passed: true,
-        streak: 1,
-        intervalDays: 1,
-        easeFactor: 2.5,
-        nextReviewDate: '2026-10-10',
-      });
+      stubRecordAttempt();
 
       const nviVerse: Verse = {
         id: 'pt-nvi',
@@ -497,13 +475,7 @@ describe('RecitationSession (Ticket 07)', () => {
     });
 
     it('passes language: pt when translation is CUSTOM but reference is Portuguese', async () => {
-      jest.spyOn(verseEngine, 'recordReview').mockResolvedValue({
-        passed: true,
-        streak: 1,
-        intervalDays: 1,
-        easeFactor: 2.5,
-        nextReviewDate: '2026-10-10',
-      });
+      stubRecordAttempt();
 
       const customPtVerse: Verse = {
         id: 'custom-pt',
@@ -527,13 +499,7 @@ describe('RecitationSession (Ticket 07)', () => {
     });
 
     it('passes language: en when translation is CUSTOM and reference is English', async () => {
-      jest.spyOn(verseEngine, 'recordReview').mockResolvedValue({
-        passed: true,
-        streak: 1,
-        intervalDays: 1,
-        easeFactor: 2.5,
-        nextReviewDate: '2026-10-10',
-      });
+      stubRecordAttempt();
 
       const customEnVerse: Verse = {
         id: 'custom-en',
@@ -558,9 +524,9 @@ describe('RecitationSession (Ticket 07)', () => {
   });
 
   describe('Slice 7: Scaffolded Review, Unmetered Practice, and Assisted Score Capping (Ticket 29)', () => {
-    it('in unmetered practice mode, does not consume subscription quota and does not record review on verseEngine', async () => {
+    it('in unmetered practice mode, does not consume subscription quota and leaves classification to the Verse Engine', async () => {
       const consumeSpy = jest.spyOn(SubscriptionService.prototype, 'consumeRecitation');
-      const recordSpy = jest.spyOn(verseEngine, 'recordReview');
+      const recordSpy = stubRecordAttempt('practice');
 
       const session = createTestSession(mockVerse);
       await session.startReciting({ unmetered: true });
@@ -568,37 +534,40 @@ describe('RecitationSession (Ticket 07)', () => {
       expect(consumeSpy).not.toHaveBeenCalled();
       expect(session.getState().status).toBe('reciting');
 
-      const result = await session.stopAndVerify({ unmetered: true });
+      const result = await session.stopAndVerify();
 
-      expect(recordSpy).not.toHaveBeenCalled();
+      // Metering is the caller's choice; whether the attempt schedules is the engine's.
+      expect(recordSpy).toHaveBeenCalledWith(expect.objectContaining({ verseId: mockVerse.id, level: 3 }));
+      expect(result?.kind).toBe('practice');
       expect(result?.score).toBe(100);
       expect(result?.passed).toBe(true);
       expect(session.getState().status).toBe('verified');
+      expect(session.getState().officialResult).toBeNull();
     });
 
-    it('when assistanceUsed is true, caps score at 75% and records capped score to verseEngine', async () => {
+    it('after a Word Peek, caps the score at 75% and records the capped score with the peeked position', async () => {
       jest.spyOn(SubscriptionService.prototype, 'consumeRecitation').mockResolvedValue({
         allowed: true,
         remaining: 5,
         isSubscribed: false,
       });
-
-      const recordSpy = jest.spyOn(verseEngine, 'recordReview').mockResolvedValue({
-        streak: 1,
-        repetitions: 1,
-        intervalDays: 1,
-        easeFactor: 2.5,
-        nextReviewDate: '2026-10-10',
-        passed: false, // 75% is < 80% passing threshold
-      });
+      const recordSpy = stubRecordAttempt();
 
       const session = createTestSession(mockVerse);
-      await session.startReciting({ unmetered: false });
-      const result = await session.stopAndVerify({ unmetered: false, assistanceUsed: true });
+      session.tapWord(0);
+      await session.startReciting();
+      const result = await session.stopAndVerify();
 
-      expect(recordSpy).toHaveBeenCalledWith(mockVerse.id, 75);
+      expect(recordSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          verseId: mockVerse.id,
+          evaluation: expect.objectContaining({ rawScore: 100, score: 75 }),
+          peekedWordPositions: [0],
+        })
+      );
       expect(result?.score).toBe(75);
       expect(session.getState().result?.score).toBe(75);
+      await session.dispose();
     });
   });
 
@@ -797,25 +766,33 @@ describe('RecitationSession (Ticket 07)', () => {
   });
 
   describe('Slice 11: Encapsulated Scoring and Quota Gating by Tier (ADR 0012)', () => {
-    it('in Level 1 and 2, startReciting is unmetered and stopAndVerify does not mutate verseEngine', async () => {
+    it('in Level 1 and 2, recitations are unmetered and recorded as Practice Attempts that leave the schedule alone', async () => {
       const quotaSpy = jest.spyOn(SubscriptionService.prototype, 'consumeRecitation');
-      const recordSpy = jest.spyOn(verseEngine, 'recordReview');
+      const engine = new VerseEngine(new MapStorageAdapter());
+      const verse = await engine.addVerse({ reference: mockVerse.reference, text: mockVerse.text }); // new, so due
 
       const voiceInput = new SimulatedVoiceAdapter({ defaultTranscript: mockVerse.text });
-      const session = new RecitationSession(mockVerse, {
+      const session = new RecitationSession(verse, {
+        verseEngine: engine,
         voiceInput,
-        initialLevel: 2,
+        initialLevel: 1,
         autoVocalizeOnLevel1: false,
       });
 
       await session.startReciting();
-      expect(quotaSpy).not.toHaveBeenCalled();
+      const echo = await session.stopAndVerify();
+      session.nextLevel();
+      await session.startReciting();
+      const cloze = await session.stopAndVerify();
 
-      const result = await session.stopAndVerify();
-      expect(recordSpy).not.toHaveBeenCalled();
-      expect(result?.passed).toBe(true);
+      expect(quotaSpy).not.toHaveBeenCalled();
+      expect(echo?.kind).toBe('practice');
+      expect(cloze?.kind).toBe('practice');
+      expect(cloze?.passed).toBe(true);
       expect(session.getState().currentResult).toBeTruthy();
       expect(session.getState().officialResult).toBeNull();
+      expect((await engine.getAllVerses())[0].srs).toEqual(verse.srs);
+      expect((await engine.getReviewLog(verse.id)).map((row) => row.level)).toEqual([1, 2]);
     });
 
     it('in Level 3 with word peek, stopAndVerify records review capped at 75% and sets officialResult', async () => {
@@ -825,14 +802,7 @@ describe('RecitationSession (Ticket 07)', () => {
         isSubscribed: false,
       });
 
-      const recordSpy = jest.spyOn(verseEngine, 'recordReview').mockResolvedValue({
-        streak: 1,
-        repetitions: 1,
-        intervalDays: 1,
-        easeFactor: 2.5,
-        nextReviewDate: '2026-10-10',
-        passed: false,
-      });
+      const recordSpy = stubRecordAttempt();
 
       const voiceInput = new SimulatedVoiceAdapter({ defaultTranscript: mockVerse.text });
       const session = new RecitationSession(mockVerse, {
@@ -846,9 +816,12 @@ describe('RecitationSession (Ticket 07)', () => {
       await session.startReciting();
       const result = await session.stopAndVerify();
 
-      expect(recordSpy).toHaveBeenCalledWith(mockVerse.id, 75);
+      expect(recordSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ verseId: mockVerse.id, evaluation: expect.objectContaining({ score: 75 }) })
+      );
       expect(result?.score).toBe(75);
       expect(session.getState().officialResult?.score).toBe(75);
+      await session.dispose();
     });
   });
 
@@ -876,12 +849,12 @@ describe('RecitationSession (Ticket 07)', () => {
   });
 
   describe('Slice 13: Sandbox Mode (Ticket 31)', () => {
-    it('defaults initialLevel to 1 and does not consume quota or record SRS in Level 3', async () => {
+    it('defaults initialLevel to 1 and does not consume quota or record anything in Level 3', async () => {
       const exhaustedSubService = new SubscriptionService(
         new MapStorageAdapter({ free_recitations_remaining: '0', user_is_subscribed: 'false' })
       );
       const consumeSpy = jest.spyOn(exhaustedSubService, 'consumeRecitation');
-      const recordSpy = jest.spyOn(verseEngine, 'recordReview');
+      const recordSpy = jest.spyOn(verseEngine, 'recordAttempt');
 
       const voiceInput = new SimulatedVoiceAdapter({ defaultTranscript: mockVerse.text });
 
@@ -904,24 +877,36 @@ describe('RecitationSession (Ticket 07)', () => {
       expect(session.getState().status).toBe('reciting');
       expect(consumeSpy).not.toHaveBeenCalled();
 
-      // Stop and verify at Level 3 - should not call recordReview
+      // Stop and verify at Level 3 - the sandbox verse is not stored, so nothing is recorded
       const result = await session.stopAndVerify();
       expect(result?.score).toBe(100);
+      expect(result?.kind).toBe('practice');
       expect(recordSpy).not.toHaveBeenCalled();
     });
   });
 
   describe('Slice 14: Unmetered Practice Ahead Mode', () => {
-    it('does not consume quota and does not alter persistent SRS intervals when isUnmetered is true', async () => {
+    it('practicing ahead on a verse not yet due uses no quota and does not alter persistent SRS intervals', async () => {
       const exhaustedSubService = new SubscriptionService(
         new MapStorageAdapter({ free_recitations_remaining: '0', user_is_subscribed: 'false' })
       );
       const consumeSpy = jest.spyOn(exhaustedSubService, 'consumeRecitation');
-      const recordSpy = jest.spyOn(verseEngine, 'recordReview');
+      const engine = new VerseEngine(new MapStorageAdapter());
+      const added = await engine.addVerse({ reference: mockVerse.reference, text: mockVerse.text });
+      const notYetDue = await engine.updateVerse(added.id, {
+        srs: {
+          intervalDays: 6,
+          streak: 2,
+          easeFactor: 2.5,
+          nextReviewDate: addStudyDays(toStudyDay(new Date()), 3),
+        },
+      });
 
       const voiceInput = new SimulatedVoiceAdapter({ defaultTranscript: mockVerse.text });
 
-      const session = new RecitationSession(mockVerse, {
+      // The Home Screen opens a verse that is not due as unmetered.
+      const session = new RecitationSession(notYetDue, {
+        verseEngine: engine,
         isUnmetered: true,
         subscriptionService: exhaustedSubService,
         voiceInput,
@@ -935,15 +920,18 @@ describe('RecitationSession (Ticket 07)', () => {
       expect(session.getState().status).toBe('reciting');
       expect(consumeSpy).not.toHaveBeenCalled();
 
-      // Stop and verify at Level 3 - should not alter persistent SRS
+      // Stop and verify at Level 3 - a Practice Attempt: logged, but the SRS state is untouched
       const result = await session.stopAndVerify();
       expect(result?.score).toBe(100);
-      expect(recordSpy).not.toHaveBeenCalled();
+      expect(result?.kind).toBe('practice');
+      expect((await engine.getAllVerses())[0].srs).toEqual(notYetDue.srs);
+      expect(await engine.getReviewLog(notYetDue.id)).toHaveLength(1);
     });
   });
 
   describe('Ticket 42: Raw Transcript Retention for Diagnostics', () => {
     it('retains raw transcribed text in result and session state upon verification', async () => {
+      stubRecordAttempt('practice');
       const voiceInput = new SimulatedVoiceAdapter({
         defaultTranscript: 'o senhor e o meu pastor nada me faltara',
       });
@@ -975,6 +963,7 @@ describe('RecitationSession (Ticket 07)', () => {
     });
 
     it('initializes session with vadProgress: 0 and updates vadProgress during thinking grace period', async () => {
+      stubRecordAttempt();
       let meterCallback: ((level: number) => void) | undefined;
       const voiceInput = new SimulatedVoiceAdapter({
         defaultTranscript: mockVerse.text,
@@ -1028,7 +1017,7 @@ describe('RecitationSession (Ticket 07)', () => {
         defaultTranscript: mockVerse.text,
       });
       const cancelSpy = jest.spyOn(voiceInput, 'cancel');
-      const recordSpy = jest.spyOn(verseEngine, 'recordReview');
+      const recordSpy = jest.spyOn(verseEngine, 'recordAttempt');
 
       const session = new RecitationSession(mockVerse, {
         voiceInput,
@@ -1122,6 +1111,7 @@ describe('RecitationSession (Ticket 07)', () => {
       });
 
       it('automatically completes and verifies recitation when utterance ceiling is reached', async () => {
+        stubRecordAttempt();
         const verseWithCeiling: Verse = {
           id: 'ceiling-test',
           reference: 'Genesis 1:1',
@@ -1177,6 +1167,7 @@ describe('RecitationSession (Ticket 07)', () => {
       });
 
       it('clears utterance ceiling timer if user manually stops and verifies earlier', async () => {
+        stubRecordAttempt();
         const session = createTestSession();
         await session.startReciting();
         expect(session.getState().status).toBe('reciting');
@@ -1241,14 +1232,7 @@ describe('RecitationSession (Ticket 07)', () => {
           cancel: jest.fn().mockResolvedValue(undefined),
         };
 
-        jest.spyOn(verseEngine, 'recordReview').mockResolvedValueOnce({
-          streak: 1,
-          repetitions: 1,
-          intervalDays: 1,
-          easeFactor: 2.5,
-          nextReviewDate: '2026-10-10',
-          passed: true,
-        });
+        stubRecordAttempt();
 
         const session = createTestSession(ptVerse, { voiceInput: mockVoiceInput });
         await session.startReciting();
@@ -1638,4 +1622,247 @@ describe('RecitationSession (Ticket 07)', () => {
   });
 });
 
+describe('RecitationSession: Review Log and Official Review Classification (Ticket 72)', () => {
+  const PSALM_23_1 = {
+    reference: 'Psalm 23:1',
+    text: 'The Lord is my shepherd; I shall not want.',
+    translation: 'WEB',
+  };
+  const DUE_TODAY = { intervalDays: 1, streak: 1, easeFactor: 2.5, nextReviewDate: '2026-10-09' };
+  const NOT_YET_DUE = { ...DUE_TODAY, nextReviewDate: '2026-10-10' };
 
+  /**
+   * A stored verse with a real Verse Engine and a real free-tier Subscription Service on
+   * in-memory storage, the simulated voice input, and a clock the test moves by hand.
+   */
+  async function setup(srs: typeof DUE_TODAY = DUE_TODAY) {
+    const engine = new VerseEngine(new MapStorageAdapter());
+    const added = await engine.addVerse(PSALM_23_1);
+    const verse = await engine.updateVerse(added.id, { srs });
+    const subscription = new SubscriptionService(new MapStorageAdapter());
+    const clock = { now: new Date(2026, 9, 9, 7, 30) };
+    const speech = { transcript: verse.text };
+
+    const open = (options: RecitationSessionOptions = {}) =>
+      new RecitationSession(verse, {
+        verseEngine: engine,
+        subscriptionService: subscription,
+        voiceInput: new SimulatedVoiceAdapter({ handler: () => speech.transcript }),
+        synthesizer: new MockSpeechSynthesizer(),
+        autoVocalizeOnLevel1: false,
+        now: () => clock.now,
+        ...options,
+      });
+
+    return {
+      engine,
+      verse,
+      clock,
+      speech,
+      open,
+      storedSrs: async () => (await engine.getAllVerses())[0].srs,
+      log: () => engine.getReviewLog(verse.id),
+      quotaUsed: async () => DAILY_LIMIT - (await subscription.getRemainingFreeRecitations(clock.now)),
+    };
+  }
+
+  async function recite(session: RecitationSession) {
+    await session.startReciting();
+    const result = await session.stopAndVerify();
+    if (!result) throw new Error(`Recitation was not verified: ${session.getState().errorMessage}`);
+    return result;
+  }
+
+  it('the first Blind Recitation of a Due Verse is the Official Review: it moves the schedule and is logged', async () => {
+    const t = await setup();
+    const session = t.open();
+
+    const result = await recite(session);
+
+    expect(result.kind).toBe('official');
+    expect(result.srsResult).toMatchObject({ intervalDays: 6, nextReviewDate: '2026-10-15' });
+    expect(session.getState().officialResult).toEqual(result);
+    expect(await t.storedSrs()).toMatchObject({ intervalDays: 6, nextReviewDate: '2026-10-15' });
+    expect(await t.log()).toEqual([
+      expect.objectContaining({
+        kind: 'official',
+        level: 3,
+        studyDay: '2026-10-09',
+        reviewedAt: t.clock.now.toISOString(),
+        recognizer: 'simulated',
+        rawScore: 100,
+        wasDue: true,
+      }),
+    ]);
+    expect(await t.quotaUsed()).toBe(1);
+    await session.dispose();
+  });
+
+  it('Practice Again on a Due Verse is a Practice Attempt: the schedule stays and officialResult keeps the first attempt', async () => {
+    const t = await setup();
+    const session = t.open();
+    const official = await recite(session);
+    const scheduled = await t.storedSrs();
+
+    session.practiceAgain();
+    t.clock.now = new Date(2026, 9, 9, 7, 35);
+    t.speech.transcript = 'The Lord is my shepherd';
+    const again = await recite(session);
+
+    expect(again.kind).toBe('practice');
+    // `passed` and the score keep their score-threshold meaning.
+    expect(again.passed).toBe(false);
+    expect(again.score).toBeLessThan(80);
+    expect(again.srsResult).toMatchObject({ intervalDays: 6, nextReviewDate: '2026-10-15' });
+    expect(session.getState().currentResult).toEqual(again);
+    expect(session.getState().officialResult).toEqual(official);
+    expect(await t.storedSrs()).toEqual(scheduled);
+    expect((await t.log()).map((row) => row.kind)).toEqual(['official', 'practice']);
+    // Quota metering is unchanged: every metered Blind Recitation uses a unit.
+    expect(await t.quotaUsed()).toBe(2);
+    await session.dispose();
+  });
+
+  it('a Blind Recitation of a verse that is not yet due is a Practice Attempt', async () => {
+    const t = await setup(NOT_YET_DUE);
+    const session = t.open({ isUnmetered: true }); // as the Home Screen opens a verse that is not due
+
+    const result = await recite(session);
+
+    expect(result.kind).toBe('practice');
+    expect(result.passed).toBe(true);
+    expect(session.getState().officialResult).toBeNull();
+    expect(await t.storedSrs()).toMatchObject(NOT_YET_DUE);
+    expect(await t.log()).toEqual([expect.objectContaining({ kind: 'practice', level: 3, wasDue: false })]);
+    expect(await t.quotaUsed()).toBe(0);
+    await session.dispose();
+  });
+
+  it('the unmetered flag only skips quota: it neither makes nor prevents an Official Review', async () => {
+    const due = await setup();
+    const unmetered = due.open({ isUnmetered: true });
+    expect((await recite(unmetered)).kind).toBe('official');
+    expect(await due.quotaUsed()).toBe(0);
+
+    const notDue = await setup(NOT_YET_DUE);
+    const metered = notDue.open();
+    expect((await recite(metered)).kind).toBe('practice');
+    expect(await notDue.storedSrs()).toMatchObject(NOT_YET_DUE);
+
+    await unmetered.dispose();
+    await metered.dispose();
+  });
+
+  it('Echo Mode and Cloze Practice recitations are logged as Practice Attempts and leave the Official Review for Level 3', async () => {
+    const t = await setup();
+    const session = t.open({ initialLevel: 1 });
+
+    const echo = await recite(session);
+    session.nextLevel();
+    session.tapWord(0);
+    session.tapWord(1);
+    const cloze = await recite(session);
+    expect(echo.kind).toBe('practice');
+    expect(cloze.kind).toBe('practice');
+    expect(session.getState().officialResult).toBeNull();
+    expect(await t.storedSrs()).toMatchObject(DUE_TODAY);
+
+    session.nextLevel();
+    const blind = await recite(session);
+    expect(blind.kind).toBe('official');
+    expect(session.getState().officialResult).toEqual(blind);
+
+    expect(
+      (await t.log()).map((row) => ({ level: row.level, kind: row.kind, clozeRevealCount: row.clozeRevealCount }))
+    ).toEqual([
+      { level: 1, kind: 'practice', clozeRevealCount: undefined },
+      { level: 2, kind: 'practice', clozeRevealCount: 2 },
+      { level: 3, kind: 'official', clozeRevealCount: undefined },
+    ]);
+    expect(await t.quotaUsed()).toBe(1);
+    await session.dispose();
+  });
+
+  it('listening in Echo Mode without reciting, or cancelling a recitation, is not logged', async () => {
+    const t = await setup();
+    const session = t.open({ initialLevel: 1 });
+
+    await session.vocalize();
+    await session.startReciting();
+    await session.cancelRecitation();
+
+    expect(await t.log()).toEqual([]);
+    await session.dispose();
+  });
+
+  it('logs the peeked word positions and the duration measured on the injected clock', async () => {
+    const t = await setup();
+    const session = t.open();
+
+    session.tapWord(4);
+    session.tapWord(2);
+    session.tapWord(4);
+    await session.startReciting();
+    t.clock.now = new Date(2026, 9, 9, 7, 30, 6);
+    const result = await session.stopAndVerify();
+
+    expect(result?.score).toBe(75);
+    const [row] = await t.log();
+    expect(row.peekedWordPositions).toEqual([2, 4]);
+    expect(row.durationMs).toBe(6000);
+    expect(row.reviewedAt).toBe(t.clock.now.toISOString());
+    await session.dispose();
+  });
+
+  it('the injected clock decides the Study Day: a forgotten verse is practice until 04:00, then official again', async () => {
+    const t = await setup();
+    t.speech.transcript = 'I do not remember';
+    const first = t.open();
+    expect(await recite(first)).toMatchObject({ kind: 'official', passed: false });
+    expect((await t.storedSrs())?.nextReviewDate).toBe('2026-10-10');
+
+    t.speech.transcript = PSALM_23_1.text;
+    t.clock.now = new Date(2026, 9, 10, 3, 59);
+    first.practiceAgain();
+    expect((await recite(first)).kind).toBe('practice');
+
+    t.clock.now = new Date(2026, 9, 10, 4, 0);
+    const nextDay = t.open();
+    expect((await recite(nextDay)).kind).toBe('official');
+
+    expect((await t.log()).map((row) => [row.studyDay, row.kind])).toEqual([
+      ['2026-10-09', 'official'],
+      ['2026-10-09', 'practice'],
+      ['2026-10-10', 'official'],
+    ]);
+    await first.dispose();
+    await nextDay.dispose();
+  });
+
+  it('in sandbox mode nothing is recorded, because the sandbox verse is not stored yet', async () => {
+    const t = await setup();
+    const sandboxVerse: Verse = { id: 'sandbox-psalm-23-1', ...PSALM_23_1 };
+    const recordSpy = jest.spyOn(t.engine, 'recordAttempt');
+    const session = new RecitationSession(sandboxVerse, {
+      verseEngine: t.engine,
+      subscriptionService: new SubscriptionService(new MapStorageAdapter()),
+      voiceInput: new SimulatedVoiceAdapter({ defaultTranscript: PSALM_23_1.text }),
+      synthesizer: new MockSpeechSynthesizer(),
+      autoVocalizeOnLevel1: false,
+      isSandbox: true,
+      now: () => t.clock.now,
+    });
+
+    const echo = await recite(session);
+    session.setLevel(3);
+    const blind = await recite(session);
+
+    expect(echo.kind).toBe('practice');
+    expect(blind).toMatchObject({ kind: 'practice', score: 100, passed: true });
+    expect(session.getState().status).toBe('verified');
+    expect(session.getState().officialResult).toBeNull();
+    expect(recordSpy).not.toHaveBeenCalled();
+    expect(await t.engine.getReviewLog(sandboxVerse.id)).toEqual([]);
+    await session.dispose();
+  });
+});

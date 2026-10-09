@@ -1,4 +1,12 @@
-import { Verse, VerseEngine, verseEngine, SRSResult } from './VerseEngine';
+import {
+  AttemptKind,
+  Recognizer,
+  Verse,
+  VerseEngine,
+  verseEngine,
+  SRSResult,
+  currentSrsResult,
+} from './VerseEngine';
 import { SubscriptionService, subscriptionService } from './SubscriptionService';
 import {
   generateClozeTokens,
@@ -19,6 +27,8 @@ import { scriptureCatalog } from './ScriptureCatalog';
 import {
   VoiceInput,
   SimulatedVoiceAdapter,
+  NativeStreamVoiceAdapter,
+  CloudAudioVoiceAdapter,
   createDefaultVoiceInput,
 } from './VoiceInput';
 import {
@@ -81,6 +91,19 @@ export interface VoiceRecitationResult {
   passed: boolean;
   srsResult: SRSResult;
   rawTranscript?: string;
+  /**
+   * Official Review or Practice Attempt, as the Verse Engine classified it. Sandbox attempts
+   * are practice and are not recorded.
+   */
+  kind: AttemptKind;
+}
+
+/** Which recognizer produced the transcript, when the voice input is one of the app's adapters. */
+function recognizerOf(voiceInput: VoiceInput): Recognizer | undefined {
+  if (voiceInput instanceof NativeStreamVoiceAdapter) return 'native';
+  if (voiceInput instanceof CloudAudioVoiceAdapter) return 'cloud';
+  if (voiceInput instanceof SimulatedVoiceAdapter) return 'simulated';
+  return undefined;
 }
 
 export interface RecitationState {
@@ -110,8 +133,11 @@ export interface RecitationSessionOptions {
   initialLevel?: RecitationLevel;
   autoVocalizeOnLevel1?: boolean;
   isSandbox?: boolean;
+  /** Skips the recitation quota. It never decides scheduling: the Verse Engine does. */
   isUnmetered?: boolean;
   vadConfig?: VADConfig;
+  /** The clock for Study Days and timing (defaults to the system time). */
+  now?: () => Date;
 }
 
 export class RecitationSession {
@@ -128,6 +154,10 @@ export class RecitationSession {
   private utteranceCeilingTimer: NodeJS.Timeout | null = null;
   private listeners: Set<(state: RecitationState) => void> = new Set();
   private peekTimers: Map<number, NodeJS.Timeout> = new Map();
+  private now: () => Date;
+  /** Word positions peeked with the Word Peek Lifeline, alongside `assistanceUsed`. */
+  private peekedWordPositions: Set<number> = new Set();
+  private recitationStartedAt: Date | null = null;
 
   private state: RecitationState;
 
@@ -141,6 +171,7 @@ export class RecitationSession {
     this.isUnmetered = options?.isUnmetered ?? false;
     this.vadConfig = options?.vadConfig;
     this.voiceInput = options?.voiceInput ?? createDefaultVoiceInput();
+    this.now = options?.now ?? (() => new Date());
 
     const initialLevel = options?.initialLevel ?? (this.isSandbox ? 1 : 3);
     const clozeTokens = this.getClozeTokensForLevel(initialLevel);
@@ -214,6 +245,7 @@ export class RecitationSession {
 
     this.clearPeekTimers();
     this.synthesizer.stop().catch(() => {});
+    this.peekedWordPositions.clear();
 
     const clozeTokens = this.getClozeTokensForLevel(level);
 
@@ -270,6 +302,7 @@ export class RecitationSession {
       this.setState({ clozeTokens });
     } else if (this.state.level === 3) {
       const clozeTokens = revealWord(this.state.clozeTokens, index);
+      this.peekedWordPositions.add(index);
       this.setState({ clozeTokens, assistanceUsed: true });
 
       const existingTimer = this.peekTimers.get(index);
@@ -308,6 +341,7 @@ export class RecitationSession {
     }
   }
 
+  /** `unmetered` skips the recitation quota for this attempt; it does not affect scheduling. */
   async startReciting(options?: { unmetered?: boolean }): Promise<void> {
     await this.synthesizer.stop().catch(() => {});
 
@@ -334,7 +368,7 @@ export class RecitationSession {
       // 2. Quota & Rate Limit Gating Check
       const isUnmetered = this.isSandbox || this.isUnmetered || (options?.unmetered ?? (this.state.level !== 3));
       if (!isUnmetered) {
-        const rateLimit = await this.subscriptionService.consumeRecitation();
+        const rateLimit = await this.subscriptionService.consumeRecitation(this.now());
         if (!rateLimit.allowed) {
           const isRateLimited = rateLimit.reason === 'rate_limited';
           const isPt = inferVerseLanguage(this.verse) === 'pt';
@@ -414,6 +448,7 @@ export class RecitationSession {
       });
 
       this.vad.start();
+      this.recitationStartedAt = this.now();
 
       // Utterance ceiling backstop: auto-complete runaway recordings and prevent Whisper hallucinations
       this.clearUtteranceCeilingTimer();
@@ -446,10 +481,7 @@ export class RecitationSession {
     }
   }
 
-  async stopAndVerify(options?: {
-    unmetered?: boolean;
-    assistanceUsed?: boolean;
-  }): Promise<VoiceRecitationResult | null> {
+  async stopAndVerify(): Promise<VoiceRecitationResult | null> {
     if (this.state.status !== 'reciting') {
       return null;
     }
@@ -466,46 +498,62 @@ export class RecitationSession {
     try {
       const voiceResult = await this.voiceInput.stop();
       const transcript = voiceResult.transcript;
+      const now = this.now();
+      const level = this.state.level;
 
-      const isUnmetered = this.isSandbox || this.isUnmetered || (options?.unmetered ?? (this.state.level !== 3));
-      const assistanceUsed = options?.assistanceUsed ?? this.state.assistanceUsed;
-
-      // Pure Recitation Evaluator Pipeline
+      // Pure Recitation Evaluator Pipeline (grading only; the Verse Engine schedules)
       const evalResult = evaluateRecitation({
         expectedText: this.verse.text,
         transcribedText: transcript,
         reference: scriptureCatalog.resolveReference(this.verse.reference),
         language: inferVerseLanguage(this.verse),
-        assistanceUsed,
-        currentSRS: this.verse.srs,
-        isUnmetered,
+        assistanceUsed: this.state.assistanceUsed,
       });
 
+      let kind: AttemptKind;
       let srsResult: SRSResult;
-      if (isUnmetered) {
-        srsResult = evalResult.srsResult;
+      if (this.isSandbox) {
+        // The sandbox verse is not stored yet, so nothing is recorded (ticket 79 saves it).
+        kind = 'practice';
+        srsResult = currentSrsResult(this.verse.srs, evalResult.passed, now);
       } else {
-        srsResult = await this.verseEngine.recordReview(this.verse.id, evalResult.finalScore);
+        const recorded = await this.verseEngine.recordAttempt({
+          verseId: this.verse.id,
+          level,
+          evaluation: {
+            tokens: evalResult.tokens,
+            rawScore: evalResult.rawScore,
+            score: evalResult.finalScore,
+            passed: evalResult.passed,
+          },
+          peekedWordPositions:
+            level === 3 ? [...this.peekedWordPositions].sort((a, b) => a - b) : [],
+          clozeRevealCount:
+            level === 2 ? this.state.clozeTokens.filter((token) => token.isRevealed).length : undefined,
+          recognizer: recognizerOf(this.voiceInput),
+          durationMs: this.recitationStartedAt
+            ? Math.max(0, now.getTime() - this.recitationStartedAt.getTime())
+            : undefined,
+          now,
+        });
+        kind = recorded.kind;
+        srsResult = recorded.srsResult;
       }
-      const passed = srsResult.passed;
 
       const result: VoiceRecitationResult = {
         tokens: evalResult.tokens,
         score: evalResult.finalScore,
-        passed,
+        passed: evalResult.passed,
         srsResult,
         rawTranscript: transcript,
+        kind,
       };
-
-      const officialResult = (!isUnmetered && this.state.level === 3)
-        ? result
-        : this.state.officialResult;
 
       this.setState({
         status: 'verified',
         currentResult: result,
         result,
-        officialResult,
+        officialResult: kind === 'official' ? result : this.state.officialResult,
         rawTranscript: transcript,
       });
       return result;

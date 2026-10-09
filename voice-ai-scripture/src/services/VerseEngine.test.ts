@@ -7,6 +7,8 @@ import {
   memoryTierLabel,
 } from './VerseEngine';
 import { isStudyDay } from '../engines/studyDay';
+import { evaluateRecitation } from '../engines/recitationEvaluator';
+import { hashCanonicalText } from './ReviewLog';
 
 // Instants are built from local components (month is 1-based here) so every test holds in
 // any machine time zone. The Study Day rolls over at 04:00 local time.
@@ -877,6 +879,252 @@ describe('VerseEngine (Ticket 09)', () => {
       expect(memoryTierLabel('growing', 'pt')).toBe('Crescendo');
       expect(memoryTierLabel('rooted', 'pt')).toBe('Enraizado');
       expect(memoryTierLabel('hidden_in_the_heart', 'pt')).toBe('Guardado no coração');
+    });
+  });
+
+  describe('Slice 14: Review Log and Official Review Classification (Ticket 72)', () => {
+    const PSALM_23_1 = {
+      reference: 'Psalm 23:1',
+      text: 'The Lord is my shepherd; I shall not want.',
+      translation: 'WEB',
+    };
+
+    /** A stored verse whose SRS state (due Study Day, interval, ease) the test sets explicitly. */
+    async function storedVerse(
+      srs: { intervalDays: number; streak: number; easeFactor: number; nextReviewDate: string },
+      verseData = PSALM_23_1
+    ) {
+      const storage = new MapStorageAdapter();
+      const engine = new VerseEngine(storage);
+      const added = await engine.addVerse(verseData);
+      const verse = await engine.updateVerse(added.id, { srs });
+      return { storage, engine, verse };
+    }
+
+    /** Records a recitation of `transcript` through the engine's single attempt operation. */
+    function recite(
+      engine: VerseEngine,
+      verse: Verse,
+      level: 1 | 2 | 3,
+      transcript: string,
+      now: Date,
+      extra: { peekedWordPositions?: number[]; clozeRevealCount?: number; durationMs?: number } = {}
+    ) {
+      const evaluation = evaluateRecitation({
+        expectedText: verse.text,
+        transcribedText: transcript,
+        assistanceUsed: (extra.peekedWordPositions?.length ?? 0) > 0,
+      });
+      return engine.recordAttempt({
+        verseId: verse.id,
+        level,
+        evaluation: {
+          tokens: evaluation.tokens,
+          rawScore: evaluation.rawScore,
+          score: evaluation.finalScore,
+          passed: evaluation.passed,
+        },
+        recognizer: 'simulated',
+        now,
+        ...extra,
+      });
+    }
+
+    const storedSrs = async (engine: VerseEngine) => (await engine.getAllVerses())[0].srs;
+
+    const DUE_TODAY = { intervalDays: 1, streak: 1, easeFactor: 2.5, nextReviewDate: '2026-10-09' };
+    const morning = at(2026, 10, 9, 7, 30);
+
+    it('the first Blind Recitation of a Due Verse on a Study Day is an Official Review that moves the schedule', async () => {
+      const { engine, verse } = await storedVerse(DUE_TODAY);
+
+      const attempt = await recite(engine, verse, 3, verse.text, morning);
+
+      expect(attempt.kind).toBe('official');
+      expect(attempt.srsResult).toMatchObject({ intervalDays: 6, nextReviewDate: '2026-10-15', passed: true });
+      expect(attempt.memoryTier).toBe('seed');
+      expect(await storedSrs(engine)).toMatchObject({ intervalDays: 6, nextReviewDate: '2026-10-15' });
+      expect((await engine.getReviewLog(verse.id)).map((r) => r.kind)).toEqual(['official']);
+    });
+
+    it('Practice Again: a second Blind Recitation the same Study Day is a Practice Attempt and leaves the schedule untouched', async () => {
+      const { engine, verse } = await storedVerse(DUE_TODAY);
+      await recite(engine, verse, 3, verse.text, morning);
+      const afterOfficial = await storedSrs(engine);
+
+      const again = await recite(engine, verse, 3, verse.text, at(2026, 10, 9, 7, 35));
+      const thirdTime = await recite(engine, verse, 3, verse.text, at(2026, 10, 10, 1, 0)); // still Oct 9's Study Day
+
+      expect(again.kind).toBe('practice');
+      expect(thirdTime.kind).toBe('practice');
+      expect(again.srsResult).toMatchObject({ intervalDays: 6, nextReviewDate: '2026-10-15', passed: true });
+      expect(await storedSrs(engine)).toEqual(afterOfficial);
+      expect((await engine.getReviewLog(verse.id)).map((r) => r.kind)).toEqual([
+        'official',
+        'practice',
+        'practice',
+      ]);
+    });
+
+    it('allows only one Official Review per Study Day even if the verse is due again that day', async () => {
+      const { engine, verse } = await storedVerse(DUE_TODAY);
+      await recite(engine, verse, 3, verse.text, morning);
+      // A scheduler that left the verse due today must still not get a second Official Review.
+      await engine.updateVerse(verse.id, {
+        srs: { intervalDays: 6, streak: 2, easeFactor: 2.6, nextReviewDate: '2026-10-09' },
+      });
+
+      const again = await recite(engine, verse, 3, verse.text, at(2026, 10, 9, 21, 0));
+
+      expect(again.kind).toBe('practice');
+      expect((await storedSrs(engine))?.nextReviewDate).toBe('2026-10-09');
+    });
+
+    it('a Blind Recitation of a verse that is not yet due is a Practice Attempt', async () => {
+      const { engine, verse } = await storedVerse({ ...DUE_TODAY, nextReviewDate: '2026-10-10' });
+
+      const early = await recite(engine, verse, 3, verse.text, morning);
+
+      expect(early.kind).toBe('practice');
+      expect(early.srsResult).toMatchObject({ intervalDays: 1, nextReviewDate: '2026-10-10', passed: true });
+      expect(await storedSrs(engine)).toMatchObject({ intervalDays: 1, nextReviewDate: '2026-10-10' });
+      expect(await engine.getReviewLog(verse.id)).toEqual([
+        expect.objectContaining({ kind: 'practice', wasDue: false }),
+      ]);
+    });
+
+    it('Echo Mode and Cloze Practice recitations are Practice Attempts and keep the day’s Official Review available', async () => {
+      const { engine, verse } = await storedVerse(DUE_TODAY);
+
+      const echo = await recite(engine, verse, 1, verse.text, morning);
+      const cloze = await recite(engine, verse, 2, verse.text, at(2026, 10, 9, 7, 32), { clozeRevealCount: 2 });
+      expect(echo.kind).toBe('practice');
+      expect(cloze.kind).toBe('practice');
+      expect(await storedSrs(engine)).toMatchObject(DUE_TODAY);
+
+      const blind = await recite(engine, verse, 3, verse.text, at(2026, 10, 9, 7, 34));
+      expect(blind.kind).toBe('official');
+
+      expect(
+        (await engine.getReviewLog(verse.id)).map((r) => [r.level, r.kind, r.clozeRevealCount])
+      ).toEqual([
+        [1, 'practice', undefined],
+        [2, 'practice', 2],
+        [3, 'official', undefined],
+      ]);
+    });
+
+    it('a verse forgotten today can be officially reviewed again from 04:00 on the next Study Day', async () => {
+      const { engine, verse } = await storedVerse(DUE_TODAY);
+      const forgotten = await recite(engine, verse, 3, 'I do not remember', morning);
+      expect(forgotten).toMatchObject({ kind: 'official', srsResult: { passed: false, nextReviewDate: '2026-10-10' } });
+
+      expect((await recite(engine, verse, 3, verse.text, at(2026, 10, 10, 3, 59))).kind).toBe('practice');
+      expect((await recite(engine, verse, 3, verse.text, at(2026, 10, 10, 4, 0))).kind).toBe('official');
+    });
+
+    it('a never-reviewed verse is due, so its first Blind Recitation is official', async () => {
+      const engine = new VerseEngine(new MapStorageAdapter());
+      const verse = await engine.addVerse(PSALM_23_1);
+
+      const first = await recite(engine, verse, 3, verse.text, new Date());
+
+      expect(first.kind).toBe('official');
+      expect(first.srsResult.intervalDays).toBe(1);
+    });
+
+    it('only Official Reviews advance the daily habit streak', async () => {
+      const { engine, verse } = await storedVerse({ ...DUE_TODAY, nextReviewDate: '2026-10-10' });
+
+      await recite(engine, verse, 3, verse.text, morning); // not due: practice
+      await recite(engine, verse, 2, verse.text, morning);
+      expect((await engine.getHabitStats(morning)).currentStreak).toBe(0);
+
+      await recite(engine, verse, 3, verse.text, at(2026, 10, 10, 8, 0)); // due: official
+      const habit = await engine.getHabitStats(at(2026, 10, 10, 8, 0));
+      expect(habit.currentStreak).toBe(1);
+      expect(habit.completedTodayCount).toBe(1);
+    });
+
+    it('logs each attempt with timing, classification, raw outcome, recognizer and scheduling', async () => {
+      const { engine, verse } = await storedVerse(DUE_TODAY);
+      const transcript = 'The Lord is my good shepherd; I shall not';
+
+      await recite(engine, verse, 3, transcript, morning, { peekedWordPositions: [3], durationMs: 5400 });
+
+      const [entry] = await engine.getReviewLog(verse.id);
+      expect(entry).toEqual({
+        id: expect.any(String),
+        schemaVersion: 1,
+        verseId: verse.id,
+        reviewedAt: morning.toISOString(),
+        utcOffsetMinutes: -morning.getTimezoneOffset(),
+        studyDay: '2026-10-09',
+        durationMs: 5400,
+        kind: 'official',
+        level: 3,
+        translation: 'WEB',
+        textHash: hashCanonicalText(PSALM_23_1.text),
+        wordCount: 9,
+        correct: 8,
+        missed: 1,
+        added: 1,
+        rawScore: 89,
+        score: 75,
+        peekedWordPositions: [3],
+        recognizer: 'simulated',
+        wasDue: true,
+        gradingRuleId: expect.any(String),
+        schedulerId: expect.any(String),
+        before: { intervalDays: 1, easeFactor: 2.5 },
+        after: { intervalDays: 1, easeFactor: 2.5 },
+        dueStudyDayAfter: '2026-10-10',
+      });
+      // Error Budget, outcome and SM-2 quality are filled by later tickets (73).
+      expect(entry.errorCount).toBeUndefined();
+      expect(entry.outcome).toBeUndefined();
+      expect(entry.sm2Quality).toBeUndefined();
+    });
+
+    it('gives every row its own id', async () => {
+      const { engine, verse } = await storedVerse(DUE_TODAY);
+      await recite(engine, verse, 3, verse.text, morning);
+      await recite(engine, verse, 3, verse.text, morning);
+
+      const ids = (await engine.getReviewLog(verse.id)).map((r) => r.id);
+      expect(new Set(ids).size).toBe(2);
+    });
+
+    it('keeps the Review Log out of the verses record', async () => {
+      const { storage, engine, verse } = await storedVerse({ ...DUE_TODAY, nextReviewDate: '2026-10-10' });
+      const versesBefore = await storage.getItem('verses');
+
+      await recite(engine, verse, 3, verse.text, morning);
+      await recite(engine, verse, 1, verse.text, morning);
+
+      expect(await storage.getItem('verses')).toBe(versesBefore);
+      expect(await engine.getReviewLog(verse.id)).toHaveLength(2);
+    });
+
+    it('deleting a verse deletes its Review Log rows and keeps other verses’ rows', async () => {
+      const { engine, verse } = await storedVerse(DUE_TODAY);
+      const other = await engine.addVerse({ reference: 'John 11:35', text: 'Jesus wept.' });
+      await recite(engine, verse, 3, verse.text, morning);
+      await recite(engine, verse, 3, verse.text, at(2026, 11, 2, 8, 0)); // another month's shard
+      await recite(engine, other, 3, other.text, morning);
+
+      expect(await engine.deleteVerse(verse.id)).toBe(true);
+
+      expect(await engine.getReviewLog(verse.id)).toEqual([]);
+      expect(await engine.getReviewLog(other.id)).toHaveLength(1);
+    });
+
+    it('rejects an attempt for a verse that is not stored', async () => {
+      const engine = new VerseEngine(new MapStorageAdapter());
+      const ghost: Verse = { id: 'ghost', ...PSALM_23_1 };
+
+      await expect(recite(engine, ghost, 3, ghost.text, morning)).rejects.toThrow('Verse not found');
+      expect(await engine.getReviewLog('ghost')).toEqual([]);
     });
   });
 });

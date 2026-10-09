@@ -1,6 +1,7 @@
 import { RecitationSession } from './RecitationSession';
 import { Verse, verseEngine } from './VerseEngine';
 import { AudioDriver, CloudAudioVoiceAdapter } from './VoiceInput';
+import { ReviewLogEntry } from './ReviewLog';
 
 describe('Reproduction: Mobile Expo Go Recitation without API Key', () => {
   const mockVerse: Verse = {
@@ -20,14 +21,23 @@ describe('Reproduction: Mobile Expo Go Recitation without API Key', () => {
       stopRecording: jest.fn().mockResolvedValue('file:///audio/recording.m4a'),
       deleteAudioFile: jest.fn().mockResolvedValue(true),
     };
-    jest.spyOn(verseEngine, 'recordReview').mockResolvedValue({
-      streak: 1,
-      repetitions: 1,
-      intervalDays: 1,
-      easeFactor: 2.5,
-      nextReviewDate: '2026-10-10',
-      passed: true,
-    });
+    jest.spyOn(verseEngine, 'recordAttempt').mockImplementation(async (input) => ({
+      kind: 'official',
+      srsResult: {
+        streak: 1,
+        repetitions: 1,
+        intervalDays: 1,
+        easeFactor: 2.5,
+        nextReviewDate: '2026-10-10',
+        passed: input.evaluation.passed,
+      },
+      memoryTier: 'seed',
+      entry: {} as ReviewLogEntry,
+    }));
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   it('fails gracefully with informative message when no API key or speech driver is available by default', async () => {
@@ -52,6 +62,7 @@ describe('Reproduction: Mobile Expo Go Recitation without API Key', () => {
     expect(session.getState().errorMessage).toBeNull();
     expect(session.getState().status).toBe('verified');
     expect(result).not.toBeNull();
-    expect(result?.passed).toBe(true);
+    // The dev fallback "hears" the acoustic prompt, which carries no verse text (ticket 67).
+    expect(result?.rawTranscript).toBe('Holy Bible. Translation: WEB. Reference: John 3:16.');
   });
 });

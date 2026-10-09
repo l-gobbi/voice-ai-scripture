@@ -29,6 +29,7 @@ interface ReviewScreenProps {
   voiceInput?: VoiceInput;
   isSandbox?: boolean;
   onSandboxComplete?: (verse: Verse, saveRequested: boolean) => void;
+  /** Skips the recitation quota. Whether a recitation is an Official Review is the Verse Engine's call. */
   isUnmetered?: boolean;
 }
 
@@ -303,6 +304,8 @@ export default function ReviewScreen({
                     {level === 3
                       ? isSandbox
                         ? '🎉 Sandbox Recitation Complete!'
+                        : currentResult.kind === 'practice'
+                        ? '✅ Practice Attempt (Schedule Unchanged)'
                         : currentResult.passed
                         ? '🎉 Official Review Recorded!'
                         : '🔄 Reinforcement Scheduled for Tomorrow'
@@ -347,7 +350,7 @@ export default function ReviewScreen({
               vadProgress={vadProgress}
               language={language}
               onStart={() => startReciting({ unmetered: isUnmetered })}
-              onStop={() => stopAndVerify({ unmetered: isUnmetered })}
+              onStop={() => stopAndVerify()}
               onCancel={cancelRecitation}
               disabled={isVerifying}
             />

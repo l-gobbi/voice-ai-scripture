@@ -62,19 +62,14 @@ export function useRecitationSession(
     await sessionRef.current?.warmUp();
   }, []);
 
+  /** `unmetered` skips the recitation quota only; the Verse Engine decides scheduling. */
   const startReciting = useCallback(async (opts?: { unmetered?: boolean }) => {
     await sessionRef.current?.startReciting(opts);
   }, []);
 
-  const stopAndVerify = useCallback(
-    async (opts?: {
-      unmetered?: boolean;
-      assistanceUsed?: boolean;
-    }): Promise<VoiceRecitationResult | null> => {
-      return (await sessionRef.current?.stopAndVerify(opts)) ?? null;
-    },
-    []
-  );
+  const stopAndVerify = useCallback(async (): Promise<VoiceRecitationResult | null> => {
+    return (await sessionRef.current?.stopAndVerify()) ?? null;
+  }, []);
 
   const reset = useCallback(async () => {
     await sessionRef.current?.reset();

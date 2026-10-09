@@ -8,10 +8,29 @@ import {
   MockSpeechSynthesizer,
 } from '../services/SpeechSynthesizer';
 import { SimulatedVoiceAdapter } from '../services/VoiceInput';
+import { ReviewLogEntry } from '../services/ReviewLog';
+import { addStudyDays, toStudyDay } from '../engines/studyDay';
 
 jest.mock('@react-native-async-storage/async-storage', () =>
   require('@react-native-async-storage/async-storage/jest/async-storage-mock')
 );
+
+/** Stubs the singleton Verse Engine's attempt operation for verses that are not stored. */
+function stubRecordAttempt() {
+  return jest.spyOn(verseEngine, 'recordAttempt').mockImplementation(async (input) => ({
+    kind: 'official',
+    srsResult: {
+      streak: 1,
+      repetitions: 1,
+      intervalDays: 1,
+      easeFactor: 2.5,
+      nextReviewDate: '2026-10-10',
+      passed: input.evaluation.passed,
+    },
+    memoryTier: 'seed',
+    entry: {} as ReviewLogEntry,
+  }));
+}
 
 describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)', () => {
   const mockVerse: Verse = {
@@ -106,14 +125,7 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
 
   it('in Level 3 (Blind Recitation), tapping a word triggers Word Peek Lifeline and caps score at 75%', async () => {
     const onComplete = jest.fn();
-    const recordSpy = jest.spyOn(verseEngine, 'recordReview').mockResolvedValue({
-      streak: 1,
-      repetitions: 1,
-      intervalDays: 1,
-      easeFactor: 2.5,
-      nextReviewDate: '2026-10-10',
-      passed: true,
-    });
+    const recordSpy = stubRecordAttempt();
 
     const mockVoiceInput = new SimulatedVoiceAdapter({
       defaultTranscript: mockVerse.text,
@@ -158,8 +170,9 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
 
     // Verify assisted score is recorded and capped at 75%
     expect(recordSpy).toHaveBeenCalled();
-    const recordedScore = recordSpy.mock.calls[0][1];
+    const recordedScore = recordSpy.mock.calls[0][0].evaluation.score;
     expect(recordedScore).toBeLessThanOrEqual(75);
+    recordSpy.mockRestore();
   });
 
   it('in Level 3 (Blind Recitation), multiple word peeks each schedule an independent 3s re-hide timer without leaking', async () => {
@@ -353,6 +366,7 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
   });
 
   it('hides floating mic button and renders review actions once results are displayed', async () => {
+    const recordSpy = stubRecordAttempt();
     const onComplete = jest.fn();
     const mockVoiceInput = new SimulatedVoiceAdapter({
       defaultTranscript: mockVerse.text,
@@ -382,6 +396,72 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
     // Action buttons are displayed
     expect(await findByText('Practice Again')).toBeTruthy();
     expect(await findByText('Done (Next Verse) →')).toBeTruthy();
+    recordSpy.mockRestore();
+  });
+
+  describe('Official Review vs Practice Attempt (Ticket 72)', () => {
+    const OFFICIAL = '🎉 Official Review Recorded!';
+    const PRACTICE = '✅ Practice Attempt (Schedule Unchanged)';
+
+    /** A verse stored through the app's Verse Engine, so the real classification runs. */
+    const storeVerse = (reference: string, text: string) =>
+      verseEngine.addVerse({ reference, text, translation: 'WEB' });
+
+    async function reciteOnScreen(getByTestId: (id: string) => any) {
+      await act(async () => {
+        fireEvent.press(getByTestId('floating-mic-button'));
+      });
+      await act(async () => {
+        fireEvent.press(getByTestId('floating-mic-button'));
+      });
+    }
+
+    it('labels Practice Again on a Due Verse as a Practice Attempt, not another Official Review', async () => {
+      const verse = await storeVerse('Psalm 23:1', 'The Lord is my shepherd; I shall not want.');
+      const { getByTestId, getByText, findByText, queryByText } = await render(
+        <ReviewScreen
+          verse={verse}
+          onComplete={jest.fn()}
+          voiceInput={new SimulatedVoiceAdapter({ defaultTranscript: verse.text })}
+        />
+      );
+
+      await reciteOnScreen(getByTestId);
+      expect(await findByText(OFFICIAL)).toBeTruthy();
+
+      await act(async () => {
+        fireEvent.press(getByText('Practice Again'));
+      });
+      await reciteOnScreen(getByTestId);
+
+      expect(await findByText(PRACTICE)).toBeTruthy();
+      expect(queryByText(OFFICIAL)).toBeNull();
+    });
+
+    it('labels a Blind Recitation of a verse not yet due as a Practice Attempt', async () => {
+      const added = await storeVerse('John 11:35', 'Jesus wept.');
+      const verse = await verseEngine.updateVerse(added.id, {
+        srs: {
+          intervalDays: 6,
+          streak: 2,
+          easeFactor: 2.5,
+          nextReviewDate: addStudyDays(toStudyDay(new Date()), 3),
+        },
+      });
+      const { getByTestId, findByText, queryByText } = await render(
+        <ReviewScreen
+          verse={verse}
+          onComplete={jest.fn()}
+          isUnmetered={true}
+          voiceInput={new SimulatedVoiceAdapter({ defaultTranscript: verse.text })}
+        />
+      );
+
+      await reciteOnScreen(getByTestId);
+
+      expect(await findByText(PRACTICE)).toBeTruthy();
+      expect(queryByText(OFFICIAL)).toBeNull();
+    });
   });
 
   describe('Sandbox Mode (Ticket 31)', () => {
@@ -395,7 +475,7 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
     it('launches in Level 1 (Echo Mode) and allows completing all 3 tiers with opt-in dialog', async () => {
       const onComplete = jest.fn();
       const onSandboxComplete = jest.fn();
-      const recordSpy = jest.spyOn(verseEngine, 'recordReview');
+      const recordSpy = jest.spyOn(verseEngine, 'recordAttempt');
       const consumeSpy = jest.spyOn(SubscriptionService, 'consumeRecitation');
 
       const mockVoiceInput = new SimulatedVoiceAdapter({
@@ -440,7 +520,7 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
         fireEvent.press(getByTestId('floating-mic-button'));
       });
 
-      // Does not record to VerseEngine SRS
+      // Records nothing: the sandbox verse is not stored yet
       expect(recordSpy).not.toHaveBeenCalled();
 
       // Opt-in modal should appear

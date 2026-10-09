@@ -4,6 +4,7 @@ import { Verse, verseEngine } from '../services/VerseEngine';
 import { SubscriptionService } from '../services/SubscriptionService';
 import { VoiceInput, SimulatedVoiceAdapter } from '../services/VoiceInput';
 import { TranscriptionError } from '../services/SpeechTranscriber';
+import { ReviewLogEntry } from '../services/ReviewLog';
 
 jest.mock('@react-native-async-storage/async-storage', () =>
   require('@react-native-async-storage/async-storage/jest/async-storage-mock')
@@ -54,14 +55,19 @@ describe('useRecitationSession hook (Ticket 08 & 12)', () => {
       remaining: 3,
       isSubscribed: true,
     });
-    jest.spyOn(verseEngine, 'recordReview').mockResolvedValueOnce({
-      streak: 1,
-      repetitions: 1,
-      intervalDays: 1,
-      easeFactor: 2.5,
-      nextReviewDate: '2026-10-10',
-      passed: true,
-    });
+    const recordSpy = jest.spyOn(verseEngine, 'recordAttempt').mockImplementationOnce(async (input) => ({
+      kind: 'official',
+      srsResult: {
+        streak: 1,
+        repetitions: 1,
+        intervalDays: 1,
+        easeFactor: 2.5,
+        nextReviewDate: '2026-10-10',
+        passed: input.evaluation.passed,
+      },
+      memoryTier: 'seed',
+      entry: {} as ReviewLogEntry,
+    }));
 
     const voiceInput = new SimulatedVoiceAdapter({
       defaultTranscript: mockVerse.text,
@@ -81,6 +87,8 @@ describe('useRecitationSession hook (Ticket 08 & 12)', () => {
     expect(result.current.status).toBe('verified');
     expect(result.current.result?.passed).toBe(true);
     expect(result.current.result?.score).toBe(100);
+    expect(result.current.officialResult?.kind).toBe('official');
+    recordSpy.mockRestore();
   });
 
   it('reflects error status when VoiceInput throws TranscriptionError', async () => {
