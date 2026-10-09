@@ -6,6 +6,7 @@ import {
   resolveDefaultTranslation,
   getMemoryTier,
   memoryTierLabel,
+  PREFERRED_TRANSLATIONS_STORAGE_KEY,
 } from './VerseEngine';
 import { isStudyDay } from '../engines/studyDay';
 import { evaluateRecitation } from '../engines/recitationEvaluator';
@@ -1491,5 +1492,171 @@ describe('VerseEngine: Saved Sandbox Verse (Ticket 79)', () => {
 
     expect(saved.srs).toMatchObject({ streak: 0, intervalDays: 0, nextReviewDate: '2026-12-03' });
     expect(await engine.getReviewLog(saved.id)).toEqual([]);
+  });
+});
+
+describe('VerseEngine: Preferred Translation (Ticket 82)', () => {
+  it('defaults to the catalog default for each language while unset', async () => {
+    const engine = new VerseEngine(new MapStorageAdapter());
+
+    expect(await engine.getPreferredTranslation('pt')).toBe('BLIVRE');
+    expect(await engine.getPreferredTranslation('en')).toBe('BSB');
+    expect(await engine.getPreferredTranslations()).toEqual({ pt: 'BLIVRE', en: 'BSB' });
+  });
+
+  it('sets the preference per language and persists it behind the storage adapter', async () => {
+    const storage = new MapStorageAdapter();
+    const engine = new VerseEngine(storage);
+
+    expect(await engine.setPreferredTranslation('pt', 'ONBV')).toBe('ONBV');
+    expect(await engine.getPreferredTranslations()).toEqual({ pt: 'ONBV', en: 'BSB' });
+
+    await engine.setPreferredTranslation('en', 'WEB');
+    expect(await engine.getPreferredTranslations()).toEqual({ pt: 'ONBV', en: 'WEB' });
+
+    // A fresh engine on the same storage, as after an app restart.
+    const restarted = new VerseEngine(storage);
+    expect(await restarted.getPreferredTranslation('pt')).toBe('ONBV');
+    expect(await restarted.getPreferredTranslation('en')).toBe('WEB');
+
+    await restarted.setPreferredTranslation('pt', 'BLIVRE');
+    expect(await new VerseEngine(storage).getPreferredTranslations()).toEqual({
+      pt: 'BLIVRE',
+      en: 'WEB',
+    });
+  });
+
+  it('accepts any name of a bundled translation and stores its code', async () => {
+    const engine = new VerseEngine(new MapStorageAdapter());
+
+    expect(await engine.setPreferredTranslation('pt', 'Open Nova Bíblia Viva')).toBe('ONBV');
+    expect(await engine.setPreferredTranslation('en', 'web')).toBe('WEB');
+    expect(await engine.getPreferredTranslations()).toEqual({ pt: 'ONBV', en: 'WEB' });
+  });
+
+  it.each([
+    ['pt', 'ARA'],
+    ['pt', 'NVI'],
+    ['pt', 'NBV'],
+    ['pt', 'Nova Bíblia Viva'],
+    ['pt', 'ALMEIDA'],
+    ['pt', 'CUSTOM'],
+    ['pt', ''],
+    ['en', 'KJV'],
+    ['en', 'NIV'],
+    ['en', 'ESV'],
+  ] as const)('rejects %s %s, which has no bundled text, and keeps the preference', async (language, label) => {
+    const engine = new VerseEngine(new MapStorageAdapter());
+    await engine.setPreferredTranslation('pt', 'ONBV');
+
+    await expect(engine.setPreferredTranslation(language, label)).rejects.toThrow(
+      /not a bundled translation/
+    );
+    expect(await engine.getPreferredTranslations()).toEqual({ pt: 'ONBV', en: 'BSB' });
+  });
+
+  it("rejects a bundled translation of the other language and names that language's choices", async () => {
+    const engine = new VerseEngine(new MapStorageAdapter());
+
+    await expect(engine.setPreferredTranslation('pt', 'BSB')).rejects.toThrow(
+      /BSB is an English translation.*BLIVRE, ONBV/
+    );
+    await expect(engine.setPreferredTranslation('en', 'ONBV')).rejects.toThrow(
+      /ONBV is a Portuguese translation.*BSB, WEB/
+    );
+    expect(await engine.getPreferredTranslations()).toEqual({ pt: 'BLIVRE', en: 'BSB' });
+  });
+
+  it('rejects a language other than Portuguese or English', async () => {
+    const engine = new VerseEngine(new MapStorageAdapter());
+
+    await expect(engine.setPreferredTranslation('es' as 'pt', 'BLIVRE')).rejects.toThrow(
+      /language/
+    );
+  });
+
+  it('falls back to the catalog default when the stored preference is unreadable or not allowed', async () => {
+    const corrupt = new VerseEngine(
+      new MapStorageAdapter({ [PREFERRED_TRANSLATIONS_STORAGE_KEY]: '{ invalid-json' })
+    );
+    expect(await corrupt.getPreferredTranslations()).toEqual({ pt: 'BLIVRE', en: 'BSB' });
+
+    const stale = new VerseEngine(
+      new MapStorageAdapter({
+        [PREFERRED_TRANSLATIONS_STORAGE_KEY]: JSON.stringify({ pt: 'ALMEIDA', en: 'ONBV' }),
+      })
+    );
+    expect(await stale.getPreferredTranslations()).toEqual({ pt: 'BLIVRE', en: 'BSB' });
+  });
+
+  it("gives a new verse without a translation the Preferred Translation of its reference's language", async () => {
+    const engine = new VerseEngine(new MapStorageAdapter());
+    await engine.setPreferredTranslation('pt', 'ONBV');
+    await engine.setPreferredTranslation('en', 'WEB');
+
+    const salmo = await engine.addVerse({ reference: 'Salmos 23:1', text: 'O Senhor é o meu pastor' });
+    const psalm = await engine.addVerse({ reference: 'Psalm 23:1', text: 'The LORD is my shepherd' });
+    // An unrecognized reference counts as English, like the catalog default.
+    const unknown = await engine.addVerse({ reference: 'My verse', text: 'Some words' });
+    const explicit = await engine.addVerse({
+      reference: 'Salmos 23:1',
+      text: 'O SENHOR é meu pastor',
+      translation: 'BLIVRE',
+    });
+
+    expect(salmo.translation).toBe('ONBV');
+    expect(psalm.translation).toBe('WEB');
+    expect(unknown.translation).toBe('WEB');
+    expect(explicit.translation).toBe('BLIVRE');
+    expect((await engine.getAllVerses()).map((v) => v.translation)).toEqual([
+      'ONBV',
+      'WEB',
+      'WEB',
+      'BLIVRE',
+    ]);
+  });
+
+  it('gives imported verses without a translation the Preferred Translation too', async () => {
+    const engine = new VerseEngine(new MapStorageAdapter());
+    await engine.setPreferredTranslation('pt', 'ONBV');
+
+    await engine.importVerses([
+      { reference: 'Romanos 8:28', text: 'Sabemos que Deus age em todas as coisas' },
+      { reference: 'Romans 8:28', text: 'And we know', translation: 'NIV' },
+    ]);
+    const deck = await engine.importDeck('Paz', [
+      { reference: 'Filipenses 4:6', text: 'Não se preocupem com nada' },
+      { reference: 'Filipenses 4:7', text: 'E a paz de Deus', translation: 'NVI' },
+    ]);
+
+    expect(deck.map((v) => v.translation)).toEqual(['ONBV', 'NVI']);
+    expect((await engine.getAllVerses()).map((v) => v.translation)).toEqual([
+      'ONBV',
+      'NIV',
+      'ONBV',
+      'NVI',
+    ]);
+  });
+
+  it('never rewrites saved verses when the preference changes', async () => {
+    const storage = new MapStorageAdapter({
+      // A verse saved before translations were stored: it reads as the catalog default.
+      verses: JSON.stringify([
+        { id: 'legacy', reference: 'João 3:16', text: 'Porque Deus amou o mundo' },
+      ]),
+    });
+    const engine = new VerseEngine(storage);
+    await engine.addVerse({ reference: 'Salmos 23:1', text: 'O SENHOR é meu pastor' });
+    await engine.addVerse({ reference: 'John 3:16', text: 'For God so loved the world' });
+
+    const storedBefore = await storage.getItem('verses');
+    const versesBefore = await engine.getAllVerses();
+    expect(versesBefore.map((v) => v.translation)).toEqual(['BLIVRE', 'BLIVRE', 'BSB']);
+
+    await engine.setPreferredTranslation('pt', 'ONBV');
+    await engine.setPreferredTranslation('en', 'WEB');
+
+    expect(await storage.getItem('verses')).toBe(storedBefore);
+    expect(await engine.getAllVerses()).toEqual(versesBefore);
   });
 });

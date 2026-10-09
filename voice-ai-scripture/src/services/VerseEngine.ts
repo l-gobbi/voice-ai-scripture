@@ -337,12 +337,53 @@ const createInitialSRS = (now: Date) => ({
   nextReviewDate: toStudyDay(now),
 });
 
-/** The catalog's default Translation for the reference's language (BLIVRE or BSB). */
+/**
+ * The catalog's default Translation for the reference's language (BLIVRE or BSB). Verses
+ * already saved without a translation read as this, never as the Preferred Translation, so
+ * changing the preference does not relabel them.
+ */
 export const resolveDefaultTranslation = (reference: string): VerseTranslation =>
   scriptureCatalog.getDefaultTranslation(reference);
 
-const createVerseRecord = (verseData: Omit<Verse, 'id' | 'srs'>, now = new Date()): Verse => {
-  const translation = verseData.translation || resolveDefaultTranslation(verseData.reference);
+/** A language the learner keeps a Preferred Translation for. */
+export type PreferenceLanguage = 'en' | 'pt';
+
+/** The learner's Preferred Translation per language. */
+export type PreferredTranslations = Record<PreferenceLanguage, SupportedTranslation>;
+
+export const PREFERRED_TRANSLATIONS_STORAGE_KEY = 'preferred_translations';
+
+const PREFERENCE_LANGUAGES: readonly PreferenceLanguage[] = ['pt', 'en'];
+
+const LANGUAGE_NAMES: Record<PreferenceLanguage, string> = {
+  pt: 'Portuguese',
+  en: 'English',
+};
+
+/** "a Portuguese translation", "an English translation". */
+const A_TRANSLATION_OF: Record<PreferenceLanguage, string> = {
+  pt: 'a Portuguese translation',
+  en: 'an English translation',
+};
+
+/** The stored code if it is still a bundled Translation of `language`; otherwise null. */
+function allowedPreference(raw: unknown, language: PreferenceLanguage): SupportedTranslation | null {
+  if (typeof raw !== 'string') return null;
+  const meta = scriptureCatalog.getTranslationMetadata(raw);
+  return meta && meta.language === language ? meta.code : null;
+}
+
+/**
+ * A new verse record, due on its Study Day. A verse without a translation gets the Preferred
+ * Translation of its reference's language.
+ */
+const createVerseRecord = (
+  verseData: Omit<Verse, 'id' | 'srs'>,
+  preferred: PreferredTranslations,
+  now = new Date()
+): Verse => {
+  const translation =
+    verseData.translation || preferred[scriptureCatalog.referenceLanguage(verseData.reference)];
 
   return {
     ...verseData,
@@ -370,6 +411,70 @@ export class VerseEngine {
 
   private async persistVerses(verses: Verse[]): Promise<void> {
     await this.storage.setItem(STORAGE_KEY, JSON.stringify(verses));
+  }
+
+  /**
+   * The learner's Preferred Translation for each language. A language never set, or set to
+   * something that is no longer a bundled Translation of that language, has the catalog
+   * default (Bíblia Livre, BSB).
+   */
+  async getPreferredTranslations(): Promise<PreferredTranslations> {
+    let stored: Partial<Record<PreferenceLanguage, unknown>> = {};
+    try {
+      const data = await this.storage.getItem(PREFERRED_TRANSLATIONS_STORAGE_KEY);
+      const parsed = data ? JSON.parse(data) : null;
+      if (parsed && typeof parsed === 'object') {
+        stored = parsed;
+      }
+    } catch {
+      // Unreadable: every language keeps its default.
+    }
+    return {
+      pt: allowedPreference(stored.pt, 'pt') ?? scriptureCatalog.getDefaultTranslation('pt'),
+      en: allowedPreference(stored.en, 'en') ?? scriptureCatalog.getDefaultTranslation('en'),
+    };
+  }
+
+  /** The learner's Preferred Translation for one language. */
+  async getPreferredTranslation(language: PreferenceLanguage): Promise<SupportedTranslation> {
+    return (await this.getPreferredTranslations())[language];
+  }
+
+  /**
+   * Sets the Preferred Translation for a language and returns its code. Only a bundled
+   * Translation of that language is accepted (any of its names): anything else throws and
+   * leaves the preference unchanged. Verses already saved keep their translation and text.
+   */
+  async setPreferredTranslation(
+    language: PreferenceLanguage,
+    translation: string
+  ): Promise<SupportedTranslation> {
+    if (!PREFERENCE_LANGUAGES.includes(language)) {
+      throw new Error(
+        `Unknown language "${language}": a Preferred Translation is set for "pt" or "en".`
+      );
+    }
+    const choices = scriptureCatalog
+      .getBundledTranslations(language)
+      .map((meta) => meta.code)
+      .join(', ');
+    const meta = scriptureCatalog.getTranslationMetadata(translation);
+    if (!meta) {
+      throw new Error(
+        `"${translation}" is not a bundled translation, so it cannot be the Preferred ` +
+          `Translation for ${LANGUAGE_NAMES[language]}. Choose one of: ${choices}.`
+      );
+    }
+    if (meta.language !== language) {
+      throw new Error(
+        `${meta.code} is ${A_TRANSLATION_OF[meta.language]}, so it cannot be the ` +
+          `Preferred Translation for ${LANGUAGE_NAMES[language]}. Choose one of: ${choices}.`
+      );
+    }
+
+    const next = { ...(await this.getPreferredTranslations()), [language]: meta.code };
+    await this.storage.setItem(PREFERRED_TRANSLATIONS_STORAGE_KEY, JSON.stringify(next));
+    return meta.code;
   }
 
   async getAllVerses(): Promise<Verse[]> {
@@ -555,7 +660,7 @@ export class VerseEngine {
   async addVerse(verseData: Omit<Verse, 'id' | 'srs'>, options: AddVerseOptions = {}): Promise<Verse> {
     const now = options.now ?? new Date();
     const verses = await this.getAllVerses();
-    const newVerse = createVerseRecord(verseData, now);
+    const newVerse = createVerseRecord(verseData, await this.getPreferredTranslations(), now);
     verses.push(newVerse);
     await this.persistVerses(verses);
 
@@ -578,13 +683,14 @@ export class VerseEngine {
   async importVerses(versesToImport: Array<Omit<Verse, 'id' | 'srs'>>): Promise<number> {
     const existing = await this.getAllVerses();
     const existingRefs = new Set(existing.map((verse) => verse.reference.trim().toLowerCase()));
+    const preferred = await this.getPreferredTranslations();
 
     const newVerses: Verse[] = [];
 
     for (const verse of versesToImport) {
       const normalized = verse.reference.trim().toLowerCase();
       if (!existingRefs.has(normalized)) {
-        newVerses.push(createVerseRecord(verse));
+        newVerses.push(createVerseRecord(verse, preferred));
         existingRefs.add(normalized);
       }
     }
@@ -603,18 +709,22 @@ export class VerseEngine {
   ): Promise<Verse[]> {
     const existing = await this.getAllVerses();
     const existingRefs = new Set(existing.map((verse) => verse.reference.trim().toLowerCase()));
+    const preferred = await this.getPreferredTranslations();
 
     const newVerses: Verse[] = [];
 
     for (const verse of versesToImport) {
       const normalized = verse.reference.trim().toLowerCase();
       if (!existingRefs.has(normalized)) {
-        const record = createVerseRecord({
-          reference: verse.reference,
-          text: verse.text,
-          translation: verse.translation,
-          deck: deckName,
-        });
+        const record = createVerseRecord(
+          {
+            reference: verse.reference,
+            text: verse.text,
+            translation: verse.translation,
+            deck: deckName,
+          },
+          preferred
+        );
         newVerses.push(record);
         existingRefs.add(normalized);
       }

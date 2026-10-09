@@ -25,7 +25,8 @@ export const BUNDLED_TRANSLATIONS: readonly SupportedTranslation[] = [
 /**
  * Portuguese Translation labels. Besides the bundled ones, these are labels the app has no
  * text for (the learner's own wording, or verses saved in ALMEIDA before ADR 0018); they keep
- * their language so Speech Synthesis and recognition still use Portuguese.
+ * their language so Speech Synthesis and recognition still use Portuguese. `NBV` is the
+ * copyrighted Nova Bíblia Viva, a different text from the bundled Open Nova Bíblia Viva.
  */
 export const PT_TRANSLATIONS: ReadonlySet<string> = new Set([
   'BLIVRE',
@@ -38,6 +39,7 @@ export const PT_TRANSLATIONS: ReadonlySet<string> = new Set([
   'NVI',
   'NTLH',
   'NVT',
+  'NBV',
 ]);
 
 /** English Translation labels: the bundled ones and labels without text, such as KJV. */
@@ -107,10 +109,20 @@ const DATASETS: Record<SupportedTranslation, BibleDataset> = {
   WEB: webData as BibleDataset,
 };
 
-/** Spellings of each bundled Translation, compared after `compactTranslationName`. */
+/**
+ * Spellings of each bundled Translation, compared after `compactTranslationName`. Only names
+ * with "open" are the ONBV: plain "NBV" or "Nova Bíblia Viva" is Biblica's copyrighted text, so
+ * a verse pasted under that name must keep its own wording (Ticket 82).
+ */
 const TRANSLATION_ALIASES: Record<SupportedTranslation, readonly string[]> = {
   BLIVRE: ['blivre', 'biblialivre'],
-  ONBV: ['onbv', 'nbv', 'novabibliaviva', 'opennovabibliaviva', 'biblicaopennovabibliaviva'],
+  ONBV: [
+    'onbv',
+    'opennbv',
+    'opennovabibliaviva',
+    'biblicaopennbv',
+    'biblicaopennovabibliaviva',
+  ],
   BSB: ['bsb', 'berean', 'bereanstandard', 'bereanstandardbible', 'bereanbible'],
   WEB: ['web', 'worldenglishbible'],
 };
@@ -120,6 +132,9 @@ const TRANSLATION_BY_ALIAS = new Map<string, SupportedTranslation>(
     TRANSLATION_ALIASES[code].map((alias) => [alias, code] as [string, SupportedTranslation])
   )
 );
+
+/** Spelled-out names of labels without bundled text, compared after `compactTranslationName`. */
+const LABEL_BY_NAME = new Map<string, string>([['novabibliaviva', 'NBV']]);
 
 /** "Bíblia Livre" → "biblialivre": lower case, no diacritics, letters and digits only. */
 function compactTranslationName(raw: string): string {
@@ -145,6 +160,24 @@ export interface ResolvedPassage extends NormalizedReference {
   translation: string;
   text?: string;
   isBundled: boolean;
+}
+
+/** "<book> <chapter>:<verse>[-<verse>]"; the chapter and verse may also be split by a dot. */
+const REFERENCE_PATTERN =
+  /^(?<rawBook>.*?)\s*(?<rawChapter>\d+)[:.](?<rawStartVerse>\d+)(?:\s*-\s*(?<rawEndVerse>\d+))?$/;
+
+/** The forms of a typed book name compared with the aliases: "1Co" also as "1 co" and "1co". */
+function bookNameForms(rawBook: string): string[] {
+  const sanitizedBook = sanitizeString(rawBook);
+  return [
+    sanitizedBook,
+    sanitizedBook.replace(/^([1-3])\s*([a-z]+)$/, '$1 $2'),
+    sanitizedBook.replace(/^([1-3])\s*([a-z]+)$/, '$1$2'),
+  ];
+}
+
+function matchesAnyAlias(aliases: readonly string[], forms: string[]): boolean {
+  return aliases.some((alias) => forms.includes(sanitizeString(alias)));
 }
 
 function sanitizeString(str: string): string {
@@ -203,9 +236,7 @@ export class ScriptureCatalog {
       return null;
     }
 
-    const match = trimmed.match(
-      /^(?<rawBook>.*?)\s*(?<rawChapter>\d+)[:.](?<rawStartVerse>\d+)(?:\s*-\s*(?<rawEndVerse>\d+))?$/
-    );
+    const match = trimmed.match(REFERENCE_PATTERN);
     if (!match || !match.groups) {
       return null;
     }
@@ -223,47 +254,49 @@ export class ScriptureCatalog {
       return null;
     }
 
-    const sanitizedBook = sanitizeString(rawBook);
-    if (!sanitizedBook) {
+    if (!sanitizeString(rawBook)) {
       return null;
     }
 
-    const normalizedBookForm = sanitizedBook.replace(/^([1-3])\s*([a-z]+)$/, '$1 $2');
-    const collapsedBookForm = sanitizedBook.replace(/^([1-3])\s*([a-z]+)$/, '$1$2');
+    const forms = bookNameForms(rawBook);
 
     if (rawBook.toLowerCase().trim() === 'jó') {
       return this.buildNormalized(getCanonBook('JOB')!, chapter, startVerse, endVerse, 'pt');
     }
 
     for (const book of CANON_BOOKS) {
-      const matchedPt = book.ptAliases.some((alias) => {
-        const cleanAlias = sanitizeString(alias);
-        return (
-          sanitizedBook === cleanAlias ||
-          normalizedBookForm === cleanAlias ||
-          collapsedBookForm === cleanAlias
-        );
-      });
-
-      if (matchedPt) {
+      if (matchesAnyAlias(book.ptAliases, forms)) {
         return this.buildNormalized(book, chapter, startVerse, endVerse, 'pt');
       }
 
-      const matchedEn = book.enAliases.some((alias) => {
-        const cleanAlias = sanitizeString(alias);
-        return (
-          sanitizedBook === cleanAlias ||
-          normalizedBookForm === cleanAlias ||
-          collapsedBookForm === cleanAlias
-        );
-      });
-
-      if (matchedEn) {
+      if (matchesAnyAlias(book.enAliases, forms)) {
         return this.buildNormalized(book, chapter, startVerse, endVerse, 'en');
       }
     }
 
     return null;
+  }
+
+  /**
+   * The languages a reference's book name is written in: one for most references
+   * ("Salmos 23:1" → pt, "Psalm 23:1" → en), both when the name is spelled the same in
+   * Portuguese and English ("Daniel 6:22", "Gn 1:1", "1 Samuel 3:10"), none when the reference
+   * is not recognized. A name with Portuguese accents ("Gênesis") is Portuguese only.
+   * `resolveReference` reads a name spelled the same in both as Portuguese.
+   */
+  referenceLanguages(reference: string): Array<'en' | 'pt'> {
+    if (!this.resolveReference(reference)) return [];
+    const rawBook = reference.trim().match(REFERENCE_PATTERN)!.groups!.rawBook.trim();
+    if (rawBook.toLowerCase() === 'jó') return ['pt'];
+
+    const forms = bookNameForms(rawBook);
+    const hasAccents = rawBook.normalize('NFD') !== rawBook.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const languages: Array<'en' | 'pt'> = [];
+    if (CANON_BOOKS.some((book) => matchesAnyAlias(book.ptAliases, forms))) languages.push('pt');
+    if (!hasAccents && CANON_BOOKS.some((book) => matchesAnyAlias(book.enAliases, forms))) {
+      languages.push('en');
+    }
+    return languages;
   }
 
   private buildNormalized(
@@ -356,8 +389,16 @@ export class ScriptureCatalog {
     const language =
       referenceOrLanguage === 'pt' || referenceOrLanguage === 'en'
         ? referenceOrLanguage
-        : this.resolveReference(referenceOrLanguage)?.language;
-    return language === 'pt' ? DEFAULT_TRANSLATIONS.pt : DEFAULT_TRANSLATIONS.en;
+        : this.referenceLanguage(referenceOrLanguage);
+    return DEFAULT_TRANSLATIONS[language];
+  }
+
+  /**
+   * The language a reference is written in, from its book name ("Salmos 23:1" → pt), or English
+   * when the reference is not recognized (yet).
+   */
+  referenceLanguage(reference: string): 'en' | 'pt' {
+    return this.resolveReference(reference)?.language ?? 'en';
   }
 
   canonicalizeTranslation(raw?: string | null): SupportedTranslation | null {
@@ -374,6 +415,8 @@ export class ScriptureCatalog {
     if (!raw || typeof raw !== 'string') return null;
     const code = this.canonicalizeTranslation(raw);
     if (code) return code;
+    const named = LABEL_BY_NAME.get(compactTranslationName(raw));
+    if (named) return named;
     const upper = raw.trim().toUpperCase();
     return PT_TRANSLATIONS.has(upper) || EN_TRANSLATIONS.has(upper) ? upper : null;
   }
@@ -397,19 +440,24 @@ export class ScriptureCatalog {
     return { code, name, fullName, language, license, notice, changes, sourceUrl };
   }
 
-  /** Metadata of every bundled Translation, in BUNDLED_TRANSLATIONS order. */
-  getBundledTranslations(): TranslationMetadata[] {
-    return BUNDLED_TRANSLATIONS.map((code) => this.getTranslationMetadata(code)!);
+  /**
+   * Metadata of every bundled Translation, in BUNDLED_TRANSLATIONS order; only those of one
+   * language when it is given (the choices for that language's Preferred Translation).
+   */
+  getBundledTranslations(language?: 'en' | 'pt'): TranslationMetadata[] {
+    return BUNDLED_TRANSLATIONS.map((code) => this.getTranslationMetadata(code)!).filter(
+      (meta) => !language || meta.language === language
+    );
   }
 
   /** Language of a bundled Translation or of a known label without bundled text. */
   private languageOfTranslation(raw?: string | null): 'en' | 'pt' | null {
-    if (!raw) return null;
-    const code = this.canonicalizeTranslation(raw);
+    const label = this.recognizeTranslation(raw);
+    if (!label) return null;
+    const code = this.canonicalizeTranslation(label);
     if (code) return DATASETS[code].language;
-    const upper = raw.trim().toUpperCase();
-    if (PT_TRANSLATIONS.has(upper)) return 'pt';
-    if (EN_TRANSLATIONS.has(upper)) return 'en';
+    if (PT_TRANSLATIONS.has(label)) return 'pt';
+    if (EN_TRANSLATIONS.has(label)) return 'en';
     return null;
   }
 

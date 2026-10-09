@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
-import { verseEngine, VerseTranslation } from '../services/VerseEngine';
+import { verseEngine, VerseTranslation, PreferredTranslations } from '../services/VerseEngine';
 import { scriptureCatalog } from '../services/ScriptureCatalog';
 import { parseScriptureClipboard } from '../utils/clipboardParser';
 import ReferencePickerModal from './ReferencePickerModal';
@@ -31,8 +31,29 @@ interface TranslationOption {
   isBundled: boolean;
 }
 
-export const TRANSLATION_GROUPS: Array<{ groupName: string; options: TranslationOption[] }> = [
+interface TranslationGroup {
+  id: 'en' | 'pt' | 'own-text';
+  groupName: string;
+  /** A line under the group name, for groups that need explaining. */
+  hint?: string;
+  options: TranslationOption[];
+}
+
+/**
+ * Translations the app has no text for (ADR 0018). The learner pastes or types the wording of
+ * their own Bible and labels it with its name; picking one never fetches bundled text.
+ */
+const OWN_TEXT_LABELS: Record<'pt' | 'en', readonly string[]> = {
+  // NBV is the copyrighted Nova Bíblia Viva, not the bundled Open Nova Bíblia Viva (ONBV).
+  pt: ['ARA', 'ARC', 'ACF', 'NAA', 'NVI', 'NTLH', 'NVT', 'NBV', 'ALMEIDA'],
+  en: ['KJV', 'NIV', 'ESV', 'NKJV', 'NASB'],
+};
+
+const ownTextOption = (code: string): TranslationOption => ({ code, label: code, isBundled: false });
+
+export const TRANSLATION_GROUPS: TranslationGroup[] = [
   {
+    id: 'en',
     groupName: '🇺🇸 English',
     options: [
       { code: 'BSB', label: 'BSB (Berean Standard Bible)', isBundled: true },
@@ -40,6 +61,7 @@ export const TRANSLATION_GROUPS: Array<{ groupName: string; options: Translation
     ],
   },
   {
+    id: 'pt',
     groupName: '🇧🇷 Português',
     options: [
       { code: 'BLIVRE', label: 'Bíblia Livre (BLIVRE)', isBundled: true },
@@ -48,11 +70,12 @@ export const TRANSLATION_GROUPS: Array<{ groupName: string; options: Translation
     ],
   },
   {
-    groupName: '📋 Copiada',
+    id: 'own-text',
+    groupName: '📋 Texto próprio / Your own text',
+    hint: 'Cole ou digite o texto da sua Bíblia. / Paste or type the text from your Bible.',
     options: [
-      { code: 'NVI', label: 'NVI', isBundled: false },
-      { code: 'ARA', label: 'ARA', isBundled: false },
-      { code: 'ESV', label: 'ESV', isBundled: false },
+      ...OWN_TEXT_LABELS.pt.map(ownTextOption),
+      ...OWN_TEXT_LABELS.en.map(ownTextOption),
       { code: 'CUSTOM', label: 'Outra (Personalizada)', isBundled: false },
     ],
   },
@@ -62,15 +85,36 @@ const KNOWN_MODAL_CODES = new Set(
   TRANSLATION_GROUPS.flatMap((group) => group.options.map((opt) => opt.code))
 );
 
-// Until the Preferred Translation exists (ticket 82), new verses start in the catalog's
-// English default, as they did with the WEB.
-const DEFAULT_TRANSLATION: VerseTranslation = scriptureCatalog.getDefaultTranslation('en');
+/** What the picker preselects until the learner's Preferred Translations have loaded. */
+const CATALOG_DEFAULTS: PreferredTranslations = {
+  pt: scriptureCatalog.getDefaultTranslation('pt'),
+  en: scriptureCatalog.getDefaultTranslation('en'),
+};
 
 export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVerseModalProps) {
   const [reference, setReference] = useState('');
   const [text, setText] = useState('');
   const [deck, setDeck] = useState('');
-  const [selectedTranslation, setSelectedTranslation] = useState<VerseTranslation>(DEFAULT_TRANSLATION);
+  // The chip the learner picked (or a pasted verse's label). Until then the picker shows the
+  // Preferred Translation for the language of the reference, and follows it as it changes.
+  const [chosenTranslation, setChosenTranslation] = useState<VerseTranslation | null>(null);
+  const [preferred, setPreferred] = useState<PreferredTranslations>(CATALOG_DEFAULTS);
+  // The language last detected from the reference: English until one is. A reference that
+  // cannot be resolved yet, or whose book is spelled the same in both languages ("Daniel",
+  // "Gn"), keeps it, so the English Reference Picker's "Genesis 1:1" stays English.
+  const [referenceLanguage, setReferenceLanguage] = useState<'en' | 'pt'>('en');
+  const languageOf = (ref: string): 'en' | 'pt' => {
+    const languages = scriptureCatalog.referenceLanguages(ref);
+    return languages.length === 1 ? languages[0] : referenceLanguage;
+  };
+  const translationFor = (ref: string): VerseTranslation =>
+    chosenTranslation ?? preferred[languageOf(ref)];
+  const selectedTranslation = chosenTranslation ?? preferred[referenceLanguage];
+
+  const changeReference = (next: string) => {
+    setReference(next);
+    setReferenceLanguage(languageOf(next));
+  };
   const [isFetching, setIsFetching] = useState(false);
   const [fetchNotice, setFetchNotice] = useState<string | null>(null);
   const [pickerVisible, setPickerVisible] = useState(false);
@@ -123,6 +167,25 @@ export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVe
     }
   };
 
+  // Read the Preferred Translations each time the form opens: they may have changed since.
+  useEffect(() => {
+    if (!visible) {
+      return;
+    }
+    let active = true;
+    verseEngine
+      .getPreferredTranslations()
+      .then((loaded) => {
+        if (active) setPreferred(loaded);
+      })
+      .catch(() => {
+        // Keep the catalog defaults.
+      });
+    return () => {
+      active = false;
+    };
+  }, [visible]);
+
   // Debounced auto-fetch (500ms)
   useEffect(() => {
     if (!visible) {
@@ -164,18 +227,20 @@ export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVe
       }
 
       if (parsed.reference) {
-        setReference(parsed.reference);
+        changeReference(parsed.reference);
       }
       if (parsed.text) {
         setText(parsed.text);
       }
       if (parsed.translation) {
+        // A pasted label counts as the learner's choice, so the reference that came with it
+        // does not swap it for the Preferred Translation (whose text would replace the paste).
         const transUpper = parsed.translation.toUpperCase();
         if (KNOWN_MODAL_CODES.has(transUpper)) {
-          setSelectedTranslation(transUpper);
+          setChosenTranslation(transUpper);
         } else {
-          // If translation is not explicitly in groups (e.g. NIV, NVT), fallback to CUSTOM
-          setSelectedTranslation('CUSTOM');
+          // A recognized label the picker does not list (e.g. NLT) falls back to CUSTOM.
+          setChosenTranslation('CUSTOM');
         }
       }
       setFetchNotice('Texto colado da área de transferência com sucesso!');
@@ -195,7 +260,8 @@ export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVe
     setReference('');
     setText('');
     setDeck('');
-    setSelectedTranslation(DEFAULT_TRANSLATION);
+    setChosenTranslation(null);
+    setReferenceLanguage('en');
     setFetchNotice(null);
     onSaveSuccess();
     onClose();
@@ -205,6 +271,8 @@ export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVe
     setReference('');
     setText('');
     setDeck('');
+    setChosenTranslation(null);
+    setReferenceLanguage('en');
     setFetchNotice(null);
     setPickerVisible(false);
     setCopyrightVisible(false);
@@ -213,14 +281,14 @@ export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVe
 
   const handleSelectReference = (canonicalRef: string) => {
     skipNextAutoFetchRef.current = true;
-    setReference(canonicalRef);
+    changeReference(canonicalRef);
     setPickerVisible(false);
 
     if (debounceTimerRef.current) {
       clearTimeout(debounceTimerRef.current);
     }
 
-    const resolved = scriptureCatalog.resolvePassage(canonicalRef, selectedTranslation);
+    const resolved = scriptureCatalog.resolvePassage(canonicalRef, translationFor(canonicalRef));
     if (resolved?.isBundled && resolved.text) {
       setText(resolved.text);
       setFetchNotice(null);
@@ -255,17 +323,25 @@ export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVe
           </View>
           <View style={styles.translationSection}>
             {TRANSLATION_GROUPS.map((group) => (
-              <View key={group.groupName} style={styles.groupContainer}>
+              <View
+                key={group.id}
+                style={styles.groupContainer}
+                testID={`translation-group-${group.id}`}
+              >
                 <Text style={styles.groupTitle}>{group.groupName}</Text>
+                {group.hint ? <Text style={styles.groupHint}>{group.hint}</Text> : null}
                 <View style={styles.chipRow}>
                   {group.options.map((opt) => {
                     const isSelected = selectedTranslation.toUpperCase() === opt.code.toUpperCase();
                     return (
                       <TouchableOpacity
                         key={opt.code}
+                        testID={`translation-chip-${opt.code}`}
                         style={[styles.chip, isSelected && styles.activeChip]}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: isSelected }}
                         onPress={() => {
-                          setSelectedTranslation(opt.code);
+                          setChosenTranslation(opt.code);
                           setFetchNotice(null);
                         }}
                       >
@@ -307,7 +383,7 @@ export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVe
               style={[styles.input, styles.referenceInput]}
               placeholder="Reference (e.g. John 3:16)"
               value={reference}
-              onChangeText={setReference}
+              onChangeText={changeReference}
             />
             <TouchableOpacity
               style={styles.fetchButton}
@@ -445,6 +521,14 @@ const styles = StyleSheet.create({
     fontFamily: typography.fontFamily.ui,
     fontSize: typography.caption.fontSize,
     fontWeight: typography.caption.fontWeight,
+    color: colors.parchment.textSecondary,
+    marginBottom: spacing.xs,
+  },
+  groupHint: {
+    fontFamily: typography.fontFamily.ui,
+    fontSize: typography.caption.fontSize,
+    lineHeight: typography.caption.lineHeight,
+    fontWeight: '400',
     color: colors.parchment.textSecondary,
     marginBottom: spacing.xs,
   },

@@ -127,3 +127,28 @@ describe('Scripture Clipboard Parser translation labels (Ticket 81)', () => {
     expect(parseScriptureClipboard('The verse\nPsalm 23:1 XYZ')?.translation).toBeUndefined();
   });
 });
+
+describe('Scripture Clipboard Parser: NBV is not the ONBV (Ticket 82)', () => {
+  it('labels a YouVersion NBV paste NBV, not ONBV, and keeps its text', () => {
+    const raw = `“Porque Deus amou tanto o mundo que deu o seu único Filho...”
+João 3:16 NBV
+https://bible.com/bible/1966/jhn.3.16.NBV`;
+
+    const result = parseScriptureClipboard(raw);
+
+    expect(result?.reference).toBe('João 3:16');
+    expect(result?.translation).toBe('NBV');
+    expect(result?.text).toBe('Porque Deus amou tanto o mundo que deu o seu único Filho...');
+  });
+
+  it.each(['ARA', 'ARC', 'ACF', 'NAA', 'NVI', 'NTLH', 'NVT', 'NBV', 'ALMEIDA'])(
+    'keeps the Portuguese label %s',
+    (label) => {
+      expect(parseScriptureClipboard(`Texto\nSalmos 23:1 ${label}`)?.translation).toBe(label);
+    }
+  );
+
+  it.each(['KJV', 'NIV', 'ESV', 'NKJV', 'NASB'])('keeps the English label %s', (label) => {
+    expect(parseScriptureClipboard(`Text\nPsalm 23:1 ${label}`)?.translation).toBe(label);
+  });
+});

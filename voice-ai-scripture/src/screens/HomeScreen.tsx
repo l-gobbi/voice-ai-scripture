@@ -26,6 +26,7 @@ import ReviewScreen from './ReviewScreen';
 import PackBrowserModal from '../components/PackBrowserModal';
 import ReminderSettingsModal from '../components/ReminderSettingsModal';
 import TranslationsCopyrightModal from '../components/TranslationsCopyrightModal';
+import PreferredTranslationModal from '../components/PreferredTranslationModal';
 import AddVerseModal from '../components/AddVerseModal';
 import DeleteConfirmationModal from '../components/DeleteConfirmationModal';
 import HabitBanner from '../components/HabitBanner';
@@ -70,6 +71,7 @@ export default function HomeScreen({ voiceInput }: HomeScreenProps = {}) {
   const [packBrowserVisible, setPackBrowserVisible] = useState(false);
   const [reminderModalVisible, setReminderModalVisible] = useState(false);
   const [translationsModalVisible, setTranslationsModalVisible] = useState(false);
+  const [preferredTranslationVisible, setPreferredTranslationVisible] = useState(false);
   const [verseToDelete, setVerseToDelete] = useState<Verse | null>(null);
 
   const [activeReviewVerse, setActiveReviewVerse] = useState<Verse | null>(null);
@@ -246,6 +248,29 @@ export default function HomeScreen({ voiceInput }: HomeScreenProps = {}) {
               ]}
             >
               ⏰ Reminders
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.reminderHeaderButton,
+              {
+                backgroundColor: theme.colors.surfaceMuted,
+                borderColor: theme.colors.border,
+              },
+            ]}
+            onPress={() => setPreferredTranslationVisible(true)}
+            activeOpacity={0.7}
+            testID="open-preferred-translation-home"
+            accessibilityRole="button"
+            accessibilityLabel="Tradução preferida / Preferred Translation"
+          >
+            <Text
+              style={[
+                styles.reminderButtonText,
+                { color: theme.colors.textPrimary },
+              ]}
+            >
+              Translations
             </Text>
           </TouchableOpacity>
           <TouchableOpacity
@@ -658,6 +683,11 @@ export default function HomeScreen({ voiceInput }: HomeScreenProps = {}) {
         onClose={() => setTranslationsModalVisible(false)}
       />
 
+      <PreferredTranslationModal
+        visible={preferredTranslationVisible}
+        onClose={() => setPreferredTranslationVisible(false)}
+      />
+
       <AddVerseModal
         visible={modalVisible}
         onClose={() => setModalVisible(false)}
@@ -696,6 +726,8 @@ const styles = StyleSheet.create({
   },
   headerActions: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
     gap: 8,
     marginLeft: 'auto',
   },

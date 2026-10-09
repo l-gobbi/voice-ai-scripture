@@ -123,10 +123,8 @@ describe('ScriptureCatalog open-licensed Bibles (Ticket 80)', () => {
     ['Berean', 'BSB'],
     ['Berean Standard Bible', 'BSB'],
     ['bsb', 'BSB'],
-    ['Nova Bíblia Viva', 'ONBV'],
-    ['nova bíblia viva', 'ONBV'],
+    // Only the "Open" title is the ONBV; plain Nova Bíblia Viva is another text (Ticket 82).
     ['Open Nova Bíblia Viva', 'ONBV'],
-    ['nbv', 'ONBV'],
     ['onbv', 'ONBV'],
     ['World English Bible', 'WEB'],
   ])('canonicalizes the alias "%s" to %s', (alias, code) => {
@@ -342,5 +340,75 @@ describe('ScriptureCatalog ships only open-licensed Bibles (Ticket 81)', () => {
     expect(scriptureCatalog.fetchPassageText('JHN', 3, 16)).toBe(
       'For God so loved the world that He gave His one and only Son, that everyone who believes in Him shall not perish but have eternal life.'
     );
+  });
+});
+
+describe('ScriptureCatalog: NBV is not the ONBV (Ticket 82)', () => {
+  it.each(['ONBV', 'onbv', 'Open Nova Bíblia Viva', 'open nova biblia viva', 'Biblica® Open Nova Bíblia Viva™', 'Open NBV'])(
+    'reads "%s" as the bundled ONBV',
+    (alias) => {
+      expect(scriptureCatalog.canonicalizeTranslation(alias)).toBe('ONBV');
+      expect(scriptureCatalog.recognizeTranslation(alias)).toBe('ONBV');
+    }
+  );
+
+  it.each(['NBV', 'nbv', 'Nova Bíblia Viva', 'nova biblia viva'])(
+    'keeps "%s", the copyrighted Nova Bíblia Viva, as a Portuguese label without bundled text',
+    (label) => {
+      expect(scriptureCatalog.canonicalizeTranslation(label)).toBeNull();
+      expect(scriptureCatalog.isBundledTranslation(label)).toBe(false);
+      expect(scriptureCatalog.getTranslationMetadata(label)).toBeNull();
+      expect(scriptureCatalog.recognizeTranslation(label)).toBe('NBV');
+      expect(scriptureCatalog.isPortugueseTranslation(label)).toBe(true);
+      expect(scriptureCatalog.detectLanguage({ translation: label, reference: 'John 3:16' })).toBe('pt');
+    }
+  );
+
+  it('has no text for an NBV verse, so nothing replaces its wording', () => {
+    const nbv = scriptureCatalog.resolvePassage('João 3:16', 'NBV');
+    expect(nbv).toMatchObject({ canonicalRef: 'João 3:16', translation: 'NBV', isBundled: false });
+    expect(nbv?.text).toBeUndefined();
+    expect(scriptureCatalog.fetchPassageText('JHN', 3, 16, undefined, 'NBV')).toBeNull();
+  });
+});
+
+describe('ScriptureCatalog: translations per language (Ticket 82)', () => {
+  it('lists the bundled translations of one language, in catalog order', () => {
+    expect(scriptureCatalog.getBundledTranslations('pt').map((m) => m.code)).toEqual([
+      'BLIVRE',
+      'ONBV',
+    ]);
+    expect(scriptureCatalog.getBundledTranslations('en').map((m) => m.code)).toEqual([
+      'BSB',
+      'WEB',
+    ]);
+  });
+
+  it("names a reference's language, English when the reference is not recognized", () => {
+    expect(scriptureCatalog.referenceLanguage('Salmos 23:1')).toBe('pt');
+    expect(scriptureCatalog.referenceLanguage('Psalm 23:1')).toBe('en');
+    expect(scriptureCatalog.referenceLanguage('João')).toBe('en');
+    expect(scriptureCatalog.referenceLanguage('')).toBe('en');
+  });
+
+  it.each([
+    ['Salmos 23:1', ['pt']],
+    ['João 3:16', ['pt']],
+    ['Psalm 23:1', ['en']],
+    ['John 3:16', ['en']],
+    ['Gênesis 1:1', ['pt']],
+    ['Amós 5:24', ['pt']],
+    // The same spelling in both languages.
+    ['Genesis 1:1', ['pt', 'en']],
+    ['Daniel 6:22', ['pt', 'en']],
+    ['1 Samuel 3:10', ['pt', 'en']],
+    ['Gn 1:1', ['pt', 'en']],
+    ['Heb 11:1', ['pt', 'en']],
+    // Not a reference (yet).
+    ['João', []],
+    ['Salmos 23:', []],
+    ['', []],
+  ] as const)('tells which languages the book name of "%s" is written in', (reference, languages) => {
+    expect(scriptureCatalog.referenceLanguages(reference)).toEqual(languages);
   });
 });

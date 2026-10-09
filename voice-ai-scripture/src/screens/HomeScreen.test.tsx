@@ -1,6 +1,13 @@
 import React from 'react';
 import { Share } from 'react-native';
-import { render, fireEvent, waitFor, act, getDefaultNormalizer } from '@testing-library/react-native';
+import {
+  render,
+  fireEvent,
+  waitFor,
+  act,
+  getDefaultNormalizer,
+  within,
+} from '@testing-library/react-native';
 import HomeScreen from './HomeScreen';
 import { verseEngine, VerseEngine, MapStorageAdapter } from '../services/VerseEngine';
 import { SimulatedVoiceAdapter } from '../services/VoiceInput';
@@ -46,9 +53,33 @@ jest.mock('../services/VerseEngine', () => {
       importDeck: jest.fn().mockResolvedValue([]),
       getNextReviewMessage: jest.fn().mockReturnValue('Next review due tomorrow'),
       updateVerse: jest.fn().mockResolvedValue({}),
+      getPreferredTranslations: jest.fn().mockResolvedValue({ pt: 'BLIVRE', en: 'BSB' }),
+      setPreferredTranslation: jest.fn(async (_language: string, code: string) => code),
     },
   };
 });
+
+/**
+ * The mocked engine's Preferred Translations, kept in memory so the settings surface and the
+ * add-verse picker see each other's changes as they would with the real engine.
+ */
+function usePreferredTranslations(initial: { pt: string; en: string }) {
+  const preferred = { ...initial };
+  (verseEngine.getPreferredTranslations as jest.Mock).mockImplementation(async () => ({
+    ...preferred,
+  }));
+  (verseEngine.setPreferredTranslation as jest.Mock).mockImplementation(
+    async (language: 'pt' | 'en', code: string) => {
+      preferred[language] = code;
+      return code;
+    }
+  );
+  return preferred;
+}
+
+/** Whether the add-verse translation chip for `code` is the selected one. */
+const isChipSelected = (getByTestId: (id: string) => any, code: string) =>
+  getByTestId(`translation-chip-${code}`).props.accessibilityState?.selected === true;
 
 // Mock expo-clipboard
 jest.mock('expo-clipboard', () => ({
@@ -88,6 +119,7 @@ describe('HomeScreen Integration (Ticket 16)', () => {
     (Clipboard.getStringAsync as jest.Mock).mockReset();
     (Clipboard.getStringAsync as jest.Mock).mockResolvedValue('');
     jest.spyOn(Share, 'share').mockResolvedValue({ action: 'sharedAction' } as any);
+    usePreferredTranslations({ pt: 'BLIVRE', en: 'BSB' });
   });
 
   jest.setTimeout(15000);
@@ -164,14 +196,20 @@ describe('HomeScreen Integration (Ticket 16)', () => {
   });
 
   it('offers only the open-licensed Bibles as bundled text and defaults to the BSB (Ticket 81)', async () => {
-    const { getByText, getByPlaceholderText, queryByText } = await render(<HomeScreen />);
+    const { getByText, getByPlaceholderText, queryByText, getByTestId } = await render(
+      <HomeScreen />
+    );
 
     await act(async () => {
       fireEvent.press(getByText('+ Type Custom Verse'));
     });
 
-    expect(queryByText(/KJV/)).toBeNull();
-    expect(queryByText(/Almeida/)).toBeNull();
+    // KJV and ALMEIDA are offered only as labels for the learner's own text (Ticket 82).
+    for (const group of ['translation-group-en', 'translation-group-pt']) {
+      expect(within(getByTestId(group)).queryByText(/KJV|ALMEIDA|Almeida/)).toBeNull();
+    }
+    expect(within(getByTestId('translation-group-own-text')).getByText('KJV')).toBeTruthy();
+    expect(within(getByTestId('translation-group-own-text')).getByText('ALMEIDA')).toBeTruthy();
     // The default is bundled, so no copyright notice is shown.
     expect(queryByText(/Esta tradução não está embutida offline/)).toBeNull();
 
@@ -1117,6 +1155,311 @@ describe('HomeScreen Integration (Ticket 16)', () => {
       // Back in the add-verse form, with what was typed still there.
       expect(queryByTestId('translation-entry-ONBV')).toBeNull();
       expect(getByPlaceholderText('Reference (e.g. John 3:16)').props.value).toBe('Romanos 8:28');
+    });
+  });
+  describe('Preferred Translation in the add-verse picker (Ticket 82)', () => {
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    const openAddVerse = async (screen: Awaited<ReturnType<typeof render>>) => {
+      await act(async () => {
+        fireEvent.press(screen.getByText('+ Type Custom Verse'));
+      });
+    };
+
+    it('preselects the Preferred Translation for the language of the typed reference', async () => {
+      usePreferredTranslations({ pt: 'ONBV', en: 'WEB' });
+      const screen = await render(<HomeScreen />);
+      const { getByTestId, getByText, getByPlaceholderText } = screen;
+      await openAddVerse(screen);
+
+      // Nothing typed yet: English.
+      expect(isChipSelected(getByTestId, 'WEB')).toBe(true);
+      expect(isChipSelected(getByTestId, 'BSB')).toBe(false);
+
+      const refInput = getByPlaceholderText('Reference (e.g. John 3:16)');
+      await act(async () => {
+        refInput.props.onChangeText('Salmos 23:1');
+      });
+      expect(isChipSelected(getByTestId, 'ONBV')).toBe(true);
+      expect(isChipSelected(getByTestId, 'WEB')).toBe(false);
+
+      await act(async () => {
+        fireEvent.press(getByText('🔍 Buscar Texto'));
+      });
+      const onbvText = scriptureCatalog.resolvePassage('Salmos 23:1', 'ONBV')!.text!;
+      expect(getByPlaceholderText('Verse text...').props.value).toBe(onbvText);
+
+      await act(async () => {
+        refInput.props.onChangeText('Psalm 23:1');
+      });
+      expect(isChipSelected(getByTestId, 'WEB')).toBe(true);
+
+      await act(async () => {
+        fireEvent.press(getByText('🔍 Buscar Texto'));
+      });
+      const webText = scriptureCatalog.resolvePassage('Psalm 23:1', 'WEB')!.text!;
+      expect(getByPlaceholderText('Verse text...').props.value).toBe(webText);
+
+      await act(async () => {
+        fireEvent.press(getByText('Save Verse'));
+      });
+      expect(verseEngine.addVerse).toHaveBeenCalledWith({
+        reference: 'Psalm 23:1',
+        text: webText,
+        translation: 'WEB',
+      });
+    });
+
+    it('keeps the language detected so far while the reference is unresolved or spelled the same in both languages', async () => {
+      usePreferredTranslations({ pt: 'ONBV', en: 'WEB' });
+      const screen = await render(<HomeScreen />);
+      const { getByTestId, getByPlaceholderText } = screen;
+      await openAddVerse(screen);
+      const typeReference = async (value: string) => {
+        await act(async () => {
+          getByPlaceholderText('Reference (e.g. John 3:16)').props.onChangeText(value);
+        });
+      };
+
+      // "Daniel" is Portuguese and English: nothing detected yet, so English.
+      await typeReference('Daniel 6:22');
+      expect(isChipSelected(getByTestId, 'WEB')).toBe(true);
+
+      await typeReference('João 3:16');
+      expect(isChipSelected(getByTestId, 'ONBV')).toBe(true);
+      await typeReference('João 3:');
+      expect(isChipSelected(getByTestId, 'ONBV')).toBe(true);
+      await typeReference('Daniel 6:22');
+      expect(isChipSelected(getByTestId, 'ONBV')).toBe(true);
+      await typeReference('Gn 1:1');
+      expect(isChipSelected(getByTestId, 'ONBV')).toBe(true);
+      // Accents make "Gênesis" Portuguese; "Genesis" could be either.
+      await typeReference('Psalm 23:1');
+      expect(isChipSelected(getByTestId, 'WEB')).toBe(true);
+      await typeReference('Gênesis 1:1');
+      expect(isChipSelected(getByTestId, 'ONBV')).toBe(true);
+      await typeReference('Genesis 1:1');
+      expect(isChipSelected(getByTestId, 'ONBV')).toBe(true);
+    });
+
+    it("keeps the learner's chip when the reference changes language", async () => {
+      const screen = await render(<HomeScreen />);
+      const { getByTestId, getByText, getByPlaceholderText } = screen;
+      await openAddVerse(screen);
+
+      await act(async () => {
+        fireEvent.press(getByText('WEB (World English Bible)'));
+      });
+      await act(async () => {
+        getByPlaceholderText('Reference (e.g. John 3:16)').props.onChangeText('Salmos 23:1');
+      });
+
+      expect(isChipSelected(getByTestId, 'WEB')).toBe(true);
+      expect(isChipSelected(getByTestId, 'BLIVRE')).toBe(false);
+    });
+
+    it("offers the learner's own-text labels for Portuguese and English, apart from the bundled Bibles", async () => {
+      const screen = await render(<HomeScreen />);
+      await openAddVerse(screen);
+
+      const ownText = within(screen.getByTestId('translation-group-own-text'));
+      expect(ownText.getByText('📋 Texto próprio / Your own text')).toBeTruthy();
+      for (const label of [
+        'ARA', 'ARC', 'ACF', 'NAA', 'NVI', 'NTLH', 'NVT', 'NBV', 'ALMEIDA',
+        'KJV', 'NIV', 'ESV', 'NKJV', 'NASB',
+      ]) {
+        expect(ownText.getByText(label)).toBeTruthy();
+      }
+      expect(ownText.getByText('Outra (Personalizada)')).toBeTruthy();
+      // The bundled Bibles are not among them.
+      expect(ownText.queryByText(/BLIVRE|ONBV|BSB|WEB/)).toBeNull();
+    });
+
+    it('never fetches bundled text for an own-text label', async () => {
+      jest.useFakeTimers();
+      const screen = await render(<HomeScreen />);
+      const { getByText, getByPlaceholderText } = screen;
+      await openAddVerse(screen);
+
+      await act(async () => {
+        fireEvent.press(getByText('KJV'));
+      });
+      await act(async () => {
+        getByPlaceholderText('Reference (e.g. John 3:16)').props.onChangeText('John 3:16');
+      });
+      await act(async () => {
+        jest.advanceTimersByTime(1000);
+      });
+      expect(getByPlaceholderText('Verse text...').props.value).toBe('');
+
+      await act(async () => {
+        fireEvent.press(getByText('🔍 Buscar Texto'));
+      });
+      expect(getByPlaceholderText('Verse text...').props.value).toBe('');
+      expect(getByText(/Esta tradução não está embutida offline/)).toBeTruthy();
+    });
+
+    it.each([
+      ['ARA', '— Salmos 23:1 ARA', 'Salmos 23:1', 'O Senhor é o meu pastor; nada me faltará.'],
+      ['KJV', 'Psalm 23:1 KJV', 'Psalm 23:1', 'The LORD is my shepherd; I shall not want.'],
+      [
+        'NBV',
+        'João 3:16 NBV',
+        'João 3:16',
+        'Porque Deus amou tanto o mundo que deu o seu único Filho...',
+      ],
+    ])('keeps the label and the pasted text of a verse pasted as %s', async (label, citation, reference, text) => {
+      jest.useFakeTimers();
+      (Clipboard.getStringAsync as jest.Mock).mockResolvedValue(
+        `“${text}”\n${citation}\nhttps://bible.com/bible/1/x.${label}`
+      );
+      const screen = await render(<HomeScreen />);
+      const { getByText, getByTestId, getByPlaceholderText } = screen;
+      await openAddVerse(screen);
+
+      await act(async () => {
+        fireEvent.press(getByText('📋 Colar da Área de Transferência'));
+      });
+      // Well past the auto-fetch debounce: no bundled text may replace the pasted wording.
+      await act(async () => {
+        jest.advanceTimersByTime(1000);
+      });
+
+      expect(getByPlaceholderText('Verse text...').props.value).toBe(text);
+      expect(isChipSelected(getByTestId, label)).toBe(true);
+
+      await act(async () => {
+        fireEvent.press(getByText('Save Verse'));
+      });
+      expect(verseEngine.addVerse).toHaveBeenCalledWith({ reference, text, translation: label });
+    });
+  });
+
+  describe('Preferred Translation settings (Ticket 82)', () => {
+    const openSettings = async (screen: Awaited<ReturnType<typeof render>>) => {
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('open-preferred-translation-home'));
+      });
+    };
+    const isOptionSelected = (getByTestId: (id: string) => any, language: string, code: string) =>
+      getByTestId(`preferred-option-${language}-${code}`).props.accessibilityState?.selected ===
+      true;
+
+    it('opens from the Home Screen header, next to Reminders and Copyright, with one choice per language', async () => {
+      const screen = await render(<HomeScreen />);
+      const { getByText, getByTestId, queryByTestId } = screen;
+
+      expect(getByText('⏰ Reminders')).toBeTruthy();
+      expect(getByTestId('open-translations-copyright-home')).toBeTruthy();
+      expect(queryByTestId('preferred-option-pt-BLIVRE')).toBeNull();
+
+      await openSettings(screen);
+
+      expect(getByText('Tradução preferida')).toBeTruthy();
+      expect(getByText('Preferred Translation')).toBeTruthy();
+
+      const pt = within(getByTestId('preferred-language-pt'));
+      expect(pt.getByText('Português')).toBeTruthy();
+      expect(pt.getByText('Bíblia Livre')).toBeTruthy();
+      expect(pt.getByText('Open Nova Bíblia Viva')).toBeTruthy();
+      expect(pt.queryByText(/Berean|World English/)).toBeNull();
+
+      const en = within(getByTestId('preferred-language-en'));
+      expect(en.getByText('English')).toBeTruthy();
+      expect(en.getByText('Berean Standard Bible')).toBeTruthy();
+      expect(en.getByText('World English Bible')).toBeTruthy();
+      expect(en.queryByText(/Bíblia/)).toBeNull();
+
+      expect(isOptionSelected(getByTestId, 'pt', 'BLIVRE')).toBe(true);
+      expect(isOptionSelected(getByTestId, 'pt', 'ONBV')).toBe(false);
+      expect(isOptionSelected(getByTestId, 'en', 'BSB')).toBe(true);
+      expect(isOptionSelected(getByTestId, 'en', 'WEB')).toBe(false);
+
+      await act(async () => {
+        fireEvent.press(getByTestId('close-preferred-translation'));
+      });
+      expect(queryByTestId('preferred-option-pt-BLIVRE')).toBeNull();
+    });
+
+    it('shows the stored preference when it opens', async () => {
+      usePreferredTranslations({ pt: 'ONBV', en: 'WEB' });
+      const screen = await render(<HomeScreen />);
+      await openSettings(screen);
+
+      expect(isOptionSelected(screen.getByTestId, 'pt', 'ONBV')).toBe(true);
+      expect(isOptionSelected(screen.getByTestId, 'en', 'WEB')).toBe(true);
+      expect(isOptionSelected(screen.getByTestId, 'pt', 'BLIVRE')).toBe(false);
+    });
+
+    it('changes the preference per language without rewriting saved verses, and new verses follow it', async () => {
+      const saved = {
+        id: '1',
+        reference: 'Salmos 23:1',
+        text: 'O SENHOR é meu pastor, nada me faltará.',
+        translation: 'BLIVRE',
+      };
+      (verseEngine.getVersesSummary as jest.Mock).mockResolvedValue({
+        allVerses: [saved],
+        dueVerses: [saved],
+        dueCount: 1,
+      });
+      const screen = await render(<HomeScreen />);
+      const { getByTestId, getByText, getByPlaceholderText } = screen;
+      await waitFor(() => expect(getByText('[BLIVRE]')).toBeTruthy());
+      await openSettings(screen);
+
+      await act(async () => {
+        fireEvent.press(getByTestId('preferred-option-pt-ONBV'));
+      });
+      expect(verseEngine.setPreferredTranslation).toHaveBeenCalledWith('pt', 'ONBV');
+      expect(isOptionSelected(getByTestId, 'pt', 'ONBV')).toBe(true);
+      expect(isOptionSelected(getByTestId, 'pt', 'BLIVRE')).toBe(false);
+      expect(isOptionSelected(getByTestId, 'en', 'BSB')).toBe(true);
+
+      await act(async () => {
+        fireEvent.press(getByTestId('preferred-option-en-WEB'));
+      });
+      expect(verseEngine.setPreferredTranslation).toHaveBeenCalledWith('en', 'WEB');
+      expect(isOptionSelected(getByTestId, 'en', 'WEB')).toBe(true);
+
+      // Saved verses are left alone.
+      expect(verseEngine.updateVerse).not.toHaveBeenCalled();
+      expect(verseEngine.addVerse).not.toHaveBeenCalled();
+      expect(verseEngine.importDeck).not.toHaveBeenCalled();
+
+      await act(async () => {
+        fireEvent.press(getByTestId('close-preferred-translation'));
+      });
+      expect(getByText('[BLIVRE]')).toBeTruthy();
+
+      // The next new verse starts in the new preference.
+      await act(async () => {
+        fireEvent.press(getByText('+ Type Custom Verse'));
+      });
+      expect(isChipSelected(getByTestId, 'WEB')).toBe(true);
+      await act(async () => {
+        getByPlaceholderText('Reference (e.g. John 3:16)').props.onChangeText('João 3:16');
+      });
+      expect(isChipSelected(getByTestId, 'ONBV')).toBe(true);
+    });
+
+    it('links to the Translations & Copyright screen', async () => {
+      const screen = await render(<HomeScreen />);
+      const { getByTestId, queryByTestId } = screen;
+      await openSettings(screen);
+
+      await act(async () => {
+        fireEvent.press(getByTestId('open-translations-copyright-settings'));
+      });
+      expect(getByTestId('translation-entry-ONBV')).toBeTruthy();
+
+      await act(async () => {
+        fireEvent.press(getByTestId('close-translations-copyright'));
+      });
+      expect(queryByTestId('translation-entry-ONBV')).toBeNull();
+      expect(getByTestId('preferred-option-pt-BLIVRE')).toBeTruthy();
     });
   });
 });
