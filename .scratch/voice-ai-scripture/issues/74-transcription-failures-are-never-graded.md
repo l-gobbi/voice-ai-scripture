@@ -12,11 +12,11 @@ See spec.
 
 **Blocked by:** 72: Review Log and Official Review Classification
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] The native adapter concatenates final segments across pauses (fake speech module test).
-- [ ] An error after real speech still returns the transcript. An error with no speech throws a Transcription Error mapped as: no-speech/no-match → `unintelligible`; network → `network_error`; language-not-supported/audio-capture/service-not-allowed → `unavailable`; other → `unknown`.
-- [ ] An empty transcript becomes a Transcription Error in the Recitation Session and never reaches the evaluator or the schedule.
-- [ ] The Subscription Service gains a refund operation for the current Study Day, and the session uses it when a metered attempt ends in a Transcription Error.
-- [ ] Review Log rows for these attempts carry the error code and a null outcome.
-- [ ] The Review Screen shows the retry message (en/pt) and no score.
+- [x] The native adapter concatenates final segments across pauses (fake speech module test).
+- [x] An error after real speech still returns the transcript. An error with no speech throws a Transcription Error mapped as: no-speech/no-match → `unintelligible`; network → `network_error`; language-not-supported/audio-capture/service-not-allowed → `unavailable`; other → `unknown`.
+- [x] An empty transcript becomes a Transcription Error in the Recitation Session and never reaches the evaluator or the schedule.
+- [x] The Subscription Service gains a refund operation for the current Study Day, and the session uses it when a metered attempt ends in a Transcription Error.
+- [x] Review Log rows for these attempts carry the error code and a null outcome.
+- [x] The Review Screen shows the retry message (en/pt) and no score.

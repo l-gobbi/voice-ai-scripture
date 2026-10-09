@@ -61,6 +61,15 @@ const tokenize = (text: string): AlignedToken[] => {
 };
 
 /**
+ * How many words of the text the diff compares, after normalization: a word with no letters or
+ * digits counts for none, and a hyphenated word counts for each of its parts. A transcript with
+ * none is empty, whatever characters it holds.
+ */
+export function countComparableWords(text: string): number {
+  return tokenize(text).length;
+}
+
+/**
  * The canonical word positions (from 0, as the diff counts words) of each whitespace-separated
  * word of the text, which is how the Cloze tokens split it. A hyphenated or dash-joined word
  * holds several diff words ("daughter-in-law" holds three), and a word with no letters or

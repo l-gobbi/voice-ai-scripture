@@ -20,8 +20,8 @@ import {
   DiffToken,
   RecitationOutcome,
 } from '../engines/recitationEvaluator';
-import { canonicalPositionsByWord } from '../engines/diffEngine';
-import { TranscriptionError } from './SpeechTranscriber';
+import { canonicalPositionsByWord, countComparableWords } from '../engines/diffEngine';
+import { TranscriptionError, TranscriptionErrorCode } from './SpeechTranscriber';
 import {
   SpeechSynthesizer,
   getDefaultSpeechSynthesizer,
@@ -110,6 +110,12 @@ export interface VoiceRecitationResult {
   kind: AttemptKind;
 }
 
+/** Said after every Transcription Error, in the verse's language (ticket 74). */
+const NOT_GRADED_NOTICE: Record<'en' | 'pt', string> = {
+  en: 'Nothing was graded and no recitation was used.',
+  pt: 'Nada foi avaliado e nenhuma recitação foi usada.',
+};
+
 /** Which recognizer produced the transcript, when the voice input is one of the app's adapters. */
 function recognizerOf(voiceInput: VoiceInput): Recognizer | undefined {
   if (voiceInput instanceof NativeStreamVoiceAdapter) return 'native';
@@ -138,6 +144,11 @@ export interface RecitationState {
   rawTranscript?: string | null;
   errorMessage: string | null;
   errorDetails?: string | null;
+  /**
+   * Set when the last attempt ended in a Transcription Error: the app failed to hear the
+   * learner, so nothing was graded and any quota unit was refunded (ticket 74).
+   */
+  transcriptionErrorCode: TranscriptionErrorCode | null;
   rateLimitCooldownSeconds?: number;
 }
 
@@ -174,6 +185,8 @@ export class RecitationSession {
   /** Canonical word positions of each Cloze token (a hyphenated token holds several). */
   private canonicalPositionsByClozeIndex: number[][];
   private recitationStartedAt: Date | null = null;
+  /** When the current attempt consumed a quota unit; null when it is unmetered. */
+  private quotaConsumedAt: Date | null = null;
 
   private state: RecitationState;
 
@@ -209,6 +222,7 @@ export class RecitationSession {
       rawTranscript: null,
       errorMessage: null,
       errorDetails: null,
+      transcriptionErrorCode: null,
     };
 
     if (initialLevel === 1 && this.autoVocalizeOnLevel1) {
@@ -275,6 +289,7 @@ export class RecitationSession {
       currentResult: null,
       result: null,
       errorMessage: null,
+      transcriptionErrorCode: null,
     });
 
     if (level === 1 && this.autoVocalizeOnLevel1) {
@@ -303,6 +318,7 @@ export class RecitationSession {
       result: null,
       rawTranscript: null,
       errorMessage: null,
+      transcriptionErrorCode: null,
     });
   }
 
@@ -370,11 +386,13 @@ export class RecitationSession {
     this.setState({
       errorMessage: null,
       errorDetails: null,
+      transcriptionErrorCode: null,
       currentResult: null,
       result: null,
       volumeLevel: 0,
       vadProgress: 0,
     });
+    this.quotaConsumedAt = null;
 
     try {
       // 1. Microphone Permissions
@@ -390,7 +408,8 @@ export class RecitationSession {
       // 2. Quota & Rate Limit Gating Check
       const isUnmetered = this.isSandbox || this.isUnmetered || (options?.unmetered ?? (this.state.level !== 3));
       if (!isUnmetered) {
-        const rateLimit = await this.subscriptionService.consumeRecitation(this.now());
+        const consumedAt = this.now();
+        const rateLimit = await this.subscriptionService.consumeRecitation(consumedAt);
         if (!rateLimit.allowed) {
           const isRateLimited = rateLimit.reason === 'rate_limited';
           const isPt = inferVerseLanguage(this.verse) === 'pt';
@@ -405,6 +424,8 @@ export class RecitationSession {
           });
           return;
         }
+
+        this.quotaConsumedAt = consumedAt;
 
         if (rateLimit.useNativeFallback) {
           this.voiceInput = createDefaultVoiceInput({ engine: 'native' });
@@ -517,14 +538,18 @@ export class RecitationSession {
       vadState: 'idle',
     });
 
+    const level = this.state.level;
+    // Word Peeks exist only in Blind Recitation; level changes clear them.
+    const peekedWordPositions = level === 3 ? [...this.state.peekedWordPositions] : [];
+
     try {
       const voiceResult = await this.voiceInput.stop();
-      const transcript = voiceResult.transcript;
+      const transcript = voiceResult.transcript ?? '';
+      // Nothing to compare, from any engine, means the app did not hear the learner.
+      if (countComparableWords(transcript) === 0) {
+        throw new TranscriptionError('unintelligible', 'The transcript has no words to compare.');
+      }
       const now = this.now();
-      const level = this.state.level;
-
-      // Word Peeks exist only in Blind Recitation; level changes clear them.
-      const peekedWordPositions = level === 3 ? [...this.state.peekedWordPositions] : [];
 
       // Pure Recitation Evaluator Pipeline (grading only; the Verse Engine schedules)
       const evaluation = evaluateRecitation({
@@ -548,12 +573,9 @@ export class RecitationSession {
           level,
           evaluation,
           peekedWordPositions,
-          clozeRevealCount:
-            level === 2 ? this.state.clozeTokens.filter((token) => token.isRevealed).length : undefined,
+          clozeRevealCount: this.clozeRevealCount(level),
           recognizer: recognizerOf(this.voiceInput),
-          durationMs: this.recitationStartedAt
-            ? Math.max(0, now.getTime() - this.recitationStartedAt.getTime())
-            : undefined,
+          durationMs: this.durationUntil(now),
           now,
         });
         kind = recorded.kind;
@@ -581,19 +603,79 @@ export class RecitationSession {
       });
       return result;
     } catch (err: any) {
-      console.error('[RecitationSession] Verification error:', err);
-      const userMessage = err instanceof TranscriptionError
-        ? err.getUserFacingMessage()
-        : err?.message || 'An error occurred during verification.';
+      if (err instanceof TranscriptionError) {
+        await this.endInTranscriptionError(err, level, peekedWordPositions);
+        return null;
+      }
 
+      console.error('[RecitationSession] Verification error:', err);
       this.setState({
         status: 'error',
-        errorMessage: userMessage,
+        errorMessage: err?.message || 'An error occurred during verification.',
         errorDetails: err?.message || null,
         rawTranscript: null,
       });
       return null;
     }
+  }
+
+  /**
+   * The app failed to hear the learner (ticket 74). The attempt is never evaluated or
+   * scheduled: its quota unit, if it used one, is refunded, it is logged with its error code
+   * and no outcome, and the learner is asked calmly to try again. Neither a failed refund nor
+   * a failed log write changes what the learner is told.
+   */
+  private async endInTranscriptionError(
+    error: TranscriptionError,
+    level: RecitationLevel,
+    peekedWordPositions: number[]
+  ): Promise<void> {
+    const now = this.now();
+
+    const consumedAt = this.quotaConsumedAt;
+    this.quotaConsumedAt = null;
+    if (consumedAt) {
+      // The unit belongs to the Study Day it was consumed on.
+      await this.subscriptionService
+        .refundRecitation(consumedAt)
+        .catch((err) => console.warn('[RecitationSession] Quota refund failed:', err));
+    }
+
+    // The sandbox verse is not stored yet, so nothing is recorded.
+    if (!this.isSandbox) {
+      await this.verseEngine
+        .recordTranscriptionError({
+          verseId: this.verse.id,
+          level,
+          code: error.code,
+          peekedWordPositions,
+          clozeRevealCount: this.clozeRevealCount(level),
+          recognizer: recognizerOf(this.voiceInput),
+          durationMs: this.durationUntil(now),
+          now,
+        })
+        .catch((err) => console.warn('[RecitationSession] Review Log write failed:', err));
+    }
+
+    const language = inferVerseLanguage(this.verse);
+    this.setState({
+      status: 'error',
+      transcriptionErrorCode: error.code,
+      errorMessage: `${error.getUserFacingMessage(language)} ${NOT_GRADED_NOTICE[language]}`,
+      errorDetails: error.message,
+      rawTranscript: null,
+    });
+  }
+
+  /** Words revealed during Cloze Practice, for the Review Log. */
+  private clozeRevealCount(level: RecitationLevel): number | undefined {
+    return level === 2 ? this.state.clozeTokens.filter((token) => token.isRevealed).length : undefined;
+  }
+
+  private durationUntil(now: Date): number | undefined {
+    return this.recitationStartedAt
+      ? Math.max(0, now.getTime() - this.recitationStartedAt.getTime())
+      : undefined;
   }
 
   async cancelRecitation(): Promise<void> {
@@ -608,6 +690,7 @@ export class RecitationSession {
       vadThreshold: 0.58,
       errorMessage: null,
       errorDetails: null,
+      transcriptionErrorCode: null,
     });
   }
 
@@ -631,6 +714,7 @@ export class RecitationSession {
       result: null,
       rawTranscript: null,
       errorMessage: null,
+      transcriptionErrorCode: null,
     });
   }
 

@@ -151,3 +151,67 @@ describe('SubscriptionService (Ticket 53: Hybrid Abuse-Prevention Rate Limiter)'
     expect(mockStorage.removeItem).toHaveBeenCalledWith('free_recitations_remaining');
   });
 });
+
+describe('SubscriptionService: refunding a recitation (Ticket 74)', () => {
+  const morning = at(2026, 10, 9, 7, 30);
+
+  it('returns one unit to the current Study Day', async () => {
+    const service = new SubscriptionService(new MapStorageAdapter());
+    await service.consumeRecitation(morning);
+    await service.consumeRecitation(morning);
+
+    await service.refundRecitation(morning);
+
+    expect(await service.getRemainingFreeRecitations(morning)).toBe(DAILY_LIMIT - 1);
+  });
+
+  it('never takes the count below zero', async () => {
+    const storage = new MapStorageAdapter();
+    const service = new SubscriptionService(storage);
+
+    await service.refundRecitation(morning);
+    await service.consumeRecitation(morning);
+    await service.refundRecitation(morning);
+    await service.refundRecitation(morning);
+
+    expect(await service.getRemainingFreeRecitations(morning)).toBe(DAILY_LIMIT);
+    expect(Number((await storage.getItem('daily_recitations_2026-10-09')) ?? '0')).toBe(0);
+  });
+
+  it('refunds the Study Day of the given instant: 03:59 belongs to the previous day', async () => {
+    const storage = new MapStorageAdapter();
+    const service = new SubscriptionService(storage);
+    const lateNight = at(2026, 10, 10, 3, 59);
+    await service.consumeRecitation(lateNight);
+    await service.consumeRecitation(at(2026, 10, 10, 4, 0));
+
+    await service.refundRecitation(lateNight);
+
+    expect(await storage.getItem('daily_recitations_2026-10-09')).toBe('0');
+    expect(await storage.getItem('daily_recitations_2026-10-10')).toBe('1');
+  });
+
+  it('frees the burst slot of the refunded recitation', async () => {
+    const service = new SubscriptionService(new MapStorageAdapter());
+    for (let i = 0; i < BURST_LIMIT; i++) {
+      expect((await service.consumeRecitation(morning)).allowed).toBe(true);
+    }
+    expect((await service.consumeRecitation(morning)).reason).toBe('rate_limited');
+
+    await service.refundRecitation(morning);
+
+    expect((await service.consumeRecitation(morning)).allowed).toBe(true);
+    expect((await service.consumeRecitation(morning)).reason).toBe('rate_limited');
+  });
+
+  it('refunds nothing to a subscriber, who consumes nothing', async () => {
+    const storage = new MapStorageAdapter({ 'daily_recitations_2026-10-09': '3' });
+    const service = new SubscriptionService(storage);
+    await service.subscribePremium();
+
+    await service.consumeRecitation(morning);
+    await service.refundRecitation(morning);
+
+    expect(await storage.getItem('daily_recitations_2026-10-09')).toBe('3');
+  });
+});

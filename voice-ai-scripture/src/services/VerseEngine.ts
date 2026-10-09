@@ -7,7 +7,7 @@ import {
   calculateNextReview,
   isVerseDue,
 } from '../engines/srsEngine';
-import { DiffToken } from '../engines/diffEngine';
+import { DiffToken, countComparableWords } from '../engines/diffEngine';
 import { RecitationEvaluation, RecitationOutcome, isRecalled } from '../engines/recitationEvaluator';
 import {
   StudyDay,
@@ -30,6 +30,7 @@ import {
   ReviewLogEntry,
   hashCanonicalText,
 } from './ReviewLog';
+import { TranscriptionErrorCode } from './SpeechTranscriberTypes';
 
 export { SRSResult, AttemptKind, AttemptLevel, Recognizer, ReviewLogEntry, RecitationOutcome };
 
@@ -87,6 +88,24 @@ export interface RecordAttemptInput {
   recognizer?: Recognizer;
   durationMs?: number;
   /** Instant of the attempt (defaults to now); its Study Day decides due-ness. */
+  now?: Date;
+}
+
+/**
+ * A recitation that ended in a Transcription Error: the app failed to hear the learner, so
+ * there is nothing to grade (ticket 74).
+ */
+export interface RecordTranscriptionErrorInput {
+  verseId: string;
+  level: AttemptLevel;
+  code: TranscriptionErrorCode;
+  /** Words revealed with the Word Peek Lifeline during the attempt, kept as raw data. */
+  peekedWordPositions?: number[];
+  /** Words revealed during Cloze Practice. */
+  clozeRevealCount?: number;
+  recognizer?: Recognizer;
+  durationMs?: number;
+  /** Instant of the attempt (defaults to now). */
   now?: Date;
 }
 
@@ -203,6 +222,53 @@ function countTokens(tokens: DiffToken[]) {
 
 const createAttemptId = (now: Date) =>
   `${now.getTime()}-${Math.random().toString(36).substring(2, 10)}`;
+
+/** The Review Log fields every attempt shares, graded or not. */
+type AttemptRowBase = Pick<
+  ReviewLogEntry,
+  | 'id'
+  | 'schemaVersion'
+  | 'verseId'
+  | 'reviewedAt'
+  | 'utcOffsetMinutes'
+  | 'studyDay'
+  | 'durationMs'
+  | 'level'
+  | 'translation'
+  | 'textHash'
+  | 'peekedWordPositions'
+  | 'clozeRevealCount'
+  | 'recognizer'
+  | 'gradingRuleId'
+  | 'schedulerId'
+>;
+
+function attemptRowBase(
+  verse: Verse,
+  input: Pick<
+    RecordAttemptInput,
+    'level' | 'peekedWordPositions' | 'clozeRevealCount' | 'recognizer' | 'durationMs'
+  >,
+  now: Date
+): AttemptRowBase {
+  return {
+    id: createAttemptId(now),
+    schemaVersion: REVIEW_LOG_SCHEMA_VERSION,
+    verseId: verse.id,
+    reviewedAt: now.toISOString(),
+    utcOffsetMinutes: -now.getTimezoneOffset(),
+    studyDay: toStudyDay(now),
+    durationMs: input.durationMs,
+    level: input.level,
+    translation: verse.translation || resolveDefaultTranslation(verse.reference),
+    textHash: hashCanonicalText(verse.text),
+    peekedWordPositions: [...(input.peekedWordPositions ?? [])],
+    clozeRevealCount: input.clozeRevealCount,
+    recognizer: input.recognizer,
+    gradingRuleId: GRADING_RULE_ID,
+    schedulerId: SCHEDULER_ID,
+  };
+}
 
 import {
   StorageAdapter,
@@ -573,29 +639,15 @@ export class VerseEngine {
 
     const counts = countTokens(tokens);
     const entry: ReviewLogEntry = {
-      id: createAttemptId(now),
-      schemaVersion: REVIEW_LOG_SCHEMA_VERSION,
-      verseId: verse.id,
-      reviewedAt: now.toISOString(),
-      utcOffsetMinutes: -now.getTimezoneOffset(),
-      studyDay,
-      durationMs: input.durationMs,
+      ...attemptRowBase(verse, input, now),
       kind,
-      level: input.level,
-      translation: verse.translation || resolveDefaultTranslation(verse.reference),
-      textHash: hashCanonicalText(verse.text),
       wordCount: counts.correct + counts.missed,
       ...counts,
       rawScore,
-      peekedWordPositions: [...(input.peekedWordPositions ?? [])],
-      clozeRevealCount: input.clozeRevealCount,
       errorCount,
       errorBudget,
       outcome,
-      recognizer: input.recognizer,
       wasDue,
-      gradingRuleId: GRADING_RULE_ID,
-      schedulerId: SCHEDULER_ID,
       sm2Quality: kind === 'official' ? SM2_QUALITY[outcome] : null,
       before,
       after: { intervalDays: srsResult.intervalDays, easeFactor: srsResult.easeFactor },
@@ -604,6 +656,43 @@ export class VerseEngine {
     await this.reviewLog.append(entry);
 
     return { kind, srsResult, memoryTier: getMemoryTier(verses[index]), entry };
+  }
+
+  /**
+   * Logs a recitation that ended in a Transcription Error (ticket 74). It is never evaluated or
+   * scheduled: the row is a Practice Attempt with its error code and no outcome, the verse and
+   * the daily habit streak are left untouched, and the verse's Official Review for the Study
+   * Day stays available for the retry.
+   */
+  async recordTranscriptionError(input: RecordTranscriptionErrorInput): Promise<ReviewLogEntry> {
+    const now = input.now ?? new Date();
+    const verse = (await this.getAllVerses()).find((candidate) => candidate.id === input.verseId);
+    if (!verse) {
+      throw new Error(`Verse not found: ${input.verseId}`);
+    }
+
+    const unchanged = currentSrsResult(verse.srs, false, now);
+    const schedule = { intervalDays: unchanged.intervalDays, easeFactor: unchanged.easeFactor };
+    const entry: ReviewLogEntry = {
+      ...attemptRowBase(verse, input, now),
+      kind: 'practice',
+      wordCount: countComparableWords(verse.text),
+      correct: 0,
+      missed: 0,
+      added: 0,
+      rawScore: 0,
+      errorCount: null,
+      errorBudget: null,
+      outcome: null,
+      transcriptionErrorCode: input.code,
+      wasDue: isDueAt(verse, now),
+      sm2Quality: null,
+      before: schedule,
+      after: { ...schedule },
+      dueStudyDayAfter: unchanged.nextReviewDate,
+    };
+    await this.reviewLog.append(entry);
+    return entry;
   }
 
   /**

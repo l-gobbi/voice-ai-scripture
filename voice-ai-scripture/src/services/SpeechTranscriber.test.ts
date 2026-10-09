@@ -3,6 +3,7 @@ import {
   SimulatedTranscriber,
   WhisperTranscriber,
   TranscriptionError,
+  TranscriptionErrorCode,
   createDefaultTranscriber,
 } from './SpeechTranscriber';
 
@@ -272,6 +273,26 @@ describe('SpeechTranscriber Seam (Ticket 11)', () => {
       );
       expect(new TranscriptionError('unknown', 'raw err').getUserFacingMessage()).toBe(
         'An unexpected transcription error occurred.'
+      );
+    });
+
+    it('speaks Portuguese for a Portuguese verse, and English stays the default (Ticket 74)', () => {
+      const pt = (code: TranscriptionErrorCode) =>
+        new TranscriptionError(code, 'raw err').getUserFacingMessage('pt');
+
+      expect(pt('network_error')).toBe('Falha na conexão de rede. Verifique sua conexão com a internet.');
+      expect(pt('rate_limited')).toBe(
+        'O serviço de transcrição está ocupado no momento. Tente novamente em instantes.'
+      );
+      expect(pt('unauthorized')).toBe('Falha na autenticação da transcrição. Verifique sua chave de API.');
+      expect(pt('unavailable')).toMatch(/^O reconhecimento de voz não está disponível neste dispositivo/);
+      expect(pt('unintelligible')).toBe(
+        'Não foi possível entender o áudio. Fale com clareza e tente novamente.'
+      );
+      expect(pt('unknown')).toBe('Ocorreu um erro inesperado na transcrição.');
+
+      expect(new TranscriptionError('unintelligible', 'raw err').getUserFacingMessage('en')).toBe(
+        'Could not transcribe audio. Please speak clearly and try again.'
       );
     });
   });

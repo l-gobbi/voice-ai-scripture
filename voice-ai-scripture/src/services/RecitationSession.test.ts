@@ -45,6 +45,15 @@ function stubRecordAttempt(kind: AttemptKind = 'official', srs: Partial<SRSResul
   }));
 }
 
+/** Stubs the singleton Verse Engine's Transcription Error log, for verses that are not stored. */
+function stubRecordTranscriptionError() {
+  return jest
+    .spyOn(verseEngine, 'recordTranscriptionError')
+    .mockImplementation(async () => ({} as ReviewLogEntry));
+}
+
+const NOT_GRADED = 'Nothing was graded and no recitation was used.';
+
 describe('RecitationSession (Ticket 07)', () => {
   const mockVerse: Verse = {
     id: '1',
@@ -356,8 +365,9 @@ describe('RecitationSession (Ticket 07)', () => {
       expect(session.getState().status).toBe('verified');
     });
 
-    it('maps network_error TranscriptionError to friendly message without recording review', async () => {
+    it('maps network_error TranscriptionError to a calm retry message: never graded, only logged with its code (Ticket 74)', async () => {
       const recordSpy = stubRecordAttempt();
+      const transcriptionErrorSpy = stubRecordTranscriptionError();
 
       const failingVoiceInput = new SimulatedVoiceAdapter({
         handler: () => {
@@ -372,12 +382,17 @@ describe('RecitationSession (Ticket 07)', () => {
       expect(result).toBeNull();
       expect(session.getState().status).toBe('error');
       expect(session.getState().errorMessage).toBe(
-        'Network connection failed. Please check your internet connection.'
+        `Network connection failed. Please check your internet connection. ${NOT_GRADED}`
       );
       expect(recordSpy).not.toHaveBeenCalled();
+      expect(transcriptionErrorSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ verseId: mockVerse.id, level: 3, code: 'network_error' })
+      );
     });
 
     it('maps rate_limited and unauthorized TranscriptionErrors to specific domain messages', async () => {
+      stubRecordTranscriptionError();
+
       // Rate limited
       const rateLimitedVoiceInput = new SimulatedVoiceAdapter({
         handler: () => {
@@ -389,7 +404,7 @@ describe('RecitationSession (Ticket 07)', () => {
       await session1.stopAndVerify();
       expect(session1.getState().status).toBe('error');
       expect(session1.getState().errorMessage).toBe(
-        'Transcription service is temporarily busy. Please try again shortly.'
+        `Transcription service is temporarily busy. Please try again shortly. ${NOT_GRADED}`
       );
 
       // Unauthorized
@@ -403,7 +418,7 @@ describe('RecitationSession (Ticket 07)', () => {
       await session2.stopAndVerify();
       expect(session2.getState().status).toBe('error');
       expect(session2.getState().errorMessage).toBe(
-        'Transcription authentication failed. Please check your API key.'
+        `Transcription authentication failed. Please check your API key. ${NOT_GRADED}`
       );
     });
   });
@@ -2152,5 +2167,214 @@ describe('RecitationSession: Error Budget Grading (Ticket 73)', () => {
       expect((await t.log())[1]).toMatchObject({ kind: 'practice', outcome: 'forgotten', sm2Quality: null });
       await t.session.dispose();
     });
+  });
+});
+
+describe('RecitationSession: Transcription Failures Are Never Graded (Ticket 74)', () => {
+  const PSALM_23_1 = {
+    reference: 'Psalm 23:1',
+    text: 'The Lord is my shepherd; I shall not want.',
+    translation: 'WEB',
+  };
+  const SALMOS_23_1 = {
+    reference: 'Salmos 23:1',
+    text: 'O Senhor é o meu pastor; nada me faltará.',
+    translation: 'ALMEIDA',
+  };
+  const DUE_TODAY = { intervalDays: 6, streak: 2, easeFactor: 2.5, nextReviewDate: '2026-10-09' };
+
+  /**
+   * A stored Due Verse with a real Verse Engine and a real free-tier Subscription Service on
+   * in-memory storage, a clock the test moves by hand, and speech the test controls: what the
+   * simulated voice input hears, or the Transcription Error it throws.
+   */
+  async function setup(verseData: typeof PSALM_23_1 = PSALM_23_1) {
+    const engine = new VerseEngine(new MapStorageAdapter(), { random: () => 0.5 });
+    const added = await engine.addVerse(verseData);
+    const verse = await engine.updateVerse(added.id, { srs: DUE_TODAY });
+    const subscription = new SubscriptionService(new MapStorageAdapter());
+    const clock = { now: new Date(2026, 9, 9, 7, 30) };
+    const speech: { transcript: string; error?: TranscriptionError } = { transcript: verse.text };
+    const session = new RecitationSession(verse, {
+      verseEngine: engine,
+      subscriptionService: subscription,
+      voiceInput: new SimulatedVoiceAdapter({
+        handler: () => {
+          if (speech.error) throw speech.error;
+          return speech.transcript;
+        },
+      }),
+      synthesizer: new MockSpeechSynthesizer(),
+      autoVocalizeOnLevel1: false,
+      now: () => clock.now,
+    });
+
+    return {
+      engine,
+      verse,
+      clock,
+      speech,
+      session,
+      storedSrs: async () => (await engine.getAllVerses())[0].srs,
+      log: () => engine.getReviewLog(verse.id),
+      quotaUsed: async () => DAILY_LIMIT - (await subscription.getRemainingFreeRecitations(clock.now)),
+    };
+  }
+
+  /** Recites until the attempt ends, verified or not. */
+  async function attempt(session: RecitationSession) {
+    await session.startReciting();
+    return session.stopAndVerify();
+  }
+
+  it('an empty transcript on the Official Review is not graded or scheduled: the quota unit is refunded and the attempt is logged with its code', async () => {
+    const t = await setup();
+    const scheduled = await t.storedSrs();
+    t.speech.transcript = '';
+
+    await t.session.startReciting();
+    expect(await t.quotaUsed()).toBe(1);
+    t.clock.now = new Date(2026, 9, 9, 7, 30, 5);
+    const result = await t.session.stopAndVerify();
+
+    expect(result).toBeNull();
+    expect(t.session.getState()).toMatchObject({
+      status: 'error',
+      transcriptionErrorCode: 'unintelligible',
+      errorMessage:
+        'Could not transcribe audio. Please speak clearly and try again. Nothing was graded and no recitation was used.',
+      currentResult: null,
+      officialResult: null,
+    });
+    expect(await t.quotaUsed()).toBe(0);
+    expect(await t.storedSrs()).toEqual(scheduled);
+    expect(await t.log()).toEqual([
+      expect.objectContaining({
+        kind: 'practice',
+        level: 3,
+        studyDay: '2026-10-09',
+        durationMs: 5000,
+        wordCount: 9,
+        recognizer: 'simulated',
+        transcriptionErrorCode: 'unintelligible',
+        outcome: null,
+        errorCount: null,
+        errorBudget: null,
+        sm2Quality: null,
+        wasDue: true,
+        before: { intervalDays: 6, easeFactor: 2.5 },
+        after: { intervalDays: 6, easeFactor: 2.5 },
+        dueStudyDayAfter: '2026-10-09',
+      }),
+    ]);
+    expect((await t.engine.getHabitStats(t.clock.now)).completedTodayCount).toBe(0);
+    await t.session.dispose();
+  });
+
+  it('the retry after a Transcription Error is still the day’s Official Review', async () => {
+    const t = await setup();
+    t.speech.transcript = '';
+    await attempt(t.session);
+
+    t.speech.transcript = PSALM_23_1.text;
+    const retry = await attempt(t.session);
+
+    expect(retry).toMatchObject({ kind: 'official', outcome: 'clean', passed: true });
+    expect(t.session.getState()).toMatchObject({ status: 'verified', transcriptionErrorCode: null, errorMessage: null });
+    expect(await t.storedSrs()).toMatchObject({ intervalDays: 15, nextReviewDate: '2026-10-24' });
+    expect((await t.log()).map((row) => [row.kind, row.outcome, row.transcriptionErrorCode])).toEqual([
+      ['practice', null, 'unintelligible'],
+      ['official', 'clean', undefined],
+    ]);
+    expect(await t.quotaUsed()).toBe(1);
+    await t.session.dispose();
+  });
+
+  it.each([
+    ['blank', '   '],
+    ['punctuation only', '... — ?!'],
+  ])('a transcript with no words to compare (%s) is a Transcription Error', async (_case, transcript) => {
+    const t = await setup();
+    t.speech.transcript = transcript;
+
+    expect(await attempt(t.session)).toBeNull();
+
+    expect(t.session.getState().transcriptionErrorCode).toBe('unintelligible');
+    expect((await t.log()).map((row) => [row.outcome, row.transcriptionErrorCode])).toEqual([
+      [null, 'unintelligible'],
+    ]);
+    expect(await t.quotaUsed()).toBe(0);
+    await t.session.dispose();
+  });
+
+  it('a transcript holding only the spoken reference is graded: the learner spoke, so it is not a Transcription Error', async () => {
+    const t = await setup();
+    t.speech.transcript = 'Psalm 23:1';
+
+    const result = await attempt(t.session);
+
+    expect(result).toMatchObject({ kind: 'official', outcome: 'forgotten', errorCount: 9 });
+    expect(await t.quotaUsed()).toBe(1);
+    await t.session.dispose();
+  });
+
+  it('a recognizer error is refunded and logged with its code, and the retry message speaks the verse’s language', async () => {
+    const t = await setup(SALMOS_23_1);
+    t.speech.error = new TranscriptionError('network_error', 'Network request failed');
+
+    expect(await attempt(t.session)).toBeNull();
+
+    expect(t.session.getState()).toMatchObject({
+      status: 'error',
+      transcriptionErrorCode: 'network_error',
+      errorMessage:
+        'Falha na conexão de rede. Verifique sua conexão com a internet. Nada foi avaliado e nenhuma recitação foi usada.',
+    });
+    expect(await t.quotaUsed()).toBe(0);
+    expect(await t.log()).toEqual([
+      expect.objectContaining({ kind: 'practice', transcriptionErrorCode: 'network_error', outcome: null, sm2Quality: null }),
+    ]);
+    await t.session.dispose();
+  });
+
+  it('an unmetered attempt that ends in a Transcription Error refunds nothing, since it used nothing', async () => {
+    const t = await setup();
+    await attempt(t.session);
+    expect(await t.quotaUsed()).toBe(1);
+
+    t.session.setLevel(2);
+    t.speech.transcript = '';
+    expect(await attempt(t.session)).toBeNull();
+
+    expect(await t.quotaUsed()).toBe(1);
+    expect((await t.log()).map((row) => [row.kind, row.level, row.transcriptionErrorCode])).toEqual([
+      ['official', 3, undefined],
+      ['practice', 2, 'unintelligible'],
+    ]);
+    await t.session.dispose();
+  });
+
+  it('in sandbox mode a Transcription Error shows the retry message and records nothing', async () => {
+    const t = await setup();
+    const recordSpy = jest.spyOn(t.engine, 'recordTranscriptionError');
+    const session = new RecitationSession(
+      { id: 'sandbox-psalm-23-1', ...PSALM_23_1 },
+      {
+        verseEngine: t.engine,
+        subscriptionService: new SubscriptionService(new MapStorageAdapter()),
+        voiceInput: new SimulatedVoiceAdapter({ defaultTranscript: '' }),
+        synthesizer: new MockSpeechSynthesizer(),
+        autoVocalizeOnLevel1: false,
+        isSandbox: true,
+        initialLevel: 3,
+        now: () => t.clock.now,
+      }
+    );
+
+    expect(await attempt(session)).toBeNull();
+
+    expect(session.getState()).toMatchObject({ status: 'error', transcriptionErrorCode: 'unintelligible' });
+    expect(recordSpy).not.toHaveBeenCalled();
+    await session.dispose();
   });
 });

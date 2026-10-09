@@ -602,6 +602,65 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
     });
   });
 
+  describe('Transcription Error retry message (Ticket 74)', () => {
+    async function reciteUnheard(verse: Verse) {
+      const screen = await render(
+        <ReviewScreen
+          verse={verse}
+          onComplete={jest.fn()}
+          voiceInput={new SimulatedVoiceAdapter({ defaultTranscript: '' })}
+        />
+      );
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('floating-mic-button'));
+      });
+      await act(async () => {
+        fireEvent.press(screen.getByTestId('floating-mic-button'));
+      });
+      return screen;
+    }
+
+    it('says calmly that nothing was graded and no recitation was used, shows no score, and lets the learner retry', async () => {
+      const verse = await verseEngine.addVerse({
+        reference: 'Psalm 23:1',
+        text: 'The Lord is my shepherd; I shall not want.',
+        translation: 'WEB',
+      });
+
+      const { findByTestId, getByText, queryByText, getByTestId } = await reciteUnheard(verse);
+
+      expect(await findByTestId('transcription-error-retry')).toBeTruthy();
+      expect(
+        getByText(
+          'Could not transcribe audio. Please speak clearly and try again. Nothing was graded and no recitation was used.'
+        )
+      ).toBeTruthy();
+      expect(queryByText(/accuracy/)).toBeNull();
+      expect(queryByText(/allowed/)).toBeNull();
+      expect(queryByText('Needs work')).toBeNull();
+      expect(queryByText('Practice Again')).toBeNull();
+      expect(getByTestId('floating-mic-button')).toBeTruthy();
+    });
+
+    it('speaks Portuguese for a Portuguese verse', async () => {
+      const verse = await verseEngine.addVerse({
+        reference: 'Salmos 23:1',
+        text: 'O Senhor é o meu pastor; nada me faltará.',
+        translation: 'ALMEIDA',
+      });
+
+      const { findByText, queryByText } = await reciteUnheard(verse);
+
+      expect(
+        await findByText(
+          'Não foi possível entender o áudio. Fale com clareza e tente novamente. Nada foi avaliado e nenhuma recitação foi usada.'
+        )
+      ).toBeTruthy();
+      expect(queryByText(/precisão/)).toBeNull();
+      expect(queryByText('Precisa de mais prática')).toBeNull();
+    });
+  });
+
   describe('Sandbox Mode (Ticket 31)', () => {
     const sandboxVerse: Verse = {
       id: 'sandbox-acts-2-38',

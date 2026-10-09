@@ -92,12 +92,16 @@ describe('useRecitationSession hook (Ticket 08 & 12)', () => {
     recordSpy.mockRestore();
   });
 
-  it('reflects error status when VoiceInput throws TranscriptionError', async () => {
+  it('reflects a Transcription Error with its code and the calm retry message (Ticket 74)', async () => {
     jest.spyOn(SubscriptionService, 'consumeRecitation').mockResolvedValueOnce({
       allowed: true,
       remaining: 3,
       isSubscribed: true,
     });
+    // The verse is not stored: the Review Log write is stubbed.
+    const logSpy = jest
+      .spyOn(verseEngine, 'recordTranscriptionError')
+      .mockImplementation(async () => ({} as ReviewLogEntry));
 
     const failingVoiceInput = new SimulatedVoiceAdapter({
       handler: () => {
@@ -118,9 +122,11 @@ describe('useRecitationSession hook (Ticket 08 & 12)', () => {
     });
 
     expect(result.current.status).toBe('error');
+    expect(result.current.transcriptionErrorCode).toBe('network_error');
     expect(result.current.errorMessage).toBe(
-      'Network connection failed. Please check your internet connection.'
+      'Network connection failed. Please check your internet connection. Nothing was graded and no recitation was used.'
     );
+    logSpy.mockRestore();
   });
 
   it('cleans up recitation session on unmount', async () => {

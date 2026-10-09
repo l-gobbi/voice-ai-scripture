@@ -106,6 +106,7 @@ export default function ReviewScreen({
     rawTranscript,
     errorMessage,
     errorDetails,
+    transcriptionErrorCode,
     isReciting,
     isVerifying,
     startReciting,
@@ -359,7 +360,25 @@ export default function ReviewScreen({
           </View>
         </View>
 
-        {errorMessage ? (
+        {errorMessage && transcriptionErrorCode ? (
+          // The app failed to hear the learner: a calm retry notice, never a grade (ticket 74).
+          <View
+            testID="transcription-error-retry"
+            style={[
+              styles.retryNotice,
+              { backgroundColor: theme.colors.surfaceMuted, borderColor: theme.colors.border },
+            ]}
+          >
+            <Text style={[styles.retryNoticeText, { color: theme.colors.textPrimary }]}>
+              {errorMessage}
+            </Text>
+            {typeof __DEV__ !== 'undefined' && __DEV__ && errorDetails ? (
+              <Text style={{ fontSize: 11, color: theme.colors.textSecondary, marginTop: 4, textAlign: 'center' }}>
+                ({errorDetails})
+              </Text>
+            ) : null}
+          </View>
+        ) : errorMessage ? (
           <View style={{ marginHorizontal: 24, marginTop: 12, alignItems: 'center' }}>
             <Text style={[styles.error, { color: theme.colors.diffMissedText, marginTop: 0 }]}>
               {errorMessage}

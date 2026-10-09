@@ -12,8 +12,15 @@ import {
   WhisperTranscriber,
   GroqTranscriber,
   TranscriptionError,
+  TranscriptionErrorCode,
   createDefaultTranscriber,
 } from './SpeechTranscriber';
+// Types only: a value import would load the package, which Expo Go cannot (see the helper).
+import type {
+  ExpoSpeechRecognitionErrorCode,
+  ExpoSpeechRecognitionErrorEvent,
+  ExpoSpeechRecognitionResultEvent,
+} from 'expo-speech-recognition';
 
 export {
   AudioDriver,
@@ -43,14 +50,54 @@ export interface VoiceInput {
 }
 
 /**
+ * The Transcription Error code for a recognizer error event. The codes are the installed
+ * `expo-speech-recognition` union (Web Speech API names); the native modules can emit codes
+ * the union does not list (Android's "too-many-requests"), so any other string is `unknown`.
+ */
+export function transcriptionErrorCodeFor(
+  recognizerError: ExpoSpeechRecognitionErrorCode | string
+): TranscriptionErrorCode {
+  switch (recognizerError) {
+    case 'no-speech':
+    case 'speech-timeout': // (Android) no speech input
+      return 'unintelligible';
+    case 'network':
+      return 'network_error';
+    case 'language-not-supported':
+    case 'audio-capture':
+    case 'service-not-allowed':
+    case 'not-allowed':
+      return 'unavailable';
+    default:
+      return 'unknown';
+  }
+}
+
+/** Joins transcript pieces with single spaces (iOS 18 starts a continued segment with one). */
+const joinSegments = (pieces: string[]): string => pieces.join(' ').split(/\s+/).filter(Boolean).join(' ');
+
+/**
  * NativeStreamVoiceAdapter
  * Direct on-device streaming recognition (Apple Speech framework / Android SpeechRecognizer).
  * Zero audio files written to disk (privacy by default, zero cleanup overhead).
+ *
+ * In continuous mode Android runs a segmented session: after each pause a final result closes
+ * the segment and later results cover a new one. The adapter keeps every final segment plus
+ * the current partial, so a pause never discards earlier speech (ticket 74). Recognizer error
+ * events are recorded: stop() returns any speech heard, and throws a Transcription Error only
+ * when nothing was heard and an error was reported.
  */
 export class NativeStreamVoiceAdapter implements VoiceInput {
   private speechModule: any;
   private isListening: boolean = false;
-  private liveTranscript: string = '';
+  /** Final segments of this attempt, in order. */
+  private finalSegments: string[] = [];
+  /** The in-progress segment: each partial result replaces the previous one. */
+  private partialSegment: string = '';
+  /** The browser's Web Speech transcript, which already holds every result. */
+  private webTranscript: string = '';
+  /** The first recognizer error of this attempt: the one that ended the recognition. */
+  private recognizerError: { error: string; message?: string } | null = null;
   private lastSpokenTime: number = 0;
   private currentOptions?: VoiceInputOptions;
   private resultSub: any = null;
@@ -79,7 +126,7 @@ export class NativeStreamVoiceAdapter implements VoiceInput {
 
   async start(options?: VoiceInputOptions): Promise<void> {
     this.currentOptions = options;
-    this.liveTranscript = '';
+    this.clearTranscript();
     this.lastSpokenTime = 0;
     this.isListening = true;
 
@@ -91,16 +138,15 @@ export class NativeStreamVoiceAdapter implements VoiceInput {
         }
       } catch {}
 
-      this.resultSub = this.speechModule.addListener?.('result', (event: any) => {
-        if (event?.results?.[0]?.transcript) {
-          this.liveTranscript = event.results[0].transcript;
-          this.lastSpokenTime = Date.now();
-        }
-      });
+      this.resultSub = this.speechModule.addListener?.(
+        'result',
+        (event: ExpoSpeechRecognitionResultEvent) => this.onNativeResult(event)
+      );
 
-      this.errorSub = this.speechModule.addListener?.('error', (err: any) => {
-        console.warn('[NativeStreamVoiceAdapter] Speech error:', err);
-      });
+      this.errorSub = this.speechModule.addListener?.(
+        'error',
+        (event: ExpoSpeechRecognitionErrorEvent) => this.recordError(event)
+      );
 
       try {
         this.speechModule.start({
@@ -125,9 +171,10 @@ export class NativeStreamVoiceAdapter implements VoiceInput {
             for (let i = 0; i < event.results.length; i++) {
               res += event.results[i][0].transcript + ' ';
             }
-            this.liveTranscript = res.trim();
+            this.webTranscript = res.trim();
             this.lastSpokenTime = Date.now();
           };
+          rec.onerror = (event: any) => this.recordError(event);
           rec.start();
           this.speechModule = rec;
         } catch {}
@@ -161,12 +208,55 @@ export class NativeStreamVoiceAdapter implements VoiceInput {
         'Speech recognition is not available on this platform or device without a configured cloud API key.'
       );
     }
-    return { transcript: this.liveTranscript.trim() };
+
+    const transcript = this.transcript();
+    // Speech heard before an error is still the learner's recitation.
+    if (!transcript && this.recognizerError) {
+      const { error, message } = this.recognizerError;
+      throw new TranscriptionError(
+        transcriptionErrorCodeFor(error),
+        `Speech recognizer error "${error}"${message ? `: ${message}` : ''}`,
+        this.recognizerError
+      );
+    }
+    return { transcript };
   }
 
   async cancel(): Promise<void> {
     this.cleanup();
-    this.liveTranscript = '';
+    this.clearTranscript();
+  }
+
+  /** Every final segment, then the current partial (in the browser, the Web Speech transcript). */
+  private transcript(): string {
+    return joinSegments([...this.finalSegments, this.partialSegment, this.webTranscript]);
+  }
+
+  private clearTranscript(): void {
+    this.finalSegments = [];
+    this.partialSegment = '';
+    this.webTranscript = '';
+    this.recognizerError = null;
+  }
+
+  private onNativeResult(event: ExpoSpeechRecognitionResultEvent): void {
+    // `results` holds alternatives for the same speech, best first.
+    const transcript = event?.results?.[0]?.transcript?.trim() ?? '';
+    if (event?.isFinal) {
+      // An empty final result never discards the partial speech it would have closed.
+      if (!transcript) return;
+      this.finalSegments.push(transcript);
+      this.partialSegment = '';
+    } else {
+      this.partialSegment = transcript;
+    }
+    if (transcript) this.lastSpokenTime = Date.now();
+  }
+
+  /** Native `error` events and the browser's `onerror` share the Web Speech API's shape. */
+  private recordError(event: { error?: string; message?: string }): void {
+    if (this.recognizerError) return;
+    this.recognizerError = { error: String(event?.error ?? 'unknown'), message: event?.message };
   }
 
   private cleanup(): void {

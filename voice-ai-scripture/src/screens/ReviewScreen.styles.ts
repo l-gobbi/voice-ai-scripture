@@ -216,6 +216,20 @@ export const styles = StyleSheet.create({
     textAlign: 'center',
     fontWeight: '500',
   },
+  retryNotice: {
+    marginHorizontal: 24,
+    marginTop: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  retryNoticeText: {
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
+  },
   voiceActions: {
     width: '100%',
     marginTop: 8,

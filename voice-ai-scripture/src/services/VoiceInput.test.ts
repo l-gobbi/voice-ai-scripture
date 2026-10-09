@@ -276,6 +276,195 @@ describe('VoiceInput Seam (Ticket 45)', () => {
     });
   });
 
+  /**
+   * Ticket 74, against a fake speech module that emits events shaped as the installed
+   * `expo-speech-recognition` types: `result` is `{ isFinal, results }` where `results` holds
+   * alternatives (best first), and `error` is `{ error, message, code? }`.
+   */
+  describe('Ticket 74: NativeStreamVoiceAdapter keeps every segment and records recognizer errors', () => {
+    let listeners: Record<string, (event: any) => void>;
+    let speechModule: any;
+
+    const result = (transcript: string, isFinal: boolean) =>
+      listeners.result({ isFinal, results: [{ transcript, confidence: 0.9, segments: [] }] });
+    const error = (code: string) => listeners.error({ error: code, message: `native ${code}` });
+
+    beforeEach(() => {
+      listeners = {};
+      speechModule = {
+        requestPermissionsAsync: jest.fn().mockResolvedValue({ granted: true }),
+        start: jest.fn(),
+        stop: jest.fn(),
+        addListener: jest.fn((event: string, cb: (event: any) => void) => {
+          listeners[event] = cb;
+          return { remove: jest.fn() };
+        }),
+      };
+    });
+
+    async function started() {
+      const adapter = new NativeStreamVoiceAdapter(speechModule);
+      await adapter.start({ language: 'pt' });
+      return adapter;
+    }
+
+    async function stopError(adapter: NativeStreamVoiceAdapter): Promise<TranscriptionError> {
+      try {
+        const res = await adapter.stop();
+        throw new Error(`stop() returned "${res.transcript}" instead of throwing`);
+      } catch (err) {
+        expect(err).toBeInstanceOf(TranscriptionError);
+        return err as TranscriptionError;
+      }
+    }
+
+    it('keeps the final segments before each pause and appends the current partial (Android segmented session)', async () => {
+      const adapter = await started();
+
+      result('O Senhor', false);
+      result('O Senhor é o meu pastor', true);
+      result('nada', false);
+      result('nada me', false);
+      result('nada me faltará', true);
+      result('Deitar-me', false);
+      result('Deitar-me faz em verdes pastos', false);
+
+      expect((await adapter.stop()).transcript).toBe(
+        'O Senhor é o meu pastor nada me faltará Deitar-me faz em verdes pastos'
+      );
+    });
+
+    it('replaces partials instead of piling them up, so one growing utterance is not repeated (iOS)', async () => {
+      const adapter = await started();
+
+      result('The Lord', false);
+      result('The Lord is my', false);
+      result('The Lord is my shepherd', false);
+      result('The Lord is my shepherd I shall not want', true);
+
+      expect((await adapter.stop()).transcript).toBe('The Lord is my shepherd I shall not want');
+    });
+
+    it('joins segments the recognizer starts with a space (iOS 18 continuation) with single spaces', async () => {
+      const adapter = await started();
+
+      result('The Lord is my shepherd', true);
+      result(' I shall', false);
+      result(' I shall not want', true);
+
+      expect((await adapter.stop()).transcript).toBe('The Lord is my shepherd I shall not want');
+    });
+
+    it('returns the transcript when an error follows real speech', async () => {
+      const adapter = await started();
+
+      result('O Senhor é o meu pastor', true);
+      result('nada me', false);
+      error('no-speech');
+      error('network');
+
+      expect((await adapter.stop()).transcript).toBe('O Senhor é o meu pastor nada me');
+    });
+
+    it.each([
+      ['no-speech', 'unintelligible'],
+      ['speech-timeout', 'unintelligible'],
+      ['network', 'network_error'],
+      ['language-not-supported', 'unavailable'],
+      ['audio-capture', 'unavailable'],
+      ['service-not-allowed', 'unavailable'],
+      ['not-allowed', 'unavailable'],
+      ['busy', 'unknown'],
+      ['client', 'unknown'],
+      ['interrupted', 'unknown'],
+      ['aborted', 'unknown'],
+      ['unknown', 'unknown'],
+      // Emitted by the Android module although the TypeScript union does not list it.
+      ['too-many-requests', 'unknown'],
+    ])('an error "%s" with no speech makes stop() throw a Transcription Error "%s"', async (nativeCode, code) => {
+      const adapter = await started();
+
+      error(nativeCode);
+
+      const thrown = await stopError(adapter);
+      expect(thrown.code).toBe(code);
+      expect(thrown.message).toContain(nativeCode);
+    });
+
+    it('reports the first error of the attempt, which ended the recognition', async () => {
+      const adapter = await started();
+
+      error('network');
+      error('client');
+
+      expect((await stopError(adapter)).code).toBe('network_error');
+    });
+
+    it('returns an empty transcript when nothing was heard and no error was reported', async () => {
+      const adapter = await started();
+
+      expect((await adapter.stop()).transcript).toBe('');
+    });
+
+    it('starts each attempt with no segments and no error from the previous one', async () => {
+      const adapter = await started();
+      result('O Senhor é o meu pastor', true);
+      error('network');
+      await adapter.stop();
+
+      await adapter.start({ language: 'pt' });
+      error('no-speech');
+      expect((await stopError(adapter)).code).toBe('unintelligible');
+
+      await adapter.start({ language: 'pt' });
+      result('nada me faltará', true);
+      expect((await adapter.stop()).transcript).toBe('nada me faltará');
+    });
+
+    it('cancel discards the segments and the error', async () => {
+      const adapter = await started();
+      result('O Senhor', true);
+      error('network');
+
+      await adapter.cancel();
+
+      expect((await adapter.stop()).transcript).toBe('');
+    });
+
+    it('in the browser, keeps concatenating every Web Speech result and records its errors too', async () => {
+      const recognitions: any[] = [];
+      class FakeWebSpeechRecognition {
+        continuous = false;
+        interimResults = false;
+        lang = '';
+        onresult: ((event: any) => void) | null = null;
+        onerror: ((event: any) => void) | null = null;
+        start = jest.fn();
+        stop = jest.fn();
+        constructor() {
+          recognitions.push(this);
+        }
+      }
+      const browser = window as any;
+      browser.SpeechRecognition = FakeWebSpeechRecognition;
+      try {
+        const spoken = new NativeStreamVoiceAdapter(null);
+        await spoken.start({ language: 'en' });
+        recognitions[0].onresult({
+          results: [[{ transcript: 'The Lord is my shepherd' }], [{ transcript: 'I shall not want' }]],
+        });
+        expect((await spoken.stop()).transcript).toBe('The Lord is my shepherd I shall not want');
+
+        const silent = new NativeStreamVoiceAdapter(null);
+        await silent.start({ language: 'en' });
+        recognitions[1].onerror({ error: 'not-allowed', message: 'Permission denied' });
+        expect((await stopError(silent)).code).toBe('unavailable');
+      } finally {
+        delete browser.SpeechRecognition;
+      }
+    });
+  });
+
   describe('Slice 4: Factory createDefaultVoiceInput', () => {
     const originalEnv = { ...process.env };
 

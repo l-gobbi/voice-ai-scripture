@@ -167,6 +167,27 @@ export class SubscriptionService {
     };
   }
 
+  /**
+   * Returns the unit a metered recitation consumed when the attempt ended in a Transcription
+   * Error (ticket 74): the Study Day's count drops by one, never below zero, and the most recent
+   * burst timestamp is dropped. A subscriber consumes nothing, so nothing is refunded.
+   */
+  async refundRecitation(now: Date = new Date()): Promise<void> {
+    if (await this.isSubscribed()) return;
+
+    this.recentTimestamps.pop();
+
+    const todayKey = this.getTodayKey(now);
+    let currentDaily = 0;
+    try {
+      const raw = await this.storage.getItem(todayKey);
+      if (raw) currentDaily = parseInt(raw, 10) || 0;
+    } catch {}
+    if (currentDaily > 0) {
+      await this.storage.setItem(todayKey, (currentDaily - 1).toString()).catch(() => {});
+    }
+  }
+
   async subscribePremium(): Promise<void> {
     await this.storage.setItem(SUB_KEY, 'true');
   }
