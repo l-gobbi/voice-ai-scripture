@@ -1110,11 +1110,15 @@ const RAW_CANON_BOOKS: CanonBook[] = [
       "song",
       "songs",
       "sos",
-      "canticles"
+      "canticles",
+      "song of songs"
     ],
     "ptAliases": [
       "canticos",
       "cantares",
+      "cantico",
+      "cantico dos canticos",
+      "cantares de salomao",
       "cant",
       "ct"
     ],
@@ -1299,7 +1303,8 @@ const RAW_CANON_BOOKS: CanonBook[] = [
     "ptAliases": [
       "lamentacoes",
       "lam",
-      "lm"
+      "lm",
+      "lamentacoes de jeremias"
     ],
     "verseCounts": [
       22,
@@ -1868,11 +1873,13 @@ const RAW_CANON_BOOKS: CanonBook[] = [
     "enAliases": [
       "acts",
       "act",
-      "ac"
+      "ac",
+      "acts of the apostles"
     ],
     "ptAliases": [
       "atos",
-      "at"
+      "at",
+      "atos dos apostolos"
     ],
     "verseCounts": [
       26,

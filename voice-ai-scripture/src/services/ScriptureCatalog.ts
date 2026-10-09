@@ -145,8 +145,16 @@ const TRANSLATION_BY_ALIAS = new Map<string, SupportedTranslation>(
   )
 );
 
-/** Spelled-out names of labels without bundled text, compared after `compactTranslationName`. */
-const LABEL_BY_NAME = new Map<string, string>([['novabibliaviva', 'NBV']]);
+/**
+ * Spelled-out names of labels without bundled text, and the abbreviations YouVersion gives them
+ * in its share texts ("NBV-P", "NASB2020"), compared after `compactTranslationName`.
+ */
+const LABEL_BY_NAME = new Map<string, string>([
+  ['novabibliaviva', 'NBV'],
+  ['nbvp', 'NBV'],
+  ['nasb2020', 'NASB'],
+  ['nasb1995', 'NASB'],
+]);
 
 /** "Bíblia Livre" → "biblialivre": lower case, no diacritics, letters and digits only. */
 function compactTranslationName(raw: string): string {

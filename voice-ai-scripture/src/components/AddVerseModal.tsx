@@ -124,6 +124,9 @@ export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVe
   const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
   const textAreaRef = useRef<TextInput | null>(null);
   const skipNextAutoFetchRef = useRef(false);
+  // The reference and Translation of a pasted verse that came with its version label. Its
+  // wording is the learner's, so no auto-fetch replaces it until either of them changes.
+  const labelledPasteRef = useRef<{ reference: string; translation: string } | null>(null);
 
   const fetchVerseText = async (refQuery: string, translation: string, manual = false) => {
     const trimmed = refQuery.trim();
@@ -203,6 +206,14 @@ export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVe
     }
 
     const trimmed = reference.trim();
+    const labelledPaste = labelledPasteRef.current;
+    if (labelledPaste) {
+      if (labelledPaste.reference === trimmed && labelledPaste.translation === selectedTranslation) {
+        return;
+      }
+      labelledPasteRef.current = null;
+    }
+
     if (!trimmed || !scriptureCatalog.isBundledTranslation(selectedTranslation)) {
       return;
     }
@@ -238,7 +249,17 @@ export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVe
         // does not swap it for the Preferred Translation (whose text would replace the paste).
         // The picker lists every label the catalog recognizes; anything else is CUSTOM.
         const transUpper = parsed.translation.toUpperCase();
-        setChosenTranslation(KNOWN_MODAL_CODES.has(transUpper) ? transUpper : 'CUSTOM');
+        // A label the catalog does not recognize (e.g. a YouVersion version such as A21) is CUSTOM.
+        const chosen = KNOWN_MODAL_CODES.has(transUpper) ? transUpper : 'CUSTOM';
+        setChosenTranslation(chosen);
+        if (parsed.text) {
+          // The pasted wording stays, even under a bundled label such as BLIVRE (Ticket 91),
+          // including over an auto-fetch the typed reference had already scheduled.
+          labelledPasteRef.current = { reference: parsed.reference.trim(), translation: chosen };
+          if (debounceTimerRef.current) {
+            clearTimeout(debounceTimerRef.current);
+          }
+        }
       }
       setFetchNotice('Texto colado da área de transferência com sucesso!');
     } catch {
@@ -268,6 +289,7 @@ export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVe
     setChosenTranslation(null);
     setReferenceLanguage('en');
     setFetchNotice(null);
+    labelledPasteRef.current = null;
     onSaveSuccess();
     onClose();
   };
@@ -279,6 +301,7 @@ export default function AddVerseModal({ visible, onClose, onSaveSuccess }: AddVe
     setChosenTranslation(null);
     setReferenceLanguage('en');
     setFetchNotice(null);
+    labelledPasteRef.current = null;
     setPickerVisible(false);
     setCopyrightVisible(false);
     onClose();

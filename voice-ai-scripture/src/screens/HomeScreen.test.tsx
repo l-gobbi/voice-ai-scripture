@@ -1600,7 +1600,8 @@ describe('HomeScreen Integration (Ticket 16)', () => {
 
     it.each([
       ['ARA', '— Salmos 23:1 ARA', 'Salmos 23:1', 'O Senhor é o meu pastor; nada me faltará.'],
-      ['KJV', 'Psalm 23:1 KJV', 'Psalm 23:1', 'The LORD is my shepherd; I shall not want.'],
+      // The KJV names the book "Psalm"; the pasted reference is canonical (Ticket 91).
+      ['KJV', 'Psalm 23:1 KJV', 'Psalms 23:1', 'The LORD is my shepherd; I shall not want.'],
       [
         'NBV',
         'João 3:16 NBV',
@@ -1608,9 +1609,9 @@ describe('HomeScreen Integration (Ticket 16)', () => {
         'Porque Deus amou tanto o mundo que deu o seu único Filho...',
       ],
       // Recognized labels the picker once lacked, which a paste turned into CUSTOM (Ticket 92).
-      ['NLT', 'Psalm 23:1 NLT', 'Psalm 23:1', 'The LORD is my shepherd; I have all that I need.'],
-      ['MSG', 'Psalm 23:1 MSG', 'Psalm 23:1', 'God, my shepherd! I don’t need a thing.'],
-      ['ASV', 'Psalm 23:1 ASV', 'Psalm 23:1', 'Jehovah is my shepherd; I shall not want.'],
+      ['NLT', 'Psalm 23:1 NLT', 'Psalms 23:1', 'The LORD is my shepherd; I have all that I need.'],
+      ['MSG', 'Psalm 23:1 MSG', 'Psalms 23:1', 'God, my shepherd! I don’t need a thing.'],
+      ['ASV', 'Psalm 23:1 ASV', 'Psalms 23:1', 'Jehovah is my shepherd; I shall not want.'],
     ])('keeps the label and the pasted text of a verse pasted as %s', async (label, citation, reference, text) => {
       jest.useFakeTimers();
       (Clipboard.getStringAsync as jest.Mock).mockResolvedValue(
@@ -1635,6 +1636,187 @@ describe('HomeScreen Integration (Ticket 16)', () => {
         fireEvent.press(getByText('Save Verse'));
       });
       expect(verseEngine.addVerse).toHaveBeenCalledWith({ reference, text, translation: label });
+    });
+  });
+
+  describe('YouVersion paste fidelity (Ticket 91)', () => {
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    const openAddVerse = async (screen: Awaited<ReturnType<typeof render>>) => {
+      await act(async () => {
+        fireEvent.press(screen.getByText('+ Type Custom Verse'));
+      });
+    };
+
+    const paste = async (screen: Awaited<ReturnType<typeof render>>, clipboard: string) => {
+      (Clipboard.getStringAsync as jest.Mock).mockResolvedValue(clipboard);
+      await act(async () => {
+        fireEvent.press(screen.getByText('📋 Colar da Área de Transferência'));
+      });
+    };
+
+    /** Well past the 500 ms auto-fetch debounce. */
+    const waitPastAutoFetch = async () => {
+      await act(async () => {
+        jest.advanceTimersByTime(1000);
+      });
+    };
+
+    const save = async (screen: Awaited<ReturnType<typeof render>>) => {
+      await act(async () => {
+        fireEvent.press(screen.getByText('Save Verse'));
+      });
+    };
+
+    it.each([
+      [
+        'NVI',
+        'Salmos 23:1-3',
+        '“O Senhor é o meu pastor; de nada terei falta. Ele me faz repousar em pastagens verdejantes e me conduz a águas tranquilas; restaura\u2011me o vigor. Guia\u2011me pelas veredas da justiça por amor do seu nome.”\n\u202D\u202DSalmos\u202C \u202D23\u202C:\u202D1\u202C-\u202D3\u202C \u202DNVI\u202C\u202C\nhttps://bible.com/bible/129/psa.23.1-3.NVI',
+        // The non-breaking hyphens of the share become plain ones, which the verification splits on.
+        'O Senhor é o meu pastor; de nada terei falta. Ele me faz repousar em pastagens verdejantes e me conduz a águas tranquilas; restaura-me o vigor. Guia-me pelas veredas da justiça por amor do seu nome.',
+      ],
+      [
+        'NIV',
+        'Psalms 23:1-3',
+        '“The Lord is my shepherd, I lack nothing. He makes me lie down in green pastures, he leads me beside quiet waters, he refreshes my soul. He guides me along the right paths for his name’s sake.”\n\u202D\u202DPsalms\u202C \u202D23\u202C:\u202D1\u202C-\u202D3\u202C \u202DNIV\u202C\u202C\nhttps://bible.com/bible/111/psa.23.1-3.NIV',
+        'The Lord is my shepherd, I lack nothing. He makes me lie down in green pastures, he leads me beside quiet waters, he refreshes my soul. He guides me along the right paths for his name’s sake.',
+      ],
+    ])(
+      'fills a %s range from a YouVersion share and saves it with its wording and label',
+      async (label, reference, clipboard, text) => {
+        jest.useFakeTimers();
+        const screen = await render(<HomeScreen />);
+        const { getByTestId, getByPlaceholderText } = screen;
+        await openAddVerse(screen);
+
+        await paste(screen, clipboard);
+        await waitPastAutoFetch();
+
+        expect(getByPlaceholderText('Reference (e.g. John 3:16)').props.value).toBe(reference);
+        expect(getByPlaceholderText('Verse text...').props.value).toBe(text);
+        expect(isChipSelected(getByTestId, label)).toBe(true);
+
+        await save(screen);
+        expect(verseEngine.addVerse).toHaveBeenCalledWith({ reference, text, translation: label });
+      }
+    );
+
+    it('keeps the wording of a share that names its version only in the bible.com link', async () => {
+      jest.useFakeTimers();
+      const screen = await render(<HomeScreen />);
+      const { getByTestId, getByPlaceholderText } = screen;
+      await openAddVerse(screen);
+
+      // A verbatim pt-BR share: reference first, "[17]" verse number, ARA only in the link.
+      await paste(
+        screen,
+        'João 3:17\r\n[17] Porquanto Deus enviou o seu Filho ao mundo, não para que julgasse o mundo, mas para que o mundo fosse salvo por ele. \r\n\r\nhttps://bible.com/bible/1608/jhn.3.17.ARA'
+      );
+      await waitPastAutoFetch();
+
+      const text =
+        'Porquanto Deus enviou o seu Filho ao mundo, não para que julgasse o mundo, mas para que o mundo fosse salvo por ele.';
+      expect(getByPlaceholderText('Reference (e.g. John 3:16)').props.value).toBe('João 3:17');
+      expect(getByPlaceholderText('Verse text...').props.value).toBe(text);
+      expect(isChipSelected(getByTestId, 'ARA')).toBe(true);
+
+      await save(screen);
+      expect(verseEngine.addVerse).toHaveBeenCalledWith({
+        reference: 'João 3:17',
+        text,
+        translation: 'ARA',
+      });
+    });
+
+    it('keeps the wording of a YouVersion version the picker does not list, as Outra', async () => {
+      jest.useFakeTimers();
+      const text = 'Porque Deus amou o mundo de tal maneira que deu o seu Filho unigênito.';
+      const screen = await render(<HomeScreen />);
+      const { getByTestId, getByPlaceholderText } = screen;
+      await openAddVerse(screen);
+
+      await paste(
+        screen,
+        `“${text}”\n\u202D\u202DJoão\u202C \u202D3\u202C:\u202D16\u202C \u202DA21\u202C\u202C\nhttps://bible.com/bible/2645/jhn.3.16.A21`
+      );
+      await waitPastAutoFetch();
+
+      expect(getByPlaceholderText('Verse text...').props.value).toBe(text);
+      expect(isChipSelected(getByTestId, 'CUSTOM')).toBe(true);
+    });
+
+    it('keeps the pasted wording of a verse labelled with a bundled Bible (BLIVRE)', async () => {
+      jest.useFakeTimers();
+      // Pasted wording that differs from the bundled Bíblia Livre text.
+      const pasted =
+        'Porque Deus amou o mundo de tal maneira que deu o seu Filho unigênito, para que todo aquele que nele crê não pereça, mas tenha a vida eterna.';
+      expect(scriptureCatalog.resolvePassage('João 3:16', 'BLIVRE')!.text).not.toBe(pasted);
+      const screen = await render(<HomeScreen />);
+      const { getByTestId, getByPlaceholderText } = screen;
+      await openAddVerse(screen);
+
+      await paste(
+        screen,
+        `“${pasted}”\n\u202D\u202DJoão\u202C \u202D3\u202C:\u202D16\u202C \u202DBLIVRE\u202C\u202C\nhttps://bible.com/bible/1626/jhn.3.16.BLIVRE`
+      );
+      await waitPastAutoFetch();
+
+      expect(getByPlaceholderText('Verse text...').props.value).toBe(pasted);
+      expect(isChipSelected(getByTestId, 'BLIVRE')).toBe(true);
+
+      await save(screen);
+      expect(verseEngine.addVerse).toHaveBeenCalledWith({
+        reference: 'João 3:16',
+        text: pasted,
+        translation: 'BLIVRE',
+      });
+    });
+
+    it('keeps a labelled paste even when an auto-fetch for the typed reference is pending', async () => {
+      jest.useFakeTimers();
+      const pasted = 'Texto colado da Bíblia Livre.';
+      const screen = await render(<HomeScreen />);
+      const { getByPlaceholderText } = screen;
+      await openAddVerse(screen);
+
+      // Typing schedules a Bíblia Livre fetch (the Preferred Translation for Portuguese)…
+      await act(async () => {
+        getByPlaceholderText('Reference (e.g. John 3:16)').props.onChangeText('João 3:16');
+      });
+      // …and the paste, with the same reference and Translation, arrives before it runs.
+      await paste(screen, `${pasted}\nJoão 3:16 BLIVRE`);
+      await waitPastAutoFetch();
+
+      expect(getByPlaceholderText('Verse text...').props.value).toBe(pasted);
+
+      // Changing the reference afterwards fetches again, as typing always does.
+      await act(async () => {
+        getByPlaceholderText('Reference (e.g. John 3:16)').props.onChangeText('João 3:17');
+      });
+      await waitPastAutoFetch();
+      expect(getByPlaceholderText('Verse text...').props.value).toBe(
+        scriptureCatalog.resolvePassage('João 3:17', 'BLIVRE')!.text
+      );
+    });
+
+    it('fetches the Preferred Translation for a paste without a version label, as before', async () => {
+      jest.useFakeTimers();
+      usePreferredTranslations({ pt: 'ONBV', en: 'WEB' });
+      const screen = await render(<HomeScreen />);
+      const { getByTestId, getByPlaceholderText } = screen;
+      await openAddVerse(screen);
+
+      await paste(screen, 'Porque Deus amou o mundo…\nJoão 3:16');
+      expect(getByPlaceholderText('Verse text...').props.value).toBe('Porque Deus amou o mundo…');
+      await waitPastAutoFetch();
+
+      expect(isChipSelected(getByTestId, 'ONBV')).toBe(true);
+      expect(getByPlaceholderText('Verse text...').props.value).toBe(
+        scriptureCatalog.resolvePassage('João 3:16', 'ONBV')!.text
+      );
     });
   });
 

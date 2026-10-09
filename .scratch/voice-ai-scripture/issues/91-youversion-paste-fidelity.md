@@ -5,8 +5,8 @@ When a learner copies a verse from YouVersion (share → copy) and pastes it int
 
 **Blocked by:** 82: Preferred Translation
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] Clipboard parser tests use real YouVersion share formats: pt and en, single verse and range, several versions, and the trailing bible.com URLs.
-- [ ] Reference, wording and version label are parsed correctly for all of them, and the add-verse flow keeps the pasted wording.
-- [ ] A non-bundled label never triggers an auto-fetch that replaces the pasted wording.
+- [x] Clipboard parser tests use real YouVersion share formats: pt and en, single verse and range, several versions, and the trailing bible.com URLs.
+- [x] Reference, wording and version label are parsed correctly for all of them, and the add-verse flow keeps the pasted wording.
+- [x] A non-bundled label never triggers an auto-fetch that replaces the pasted wording.

@@ -414,6 +414,35 @@ describe('ScriptureCatalog: labels without bundled text (Ticket 92)', () => {
   });
 });
 
+describe('ScriptureCatalog: YouVersion names (Ticket 91)', () => {
+  it.each([
+    ['NBV-P', 'NBV'],
+    ['nbv-p', 'NBV'],
+    ['NASB2020', 'NASB'],
+    ['NASB1995', 'NASB'],
+  ])('reads the YouVersion abbreviation "%s" as the label %s', (abbreviation, label) => {
+    expect(scriptureCatalog.recognizeTranslation(abbreviation)).toBe(label);
+    expect(scriptureCatalog.isBundledTranslation(abbreviation)).toBe(false);
+  });
+
+  it('does not take Biblia Livre Para Todos (BLT) for the bundled Bíblia Livre', () => {
+    expect(scriptureCatalog.canonicalizeTranslation('BLT')).toBeNull();
+    expect(scriptureCatalog.recognizeTranslation('BLT')).toBeNull();
+  });
+
+  it.each([
+    ['Cântico 2:4', 'Cânticos 2:4'],
+    ['Cântico dos Cânticos 8:7', 'Cânticos 8:7'],
+    ['Cantares de Salomão 8:7', 'Cânticos 8:7'],
+    ['Song of Songs 8:7', 'Song of Solomon 8:7'],
+    ['Acts of the Apostles 2:38', 'Acts 2:38'],
+    ['Atos dos Apóstolos 2:38', 'Atos 2:38'],
+    ['Lamentações de Jeremias 3:22-23', 'Lamentações 3:22-23'],
+  ])('resolves the book name "%s" of a YouVersion or Almeida reference', (reference, canonical) => {
+    expect(scriptureCatalog.resolveReference(reference)?.canonicalRef).toBe(canonical);
+  });
+});
+
 describe('ScriptureCatalog: translations per language (Ticket 82)', () => {
   it('lists the bundled translations of one language, in catalog order', () => {
     expect(scriptureCatalog.getBundledTranslations('pt').map((m) => m.code)).toEqual([
