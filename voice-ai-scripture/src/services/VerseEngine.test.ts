@@ -203,7 +203,7 @@ describe('VerseEngine (Ticket 09)', () => {
     });
   });
 
-  describe('Slice 4: Deduplicating Bulk Pack Import', () => {
+  describe('Slice 4: Deduplicating Bulk Import', () => {
     it('imports new verses, skips existing references case-insensitively, and returns added count', async () => {
       const storage = new MapStorageAdapter();
       const engine = new VerseEngine(storage);
@@ -211,13 +211,13 @@ describe('VerseEngine (Ticket 09)', () => {
       // Pre-add a verse
       await engine.addVerse({ reference: 'John 3:16', text: 'For God so loved...' });
 
-      const packToImport = [
+      const versesToImport = [
         { reference: 'john 3:16  ', text: 'Different translation text' }, // duplicate (different casing & space)
         { reference: 'Jeremiah 29:11', text: 'For I know the plans...' }, // new
         { reference: 'Philippians 4:6', text: 'Do not be anxious...' }, // new
       ];
 
-      const addedCount = await engine.importVerses(packToImport);
+      const addedCount = await engine.importVerses(versesToImport);
 
       expect(addedCount).toBe(2);
 
@@ -230,7 +230,7 @@ describe('VerseEngine (Ticket 09)', () => {
       expect(references).toContain('Philippians 4:6');
     });
 
-    it('returns 0 if all verses in the imported pack already exist', async () => {
+    it('returns 0 if all imported verses already exist', async () => {
       const storage = new MapStorageAdapter();
       const engine = new VerseEngine(storage);
 

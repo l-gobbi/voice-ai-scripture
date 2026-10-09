@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import {
   View,
   Text,
-  Button,
   FlatList,
   StyleSheet,
   TouchableOpacity,
@@ -23,7 +22,6 @@ import {
 } from '../services/VerseEngine';
 import { scriptureCatalog } from '../services/ScriptureCatalog';
 import ReviewScreen from './ReviewScreen';
-import PackBrowserModal from '../components/PackBrowserModal';
 import ReminderSettingsModal from '../components/ReminderSettingsModal';
 import TranslationsCopyrightModal from '../components/TranslationsCopyrightModal';
 import PreferredTranslationModal from '../components/PreferredTranslationModal';
@@ -68,7 +66,6 @@ export default function HomeScreen({ voiceInput }: HomeScreenProps = {}) {
     dueCount: 0,
   });
   const [modalVisible, setModalVisible] = useState(false);
-  const [packBrowserVisible, setPackBrowserVisible] = useState(false);
   const [reminderModalVisible, setReminderModalVisible] = useState(false);
   const [translationsModalVisible, setTranslationsModalVisible] = useState(false);
   const [preferredTranslationVisible, setPreferredTranslationVisible] = useState(false);
@@ -637,41 +634,13 @@ export default function HomeScreen({ voiceInput }: HomeScreenProps = {}) {
               styles.footerPrimaryButton,
               { backgroundColor: theme.colors.accentSacred },
             ]}
-            onPress={() => setPackBrowserVisible(true)}
+            onPress={() => setModalVisible(true)}
             activeOpacity={0.8}
           >
-            <Text style={styles.footerPrimaryButtonText}>📖 Browse Topical Packs</Text>
-          </TouchableOpacity>
-        </View>
-        <View style={styles.buttonSpacing}>
-          <TouchableOpacity
-            style={[
-              styles.footerSecondaryButton,
-              {
-                backgroundColor: theme.colors.surfaceMuted,
-                borderColor: theme.colors.border,
-              },
-            ]}
-            onPress={() => setModalVisible(true)}
-            activeOpacity={0.7}
-          >
-            <Text
-              style={[
-                styles.footerSecondaryButtonText,
-                { color: theme.colors.textPrimary },
-              ]}
-            >
-              + Type Custom Verse
-            </Text>
+            <Text style={styles.footerPrimaryButtonText}>+ Type Custom Verse</Text>
           </TouchableOpacity>
         </View>
       </View>
-
-      <PackBrowserModal
-        visible={packBrowserVisible}
-        onClose={() => setPackBrowserVisible(false)}
-        onImportComplete={loadVerses}
-      />
 
       <ReminderSettingsModal
         visible={reminderModalVisible}
@@ -862,18 +831,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 15,
     fontWeight: '700',
-  },
-  footerSecondaryButton: {
-    minHeight: touchTarget.min,
-    borderRadius: 22,
-    borderWidth: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 20,
-  },
-  footerSecondaryButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
   },
   statusPillsRow: {
     flexDirection: 'row',

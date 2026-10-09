@@ -5,9 +5,9 @@ The product owner decided (deck grilling, 2026-10-09) to **remove Topical Packs*
 
 **Blocked by:** 82: Preferred Translation
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] The pack browser modal, its Home Screen entry point, the Topical Pack data module and their tests are removed, with no dead imports left.
-- [ ] Verses previously imported from packs remain and work normally. No migration is needed (the app has no users).
-- [ ] Remaining references to "Topical Pack" in code comments and user-facing copy are removed or reworded to Decks where relevant.
-- [ ] The full suite passes.
+- [x] The pack browser modal, its Home Screen entry point, the Topical Pack data module and their tests are removed, with no dead imports left.
+- [x] Verses previously imported from packs remain and work normally. No migration is needed (the app has no users).
+- [x] Remaining references to "Topical Pack" in code comments and user-facing copy are removed or reworded to Decks where relevant.
+- [x] The full suite passes.
