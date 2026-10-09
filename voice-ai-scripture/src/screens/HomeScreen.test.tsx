@@ -216,6 +216,38 @@ describe('HomeScreen Integration (Ticket 16)', () => {
     });
   });
 
+  it('offers Bíblia Livre, ONBV, BSB and WEB and fetches Bíblia Livre text (Ticket 80)', async () => {
+    const { getByText, getByPlaceholderText } = await render(<HomeScreen />);
+
+    await act(async () => {
+      fireEvent.press(getByText('+ Type Custom Verse'));
+    });
+
+    expect(getByText('Bíblia Livre (BLIVRE)')).toBeTruthy();
+    expect(getByText('ONBV (Open Nova Bíblia Viva)')).toBeTruthy();
+    expect(getByText('BSB (Berean Standard Bible)')).toBeTruthy();
+    expect(getByText('WEB (World English Bible)')).toBeTruthy();
+
+    await act(async () => {
+      fireEvent.press(getByText('Bíblia Livre (BLIVRE)'));
+    });
+
+    const refInput = getByPlaceholderText('Reference (e.g. John 3:16)');
+    const textInput = getByPlaceholderText('Verse text...');
+
+    await act(async () => {
+      refInput.props.onChangeText('Salmos 23:1');
+    });
+
+    await act(async () => {
+      fireEvent.press(getByText('🔍 Buscar Texto'));
+    });
+
+    await waitFor(() => {
+      expect(textInput.props.value).toContain('O SENHOR é meu pastor, nada me faltará.');
+    });
+  });
+
   it('pastes from clipboard, extracting YouVersion reference, text, and translation tag', async () => {
     (Clipboard.getStringAsync as jest.Mock).mockResolvedValue(
       `"Porque Deus tanto amou o mundo que deu o seu Filho Unigênito..."\n- João 3:16 NVI\nhttps://bible.com/bible/129/jhn.3.16.NVI`

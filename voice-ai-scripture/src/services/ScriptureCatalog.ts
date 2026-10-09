@@ -6,22 +6,28 @@ import {
   getVerseCount,
   searchCanonBooks,
 } from '../data/bibleCanon';
-import webData from '../data/bibles/web.json';
-import kjvData from '../data/bibles/kjv.json';
-import almeidaData from '../data/bibles/almeida.json';
+import blivreData from '../data/bibles/blivre.json';
 import onbvData from '../data/bibles/onbv.json';
+import bsbData from '../data/bibles/bsb.json';
+import webData from '../data/bibles/web.json';
+import almeidaData from '../data/bibles/almeida.json';
+import kjvData from '../data/bibles/kjv.json';
 
 export type { CanonBook };
-export type SupportedTranslation = 'WEB' | 'KJV' | 'ALMEIDA' | 'ONBV';
+// ALMEIDA and KJV are removed in ticket 81 (ADR 0018).
+export type SupportedTranslation = 'BLIVRE' | 'ONBV' | 'BSB' | 'WEB' | 'ALMEIDA' | 'KJV';
 
 export const BUNDLED_TRANSLATIONS: readonly SupportedTranslation[] = [
-  'WEB',
-  'KJV',
-  'ALMEIDA',
+  'BLIVRE',
   'ONBV',
+  'BSB',
+  'WEB',
+  'ALMEIDA',
+  'KJV',
 ] as const;
 
 export const PT_TRANSLATIONS: ReadonlySet<string> = new Set([
+  'BLIVRE',
   'ALMEIDA',
   'ONBV',
   'NVI',
@@ -33,6 +39,7 @@ export const PT_TRANSLATIONS: ReadonlySet<string> = new Set([
 ]);
 
 export const EN_TRANSLATIONS: ReadonlySet<string> = new Set([
+  'BSB',
   'WEB',
   'KJV',
   'ESV',
@@ -51,19 +58,72 @@ const PT_MARKER_WORDS = new Set([
   'voce', 'você', 'tudo', 'nada', 'mais', 'mas', 'faltara', 'faltará'
 ]);
 
+/**
+ * What the app must know about a bundled Translation to credit it: its licence, the notice
+ * the licence requires, and where the text comes from. Written into each dataset by
+ * scripts/build-bundled-bibles.js.
+ */
+export interface TranslationMetadata {
+  code: SupportedTranslation;
+  /** Short display name, e.g. "Bíblia Livre". */
+  name: string;
+  /** Full title as the licensor gives it, e.g. "Biblica® Open Nova Bíblia Viva™". */
+  fullName: string;
+  language: 'en' | 'pt';
+  license: string;
+  /** Attribution notice required by the licence (or courtesy credit), verbatim. May span lines. */
+  notice: string;
+  /** What the build changed in the source text (markers removed, whitespace normalized). */
+  changes: string;
+  sourceUrl: string;
+}
+
 interface BibleDataset {
   translation: SupportedTranslation;
   name: string;
+  fullName: string;
   language: 'en' | 'pt';
+  license: string;
+  notice: string;
+  changes: string;
+  sourceUrl: string;
   books: Record<string, Record<string, Record<string, string>>>;
 }
 
 const DATASETS: Record<SupportedTranslation, BibleDataset> = {
-  WEB: webData as BibleDataset,
-  KJV: kjvData as BibleDataset,
-  ALMEIDA: almeidaData as BibleDataset,
+  BLIVRE: blivreData as BibleDataset,
   ONBV: onbvData as BibleDataset,
+  BSB: bsbData as BibleDataset,
+  WEB: webData as BibleDataset,
+  ALMEIDA: almeidaData as BibleDataset,
+  KJV: kjvData as BibleDataset,
 };
+
+/** Spellings of each bundled Translation, compared after `compactTranslationName`. */
+const TRANSLATION_ALIASES: Record<SupportedTranslation, readonly string[]> = {
+  BLIVRE: ['blivre', 'biblialivre'],
+  ONBV: ['onbv', 'nbv', 'novabibliaviva', 'opennovabibliaviva', 'biblicaopennovabibliaviva'],
+  BSB: ['bsb', 'berean', 'bereanstandard', 'bereanstandardbible', 'bereanbible'],
+  WEB: ['web', 'worldenglishbible'],
+  ALMEIDA: ['almeida', 'jfa', 'almeidarevista', 'joaoferreiradealmeida'],
+  KJV: ['kjv', 'kingjames', 'kingjamesversion'],
+};
+
+const TRANSLATION_BY_ALIAS = new Map<string, SupportedTranslation>(
+  (Object.keys(TRANSLATION_ALIASES) as SupportedTranslation[]).flatMap((code) =>
+    TRANSLATION_ALIASES[code].map((alias) => [alias, code] as [string, SupportedTranslation])
+  )
+);
+
+/** "Bíblia Livre" → "biblialivre": lower case, no diacritics, letters and digits only. */
+function compactTranslationName(raw: string): string {
+  return raw
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]/g, '');
+}
 
 export interface NormalizedReference {
   bookId: string;
@@ -244,10 +304,9 @@ export class ScriptureCatalog {
       }
     }
 
-    if (verse.translation) {
-      const upperTrans = verse.translation.toUpperCase().trim();
-      if (PT_TRANSLATIONS.has(upperTrans)) return 'pt';
-      if (EN_TRANSLATIONS.has(upperTrans)) return 'en';
+    const translationLanguage = this.languageOfTranslation(verse.translation);
+    if (translationLanguage) {
+      return translationLanguage;
     }
 
     if (verse.reference) {
@@ -292,12 +351,7 @@ export class ScriptureCatalog {
 
   canonicalizeTranslation(raw?: string | null): SupportedTranslation | null {
     if (!raw || typeof raw !== 'string') return null;
-    const clean = raw.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-    if (clean === 'web' || clean === 'worldenglishbible') return 'WEB';
-    if (clean === 'kjv' || clean === 'kingjames' || clean === 'kingjamesversion') return 'KJV';
-    if (clean === 'almeida' || clean === 'jfa' || clean === 'almeidarevista' || clean === 'joaoferreiradealmeida') return 'ALMEIDA';
-    if (clean === 'onbv' || clean === 'nbv' || clean === 'novabibliaviva') return 'ONBV';
-    return null;
+    return TRANSLATION_BY_ALIAS.get(compactTranslationName(raw)) ?? null;
   }
 
   isBundledTranslation(raw?: string | null): boolean {
@@ -305,10 +359,34 @@ export class ScriptureCatalog {
   }
 
   isPortugueseTranslation(raw?: string | null): boolean {
-    if (!raw) return false;
-    const canon = this.canonicalizeTranslation(raw);
-    if (canon) return canon === 'ALMEIDA' || canon === 'ONBV';
-    return PT_TRANSLATIONS.has(raw.trim().toUpperCase());
+    return this.languageOfTranslation(raw) === 'pt';
+  }
+
+  /**
+   * Display name, language, licence, required notice and source of a bundled Translation
+   * (any alias works). Null for labels the app has no text for, such as NVI or ARA.
+   */
+  getTranslationMetadata(raw?: string | null): TranslationMetadata | null {
+    const code = this.canonicalizeTranslation(raw);
+    if (!code) return null;
+    const { name, fullName, language, license, notice, changes, sourceUrl } = DATASETS[code];
+    return { code, name, fullName, language, license, notice, changes, sourceUrl };
+  }
+
+  /** Metadata of every bundled Translation, in BUNDLED_TRANSLATIONS order. */
+  getBundledTranslations(): TranslationMetadata[] {
+    return BUNDLED_TRANSLATIONS.map((code) => this.getTranslationMetadata(code)!);
+  }
+
+  /** Language of a bundled Translation or of a known label without bundled text. */
+  private languageOfTranslation(raw?: string | null): 'en' | 'pt' | null {
+    if (!raw) return null;
+    const code = this.canonicalizeTranslation(raw);
+    if (code) return DATASETS[code].language;
+    const upper = raw.trim().toUpperCase();
+    if (PT_TRANSLATIONS.has(upper)) return 'pt';
+    if (EN_TRANSLATIONS.has(upper)) return 'en';
+    return null;
   }
 
   fetchPassageText(
