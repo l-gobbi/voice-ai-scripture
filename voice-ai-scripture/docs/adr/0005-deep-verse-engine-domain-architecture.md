@@ -1,5 +1,7 @@
 # 0005: Deep VerseEngine Domain Architecture Over Fragmented Storage and Computation
 
+**Status:** Amended by ADR 0017. Reviews are now recorded through `recordAttempt`, which classifies Official Reviews and Practice Attempts and writes the Review Log; `recordReview(verseId, score)` no longer exists.
+
 We decided to consolidate verse persistence, due-date calculation, and SM-2 review recording into an authoritative, deep `VerseEngine` module rather than having presentation components and recitation controllers coordinate raw `AsyncStorage` and mathematical utility functions directly.
 
 Previously, `VerseStorageService` handled generic JSON CRUD while `HomeScreen`, `ReviewScreen`, and `RecitationSession` each independently computed Spaced Repetition dates and filtered due verses. This created scattered domain logic and exposed UI screens to algorithmic details. 
