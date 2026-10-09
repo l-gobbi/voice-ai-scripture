@@ -34,6 +34,7 @@ export const TRANSLATION_GROUPS: Array<{ groupName: string; options: Translation
   {
     groupName: '🇺🇸 English',
     options: [
+      { code: 'BSB', label: 'BSB (Berean Standard Bible)', isBundled: true },
       { code: 'WEB', label: 'WEB (World English Bible)', isBundled: true },
       { code: 'KJV', label: 'KJV (King James Version)', isBundled: true },
     ],
@@ -41,8 +42,10 @@ export const TRANSLATION_GROUPS: Array<{ groupName: string; options: Translation
   {
     groupName: '🇧🇷 Português',
     options: [
+      { code: 'BLIVRE', label: 'Bíblia Livre (BLIVRE)', isBundled: true },
+      // "Open" is part of the licensed title; plain Nova Bíblia Viva is a different text.
+      { code: 'ONBV', label: 'ONBV (Open Nova Bíblia Viva)', isBundled: true },
       { code: 'ALMEIDA', label: 'Almeida (JFA)', isBundled: true },
-      { code: 'ONBV', label: 'ONBV (Nova Bíblia Viva)', isBundled: true },
     ],
   },
   {
