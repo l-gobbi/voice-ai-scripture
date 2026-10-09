@@ -40,9 +40,37 @@ _Avoid_: Leitner box, schedule engine, flashcard timer
 The count of consecutive successful review sessions completed for an individual verse without failing or resetting.
 _Avoid_: Score, level, repetitions count
 
+**Study Day**:
+The learner's local calendar day, starting at 04:00 local time rather than midnight, so late-night and early-morning recitations belong to the same day.
+_Avoid_: 24-hour window, UTC day, session day
+
 **Due Verse**:
-A verse whose scheduled next review date is earlier than or equal to the current calendar date and time.
+A verse whose scheduled review Study Day is today or earlier.
 _Avoid_: Expired verse, pending card, review queue item
+
+**Error Budget**:
+The number of unaided errors (missed words, Word-Peeked words, and added words beyond a small allowance) a Blind Recitation may contain and still count as recalled: 5% of the verse's words, never less than one. Synonyms and reordered words are errors.
+_Avoid_: Pass threshold, accuracy cutoff, tolerance percentage
+
+**Review Log**:
+The append-only record of every recitation attempt against a verse (official or practice), keeping the raw outcome so grades can be re-derived later.
+_Avoid_: History blob, SRS history, attempts cache
+
+**Practice Attempt**:
+A recitation recorded in the Review Log that does not advance the Spaced Repetition schedule, such as any Echo Mode or Cloze Practice attempt.
+_Avoid_: Unmetered recitation, free try, simulation
+
+**Official Review**:
+The first Blind Recitation of a Due Verse on a given Study Day, and the only recitation that advances the verse's Spaced Repetition schedule. Every other recitation is a Practice Attempt.
+_Avoid_: Metered attempt, real recitation, graded attempt
+
+**Memory Tier**:
+The displayed stage of a verse's memorization, derived from its current review interval: Seed (under 7 days), Growing (under 30 days), Rooted (under 180 days), Hidden in the Heart (180 days or more). A failure returns the verse to Seed instead of showing a count of zero.
+_Avoid_: Mastered, level, rank, badge
+
+**Same-Day Relearning**:
+An optional re-drill offered right after a failed Blind Recitation (Cloze Practice, then Blind Recitation again, at most twice). Its attempts are Practice Attempts.
+_Avoid_: Retry loop, redo, second chance
 
 **Verse Summary**:
 An aggregate snapshot of a user's memory repository containing all stored verses, the subset of currently due verses, and the total count of due verses requiring review today.
@@ -99,7 +127,7 @@ An offline-capable test and development implementation of the Speech Transcriber
 _Avoid_: Mock STT, fake whisper, test transcriber
 
 **Transcription Error**:
-A domain-level error representation classifying transcription failures (such as network loss, authentication failure, or rate limits) distinctly from verse recitation scoring.
+A domain-level error representation classifying transcription failures (such as network loss, authentication failure, rate limits, an empty transcript, or a recognizer error) distinctly from verse recitation scoring. A recitation ending in a Transcription Error is never graded as a memory failure.
 _Avoid_: Whisper error, API crash, audio failure
 
 **Warm Standby Audio Driver**:
@@ -147,7 +175,7 @@ The official active recall mode where the user recites from memory with text bla
 _Avoid_: Master mode, final exam, test recitation
 
 **Word Peek Lifeline**:
-An interactive assistance action in Blind Recitation that temporarily reveals a selected blanked word for 3 seconds, capping the session's Spaced Repetition score at 75% to schedule reinforcement without a punishing streak reset.
+An interactive assistance action in Blind Recitation that temporarily reveals a selected blanked word for 3 seconds. Each peeked word counts as one error against the Error Budget.
 _Avoid_: Word cheat, peek button, hint peek
 
 **Speech Synthesis**:
