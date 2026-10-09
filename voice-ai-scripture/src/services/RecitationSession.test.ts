@@ -5,7 +5,7 @@ import {
   calculateMaxRecitationDurationSeconds,
   formatAcousticPrompt,
 } from './RecitationSession';
-import { Verse, verseEngine } from './VerseEngine';
+import { Verse, VerseEngine, verseEngine } from './VerseEngine';
 import { SubscriptionService } from './SubscriptionService';
 import { VoiceInput, SimulatedVoiceAdapter } from './VoiceInput';
 import { TranscriptionError } from './SpeechTranscriber';
@@ -1317,6 +1317,322 @@ describe('RecitationSession (Ticket 07)', () => {
         const session = createTestSession(mockVerse, { voiceInput: mockVoiceInput });
         await expect(session.warmUp()).resolves.toBeUndefined();
         session.dispose();
+      });
+    });
+  });
+
+  describe('Ticket 75: Spoken Reference and Number Normalization', () => {
+    const JOAO_3_16 = {
+      reference: 'João 3:16',
+      translation: 'ALMEIDA',
+      text: 'Porque Deus amou o mundo de tal maneira que deu o seu Filho unigênito, para que todo aquele que nele crê não pereça, mas tenha a vida eterna.',
+    };
+    const JOHN_3_16 = {
+      reference: 'John 3:16',
+      translation: 'WEB',
+      text: 'For God so loved the world, that he gave his one and only Son, that whoever believes in him should not perish, but have eternal life.',
+    };
+
+    /** A Blind Recitation of a stored Due Verse, through a real Verse Engine on in-memory storage. */
+    async function reciteBlind(
+      verseData: { reference: string; text: string; translation?: string },
+      transcript: string
+    ) {
+      const engine = new VerseEngine(new MapStorageAdapter());
+      const verse = await engine.addVerse(verseData);
+      const session = new RecitationSession(verse, {
+        verseEngine: engine,
+        subscriptionService: new SubscriptionService(
+          new MapStorageAdapter({ user_is_subscribed: 'true' })
+        ),
+        voiceInput: new SimulatedVoiceAdapter({ defaultTranscript: transcript }),
+      });
+      await session.startReciting();
+      const result = await session.stopAndVerify();
+      await session.dispose();
+      if (!result) throw new Error(`Recitation was not verified: ${session.getState().errorMessage}`);
+      return result;
+    }
+
+    /** The canonical words, as the diff shows them to the learner. */
+    function canonicalWords(text: string): string[] {
+      return text.replace(/[-—–]/g, ' ').split(/\s+/).filter(Boolean);
+    }
+
+    function expectPerfect(
+      result: { score: number; passed: boolean; tokens: { word: string; status: string }[] },
+      text: string
+    ) {
+      expect(result.tokens.filter((t) => t.status !== 'correct')).toEqual([]);
+      expect(result.tokens.map((t) => t.word)).toEqual(canonicalWords(text));
+      expect(result.score).toBe(100);
+      expect(result.passed).toBe(true);
+    }
+
+    describe('spoken reference', () => {
+      it('ignores the verse’s own reference spoken in digits before the verse', async () => {
+        const result = await reciteBlind(JOAO_3_16, `João 3:16 ${JOAO_3_16.text}`);
+        expectPerfect(result, JOAO_3_16.text);
+      });
+
+      it('ignores the verse’s own reference spoken after the verse', async () => {
+        const result = await reciteBlind(JOAO_3_16, `${JOAO_3_16.text} João 3:16.`);
+        expectPerfect(result, JOAO_3_16.text);
+      });
+
+      it('ignores the reference at both ends of the same recitation', async () => {
+        const result = await reciteBlind(JOHN_3_16, `John 3:16, ${JOHN_3_16.text} John 3:16`);
+        expectPerfect(result, JOHN_3_16.text);
+      });
+
+      it('ignores the reference spoken with chapter and verse words, in digits or words', async () => {
+        expectPerfect(
+          await reciteBlind(JOAO_3_16, `${JOAO_3_16.text} João, capítulo três, versículo dezesseis.`),
+          JOAO_3_16.text
+        );
+        expectPerfect(
+          await reciteBlind(JOAO_3_16, `João capítulo 3 verso 16: ${JOAO_3_16.text}`),
+          JOAO_3_16.text
+        );
+        expectPerfect(
+          await reciteBlind(JOHN_3_16, `John chapter three, verse sixteen. ${JOHN_3_16.text}`),
+          JOHN_3_16.text
+        );
+      });
+
+      it('ignores a range reference spoken with its first and last verse', async () => {
+        const SALMOS_23_1_3 = {
+          reference: 'Salmos 23:1-3',
+          translation: 'ALMEIDA',
+          text: 'O Senhor é o meu pastor; nada me faltará. Deitar-me faz em pastos verdejantes; guia-me mansamente a águas tranqüilas. Refrigera a minha alma; guia-me nas veredas da justiça por amor do seu nome.',
+        };
+
+        expectPerfect(
+          await reciteBlind(SALMOS_23_1_3, `Salmos 23:1-3 ${SALMOS_23_1_3.text}`),
+          SALMOS_23_1_3.text
+        );
+        expectPerfect(
+          await reciteBlind(
+            SALMOS_23_1_3,
+            `${SALMOS_23_1_3.text} Salmo vinte e três, versículos um a três.`
+          ),
+          SALMOS_23_1_3.text
+        );
+
+        // Only the first verse of the passage is not the passage's reference.
+        const firstVerseOnly = await reciteBlind(SALMOS_23_1_3, `Salmos 23:1 ${SALMOS_23_1_3.text}`);
+        expect(firstVerseOnly.tokens.filter((t) => t.status === 'added').map((t) => t.word)).toEqual([
+          'Salmos',
+          '23:1',
+        ]);
+      });
+
+      it('ignores the reference of a numbered book spoken with a digit or an ordinal', async () => {
+        const CORINTIOS_13_4 = {
+          reference: '1 Coríntios 13:4',
+          translation: 'ALMEIDA',
+          text: 'O amor é sofredor, é benigno; o amor não é invejoso; o amor não se vangloria, não se ensoberbece,',
+        };
+        const CORINTHIANS_13_4 = {
+          reference: '1 Corinthians 13:4',
+          translation: 'WEB',
+          text: 'Love is patient and is kind. Love doesn’t envy. Love doesn’t brag, is not proud,',
+        };
+
+        for (const transcript of [
+          `1 Coríntios 13:4 ${CORINTIOS_13_4.text}`,
+          `1ª Coríntios 13:4 ${CORINTIOS_13_4.text}`,
+          `Primeira Coríntios treze, quatro. ${CORINTIOS_13_4.text}`,
+          `${CORINTIOS_13_4.text} Primeira aos Coríntios, capítulo 13, versículo 4`,
+        ]) {
+          expectPerfect(await reciteBlind(CORINTIOS_13_4, transcript), CORINTIOS_13_4.text);
+        }
+        expectPerfect(
+          await reciteBlind(CORINTHIANS_13_4, `First Corinthians thirteen four. ${CORINTHIANS_13_4.text}`),
+          CORINTHIANS_13_4.text
+        );
+
+        // Another numbered book of the same name is a different verse, so it stays (its "2" read as a word).
+        const secondLetter = await reciteBlind(CORINTIOS_13_4, `2 Coríntios 13:4 ${CORINTIOS_13_4.text}`);
+        expect(secondLetter.tokens.filter((t) => t.status === 'added').map((t) => t.word)).toEqual([
+          'dois',
+          'Coríntios',
+          '13:4',
+        ]);
+        expect(secondLetter.score).toBeLessThan(100);
+      });
+
+      it('reads spoken numbers as this verse’s chapter and verse, even when they could join', async () => {
+        const PSALM_20_3 = {
+          reference: 'Psalm 20:3',
+          translation: 'WEB',
+          text: 'remember all your offerings, and accept your burned sacrifice.',
+        };
+        expectPerfect(
+          await reciteBlind(PSALM_20_3, `Psalm twenty three. ${PSALM_20_3.text}`),
+          PSALM_20_3.text
+        );
+
+        const PSALM_23_1 = {
+          reference: 'Psalm 23:1',
+          translation: 'WEB',
+          text: 'Yahweh is my shepherd: I shall lack nothing.',
+        };
+        expectPerfect(
+          await reciteBlind(PSALM_23_1, `${PSALM_23_1.text} Psalm twenty-three one`),
+          PSALM_23_1.text
+        );
+      });
+
+      it('does not strip the reference of a different verse', async () => {
+        const otherVerse = await reciteBlind(JOAO_3_16, `João 3:17 ${JOAO_3_16.text}`);
+        expect(otherVerse.tokens.filter((t) => t.status === 'added').map((t) => t.word)).toEqual([
+          'João',
+          '3:17',
+        ]);
+        expect(otherVerse.score).toBeLessThan(100);
+
+        const otherBook = await reciteBlind(JOAO_3_16, `${JOAO_3_16.text} Mateus 3:16`);
+        expect(otherBook.tokens.filter((t) => t.status === 'added').map((t) => t.word)).toEqual([
+          'Mateus',
+          '3:16',
+        ]);
+      });
+
+      it('does not strip the verse’s own reference from the middle of the recitation', async () => {
+        const result = await reciteBlind(
+          JOHN_3_16,
+          'For God so loved the world, John 3:16 that he gave his one and only Son, that whoever believes in him should not perish, but have eternal life.'
+        );
+        expect(result.tokens.filter((t) => t.status === 'added').map((t) => t.word)).toEqual([
+          'John',
+          '3:16',
+        ]);
+        expect(result.score).toBeLessThan(100);
+      });
+
+      it('keeps the book name when the verse itself says it and no reference numbers follow', async () => {
+        const RUTH_1_16 = {
+          reference: 'Ruth 1:16',
+          translation: 'WEB',
+          text: 'Ruth said, “Don’t urge me to leave you, and to return from following you, for where you go, I will go; and where you stay, I will stay. Your people will be my people, and your God my God.',
+        };
+
+        expectPerfect(await reciteBlind(RUTH_1_16, RUTH_1_16.text), RUTH_1_16.text);
+        expectPerfect(await reciteBlind(RUTH_1_16, `Ruth 1:16 ${RUTH_1_16.text}`), RUTH_1_16.text);
+        expectPerfect(
+          await reciteBlind(RUTH_1_16, `Ruth one sixteen. ${RUTH_1_16.text}`),
+          RUTH_1_16.text
+        );
+      });
+    });
+
+    describe('numbers', () => {
+      it('matches a digit to a spelled-out number and shows the canonical words', async () => {
+        const JONAS_1_17 = {
+          reference: 'Jonas 1:17',
+          translation: 'ALMEIDA',
+          text: 'Então o Senhor deparou um grande peixe, para que tragasse a Jonas; e esteve Jonas três dias e três noites nas entranhas do peixe.',
+        };
+        const JONAH_1_17 = {
+          reference: 'Jonah 1:17',
+          translation: 'WEB',
+          text: 'Yahweh prepared a great fish to swallow up Jonah, and Jonah was in the belly of the fish three days and three nights.',
+        };
+
+        const pt = await reciteBlind(
+          JONAS_1_17,
+          'Então o Senhor deparou um grande peixe, para que tragasse a Jonas; e esteve Jonas 3 dias e 3 noites nas entranhas do peixe.'
+        );
+        expectPerfect(pt, JONAS_1_17.text);
+        expect(pt.tokens.filter((t) => t.word === 'três')).toHaveLength(2);
+
+        const en = await reciteBlind(
+          JONAH_1_17,
+          'Yahweh prepared a great fish to swallow up Jonah, and Jonah was in the belly of the fish 3 days and 3 nights.'
+        );
+        expectPerfect(en, JONAH_1_17.text);
+      });
+
+      it('matches a multi-digit number to its multi-word form in en and pt', async () => {
+        const CORINTIOS_10_8 = {
+          reference: '1 Coríntios 10:8',
+          translation: 'ALMEIDA',
+          text: 'Nem nos prostituamos, como alguns deles fizeram; e caíram num só dia vinte e três mil.',
+        };
+        const CORINTHIANS_10_8 = {
+          reference: '1 Corinthians 10:8',
+          translation: 'WEB',
+          text: 'Let’s not commit sexual immorality, as some of them committed, and in one day twenty-three thousand fell.',
+        };
+
+        for (const number of ['23 mil', '23.000', '23000']) {
+          expectPerfect(
+            await reciteBlind(
+              CORINTIOS_10_8,
+              `Nem nos prostituamos, como alguns deles fizeram; e caíram num só dia ${number}.`
+            ),
+            CORINTIOS_10_8.text
+          );
+        }
+        for (const number of ['23 thousand', '23,000']) {
+          expectPerfect(
+            await reciteBlind(
+              CORINTHIANS_10_8,
+              `Let's not commit sexual immorality, as some of them committed, and in 1 day ${number} fell.`
+            ),
+            CORINTHIANS_10_8.text
+          );
+        }
+      });
+
+      it('reads a wrong number in digits as words in the verse’s language', async () => {
+        const CORINTIOS_10_8 = {
+          reference: '1 Coríntios 10:8',
+          translation: 'ALMEIDA',
+          text: 'Nem nos prostituamos, como alguns deles fizeram; e caíram num só dia vinte e três mil.',
+        };
+
+        const result = await reciteBlind(
+          CORINTIOS_10_8,
+          'Nem nos prostituamos, como alguns deles fizeram; e caíram num só dia 24 mil.'
+        );
+        expect(result.tokens.slice(-5)).toEqual([
+          { word: 'vinte', status: 'correct' },
+          { word: 'e', status: 'correct' },
+          { word: 'três', status: 'missed' },
+          { word: 'quatro', status: 'added' },
+          { word: 'mil.', status: 'correct' },
+        ]);
+        expect(result.score).toBeLessThan(100);
+      });
+
+      it('matches a number whose canonical words are joined by "and" or "e"', async () => {
+        const APOCALIPSE_7_4 = {
+          reference: 'Apocalipse 7:4',
+          translation: 'ALMEIDA',
+          text: 'E ouvi o número dos que foram assinalados com o selo, cento e quarenta e quatro mil de todas as tribos dos filhos de Israel:',
+        };
+        const GENESIS_5_5 = {
+          reference: 'Genesis 5:5',
+          translation: 'KJV',
+          text: 'And all the days that Adam lived were nine hundred and thirty years: and he died.',
+        };
+
+        expectPerfect(
+          await reciteBlind(
+            APOCALIPSE_7_4,
+            'Apocalipse 7:4. E ouvi o número dos que foram assinalados com o selo, 144.000 de todas as tribos dos filhos de Israel.'
+          ),
+          APOCALIPSE_7_4.text
+        );
+        expectPerfect(
+          await reciteBlind(
+            GENESIS_5_5,
+            'And all the days that Adam lived were 930 years, and he died. Genesis five five.'
+          ),
+          GENESIS_5_5.text
+        );
       });
     });
   });

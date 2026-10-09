@@ -1,3 +1,5 @@
+import { isNumberWord, parseNumberWords, spellNumber } from './numberWords';
+
 export type DiffStatus = 'correct' | 'missed' | 'added';
 
 export interface DiffToken {
@@ -58,9 +60,116 @@ const tokenize = (text: string): AlignedToken[] => {
     .filter((t) => t.key.length > 0);
 };
 
-export function diffVerses(expectedStr: string, transcribedStr: string): DiffToken[] {
+/** A whole number written in digits, as recognizers emit it: "3", "23,", "144,000", "1.000". */
+const readDigits = (display: string): number | null => {
+  const match = display.match(/^[^\p{L}\p{N}]*(\d{1,3}(?:[.,]\d{3})+|\d+)[^\p{L}\p{N}]*$/u);
+  if (!match) return null;
+  const value = Number(match[1].replace(/[.,]/g, ''));
+  return Number.isSafeInteger(value) ? value : null;
+};
+
+/** The longest spelled-out number considered ("novecentos e noventa e nove mil novecentos e noventa e nove"). */
+const MAX_NUMBER_WORDS = 16;
+
+interface NumberPhrase {
+  start: number;
+  end: number;
+  value: number;
+}
+
+/** Every run of tokens that spells out one number, including runs inside longer numbers. */
+const findNumberPhrases = (tokens: AlignedToken[]): NumberPhrase[] => {
+  const phrases: NumberPhrase[] = [];
+  for (let start = 0; start < tokens.length; start++) {
+    const limit = Math.min(tokens.length, start + MAX_NUMBER_WORDS);
+    for (let end = start + 1; end <= limit && isNumberWord(tokens[end - 1].key); end++) {
+      const value = parseNumberWords(tokens.slice(start, end).map((t) => t.key));
+      if (value !== null) phrases.push({ start, end, value });
+    }
+  }
+  return phrases;
+};
+
+/**
+ * Rewrites numbers in the transcript into the form the canonical text uses, so that digits and
+ * spelled-out numbers align word for word while the diff still shows the canonical words:
+ * - a number in digits becomes the canonical words for it ("3" → "três", "144" → "one hundred and
+ *   forty-four"), or, when the canonical text has no such number, its usual words in the verse
+ *   language, so a wrong number still credits its right words;
+ * - spelled-out words become the canonical digits when the canonical text writes that number in digits.
+ */
+const matchNumberForms = (
+  expected: AlignedToken[],
+  transcribed: AlignedToken[],
+  language?: 'en' | 'pt'
+): AlignedToken[] => {
+  const expectedDigits = new Set(
+    expected.map((t) => readDigits(t.display)).filter((value): value is number => value !== null)
+  );
+  const expectedPhrases = findNumberPhrases(expected);
+
+  const fromDigits = (token: AlignedToken, value: number, position: number): AlignedToken[] => {
+    if (expectedDigits.has(value)) return [{ display: token.display, key: String(value) }];
+
+    // When the canonical spells the number more than once, use the occurrence nearest in the verse.
+    const distance = (phrase: NumberPhrase) => Math.abs(phrase.start / expected.length - position);
+    const nearest = expectedPhrases
+      .filter((phrase) => phrase.value === value)
+      .sort((a, b) => distance(a) - distance(b))[0];
+    if (nearest) return expected.slice(nearest.start, nearest.end);
+
+    const spelled = language ? spellNumber(value, language) : [];
+    if (spelled.length === 0) return [token];
+    return spelled.map((word) => ({ display: word, key: toComparisonKey(word) }));
+  };
+
+  /** The longest run of number words at `at` whose value the canonical text writes in digits. */
+  const wordsForDigitsAt = (at: number): { end: number; value: number } | null => {
+    if (expectedDigits.size === 0 || !isNumberWord(transcribed[at].key)) return null;
+    for (let end = Math.min(transcribed.length, at + MAX_NUMBER_WORDS); end > at; end--) {
+      const value = parseNumberWords(transcribed.slice(at, end).map((t) => t.key));
+      if (value !== null && expectedDigits.has(value)) return { end, value };
+    }
+    return null;
+  };
+
+  const result: AlignedToken[] = [];
+  for (let i = 0; i < transcribed.length; ) {
+    const token = transcribed[i];
+    const digits = readDigits(token.display);
+    const words = digits === null ? wordsForDigitsAt(i) : null;
+
+    if (digits !== null) {
+      result.push(...fromDigits(token, digits, i / transcribed.length));
+      i++;
+    } else if (words) {
+      const display = transcribed.slice(i, words.end).map((t) => t.display).join(' ');
+      result.push({ display, key: String(words.value) });
+      i = words.end;
+    } else {
+      result.push(token);
+      i++;
+    }
+  }
+  return result;
+};
+
+export interface DiffOptions {
+  /** The verse's language. Digits that the canonical text does not spell out are read as words in it. */
+  language?: 'en' | 'pt';
+}
+
+export function diffVerses(
+  expectedStr: string,
+  transcribedStr: string,
+  options: DiffOptions = {}
+): DiffToken[] {
   const expectedTokens = tokenize(expectedStr);
-  const transcribedTokens = tokenize(transcribedStr);
+  const transcribedTokens = matchNumberForms(
+    expectedTokens,
+    tokenize(transcribedStr),
+    options.language
+  );
 
   if (expectedTokens.length === 0 && transcribedTokens.length === 0) return [];
   if (expectedTokens.length === 0) {

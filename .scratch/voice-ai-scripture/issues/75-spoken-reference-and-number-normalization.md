@@ -9,9 +9,9 @@ Alignment stays deterministic DP (ADR 0001). See spec.
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] A leading or trailing match of the verse's own reference is stripped before diffing. A reference to a different verse, or reference words in the middle, are not stripped.
-- [ ] "3" matches "três"/"three". "23" matches "vinte e três"/"twenty-three". Cardinals from 0 to at least 1000 are covered in both languages.
-- [ ] Recitations that differ from the canonical text only by these artefacts score as perfect.
-- [ ] Tests run through the Recitation Session seam with the simulated voice input, plus number-table edge cases in the diff engine's own suite.
+- [x] A leading or trailing match of the verse's own reference is stripped before diffing. A reference to a different verse, or reference words in the middle, are not stripped.
+- [x] "3" matches "três"/"three". "23" matches "vinte e três"/"twenty-three". Cardinals from 0 to at least 1000 are covered in both languages.
+- [x] Recitations that differ from the canonical text only by these artefacts score as perfect.
+- [x] Tests run through the Recitation Session seam with the simulated voice input, plus number-table edge cases in the diff engine's own suite.

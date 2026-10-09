@@ -6,14 +6,19 @@ import {
   DEFAULT_SRS_STATE,
 } from './srsEngine';
 import { readStudyDay } from './studyDay';
+import { stripSpokenReference, VerseReference } from './spokenReference';
 
-export { DiffToken, SRSState, SRSResult };
+export { DiffToken, SRSState, SRSResult, VerseReference };
 
 export const ASSISTED_SCORE_CAP = 75;
 
 export interface EvaluationInput {
   expectedText: string;
   transcribedText: string;
+  /** The verse's own reference. A spoken copy of it at the start or end of the transcript is ignored. */
+  reference?: VerseReference | null;
+  /** The verse's language, used to read digits in the transcript as number words. */
+  language?: 'en' | 'pt';
   assistanceUsed?: boolean;
   currentSRS?: SRSState & {
     nextReviewDate?: string;
@@ -37,7 +42,10 @@ export interface RecitationEvaluation {
  * balanced F1 accuracy scoring, assistance score capping, and SuperMemo-2 scheduling projection.
  */
 export function evaluateRecitation(input: EvaluationInput): RecitationEvaluation {
-  const tokens = diffVerses(input.expectedText, input.transcribedText);
+  const transcript = input.reference
+    ? stripSpokenReference(input.transcribedText, input.reference)
+    : input.transcribedText;
+  const tokens = diffVerses(input.expectedText, transcript, { language: input.language });
   const rawScore = calculateScore(tokens);
 
   const isAssisted = !!input.assistanceUsed;

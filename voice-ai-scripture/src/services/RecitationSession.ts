@@ -474,6 +474,8 @@ export class RecitationSession {
       const evalResult = evaluateRecitation({
         expectedText: this.verse.text,
         transcribedText: transcript,
+        reference: scriptureCatalog.resolveReference(this.verse.reference),
+        language: inferVerseLanguage(this.verse),
         assistanceUsed,
         currentSRS: this.verse.srs,
         isUnmetered,

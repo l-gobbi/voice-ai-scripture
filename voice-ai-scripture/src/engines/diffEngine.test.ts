@@ -162,5 +162,150 @@ describe('diffEngine', () => {
       expect(score).toBeGreaterThanOrEqual(90);
     });
   });
-});
 
+  describe('Ticket 75: Digits and spelled-out numbers', () => {
+    const statuses = (tokens: DiffToken[]) => tokens.map((t) => `${t.word}:${t.status}`);
+    const isPerfect = (tokens: DiffToken[]) =>
+      tokens.length > 0 && tokens.every((t) => t.status === 'correct') && calculateScore(tokens) === 100;
+
+    it.each([
+      // [canonical words, digits as the recognizer writes them]
+      ['zero', '0'],
+      ['one', '1'],
+      ['um', '1'],
+      ['uma', '1'],
+      ['duas', '2'],
+      ['três', '3'],
+      ['dez', '10'],
+      ['catorze', '14'],
+      ['quatorze', '14'],
+      ['dezesseis', '16'],
+      ['dezasseis', '16'],
+      ['dezenove', '19'],
+      ['twenty-three', '23'],
+      ['twenty three', '23'],
+      ['vinte e três', '23'],
+      ['four and twenty', '24'],
+      ['cinqüenta', '50'],
+      ['ninety-nine', '99'],
+      ['noventa e nove', '99'],
+      ['cem', '100'],
+      ['a hundred', '100'],
+      ['one hundred', '100'],
+      ['cento e um', '101'],
+      ['one hundred and forty-four', '144'],
+      ['one hundred forty-four', '144'],
+      ['cento e quarenta e quatro', '144'],
+      ['duzentas', '200'],
+      ['novecentos e trinta', '930'],
+      ['nine hundred and thirty', '930'],
+      ['nine hundred ninety-nine', '999'],
+      ['novecentos e noventa e nove', '999'],
+      ['mil', '1000'],
+      ['mil', '1.000'],
+      ['one thousand', '1000'],
+      ['a thousand', '1,000'],
+      ['mil e um', '1001'],
+      ['mil e quinhentos', '1500'],
+      ['dois mil', '2000'],
+      ['cento e quarenta e quatro mil', '144.000'],
+      ['one hundred forty-four thousand', '144,000'],
+      ['an hundred and forty and four thousand', '144000'],
+    ])('"%s" in the canonical text matches "%s" in the transcript', (words, digits) => {
+      const tokens = diffVerses(`eram ${words} anos`, `eram ${digits} anos`);
+      expect(isPerfect(tokens)).toBe(true);
+      // The learner sees the canonical words, never the recognizer's digits.
+      expect(tokens.map((t) => t.word)).toEqual(['eram', ...words.replace(/-/g, ' ').split(' '), 'anos']);
+    });
+
+    it('matches part of a longer canonical number spoken half in digits ("144 mil")', () => {
+      const tokens = diffVerses('cento e quarenta e quatro mil assinalados', '144 mil assinalados');
+      expect(isPerfect(tokens)).toBe(true);
+    });
+
+    it('matches spelled-out words in the transcript to digits in the canonical text', () => {
+      const tokens = diffVerses('E caíram num só dia 23 mil.', 'e caíram num só dia vinte e três mil');
+      expect(isPerfect(tokens)).toBe(true);
+      expect(tokens.map((t) => t.word)).toEqual(['E', 'caíram', 'num', 'só', 'dia', '23', 'mil.']);
+
+      expect(isPerfect(diffVerses('about 3,000 men', 'about three thousand men'))).toBe(true);
+    });
+
+    it('uses the canonical spelling nearest in the verse when a number appears twice', () => {
+      const tokens = diffVerses(
+        'duas vezes ele disse, e dois homens ouviram',
+        '2 vezes ele disse e 2 homens ouviram'
+      );
+      expect(isPerfect(tokens)).toBe(true);
+    });
+
+    it('reads a wrong number in digits as words in the verse language, so the right words still count', () => {
+      expect(statuses(diffVerses('caíram vinte e três mil', 'caíram 24 mil', { language: 'pt' }))).toEqual([
+        'caíram:correct',
+        'vinte:correct',
+        'e:correct',
+        'três:missed',
+        'quatro:added',
+        'mil:correct',
+      ]);
+      expect(statuses(diffVerses('twenty-three thousand fell', '25 thousand fell', { language: 'en' }))).toEqual([
+        'twenty:correct',
+        'three:missed',
+        'five:added',
+        'thousand:correct',
+        'fell:correct',
+      ]);
+    });
+
+    it('compares spelled-out words to spelled-out words literally', () => {
+      const tokens = diffVerses('duas noites', 'dois noites');
+      expect(statuses(tokens)).toEqual(['duas:missed', 'dois:added', 'noites:correct']);
+    });
+
+    it('leaves digits that are not a whole number, such as a verse reference, as they are', () => {
+      const tokens = diffVerses('três dias', '3:16 três dias', { language: 'pt' });
+      expect(statuses(tokens)).toEqual(['3:16:added', 'três:correct', 'dias:correct']);
+    });
+
+    describe.each([['en' as const], ['pt' as const]])('every cardinal from 0 to 1000 in %s', (language) => {
+      const spell = (n: number) =>
+        diffVerses('', String(n), { language }).map((t) => t.word);
+
+      it('is spelled out in words when the canonical text has no such number', () => {
+        for (let n = 0; n <= 1000; n++) {
+          const words = spell(n);
+          expect(words.length).toBeGreaterThan(0);
+          expect(words.join(' ')).not.toMatch(/\d/);
+        }
+      });
+
+      it('matches its digits in either direction', () => {
+        for (let n = 0; n <= 1000; n++) {
+          const words = spell(n).join(' ');
+          if (!isPerfect(diffVerses(words, String(n)))) throw new Error(`"${words}" ≠ ${n}`);
+          if (!isPerfect(diffVerses(String(n), words))) throw new Error(`${n} ≠ "${words}"`);
+        }
+      });
+    });
+
+    it('spells out the default form of a number in each language', () => {
+      const spell = (n: number, language: 'en' | 'pt') =>
+        diffVerses('', String(n), { language }).map((t) => t.word).join(' ');
+
+      expect(spell(0, 'en')).toBe('zero');
+      expect(spell(23, 'en')).toBe('twenty three');
+      expect(spell(144, 'en')).toBe('one hundred forty four');
+      expect(spell(1000, 'en')).toBe('one thousand');
+      expect(spell(144000, 'en')).toBe('one hundred forty four thousand');
+
+      expect(spell(3, 'pt')).toBe('três');
+      expect(spell(23, 'pt')).toBe('vinte e três');
+      expect(spell(100, 'pt')).toBe('cem');
+      expect(spell(144, 'pt')).toBe('cento e quarenta e quatro');
+      expect(spell(1000, 'pt')).toBe('mil');
+      expect(spell(1100, 'pt')).toBe('mil e cem');
+      expect(spell(1144, 'pt')).toBe('mil cento e quarenta e quatro');
+      expect(spell(2000000, 'pt')).toBe('dois milhões');
+    });
+  });
+});
