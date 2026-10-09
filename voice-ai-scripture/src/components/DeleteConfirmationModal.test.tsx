@@ -17,8 +17,8 @@ describe('DeleteConfirmationModal (Ticket 22)', () => {
     },
   };
 
-  it('renders modal with reference, translation, and warning when visible', async () => {
-    const { getByText, getByTestId } = await render(
+  it('renders modal with reference, translation, Memory Tier, and warning when visible', async () => {
+    const { getByText, getByTestId, queryByText } = await render(
       <DeleteConfirmationModal
         visible={true}
         verse={mockVerse}
@@ -30,7 +30,8 @@ describe('DeleteConfirmationModal (Ticket 22)', () => {
     expect(getByText('Excluir versículo?')).toBeTruthy();
     expect(getByText(/Filipenses 4:6-7/)).toBeTruthy();
     expect(getByText(/ALMEIDA/)).toBeTruthy();
-    expect(getByText(/Streak atual: 5/)).toBeTruthy();
+    expect(getByText('Crescendo')).toBeTruthy();
+    expect(queryByText(/Streak/)).toBeNull();
     expect(getByText(/Esta ação removerá permanentemente o versículo/)).toBeTruthy();
     expect(getByTestId('cancel-delete-button')).toBeTruthy();
     expect(getByTestId('confirm-delete-button')).toBeTruthy();
@@ -102,8 +103,8 @@ describe('DeleteConfirmationModal (Ticket 22)', () => {
     expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
-  it('omits streak notice cleanly when verse has 0 streak', async () => {
-    const zeroStreakVerse: Verse = {
+  it('shows a forgotten verse as Semente instead of a zero streak (Ticket 77)', async () => {
+    const forgottenVerse: Verse = {
       ...mockVerse,
       srs: {
         streak: 0,
@@ -112,16 +113,17 @@ describe('DeleteConfirmationModal (Ticket 22)', () => {
       },
     };
 
-    const { queryByText } = await render(
+    const { getByText, queryByText } = await render(
       <DeleteConfirmationModal
         visible={true}
-        verse={zeroStreakVerse}
+        verse={forgottenVerse}
         onConfirm={jest.fn()}
         onCancel={jest.fn()}
       />
     );
 
-    expect(queryByText(/Streak atual/)).toBeNull();
+    expect(getByText('Semente')).toBeTruthy();
+    expect(queryByText(/Streak/)).toBeNull();
   });
 
   it('returns null when visible is true but neither verse nor reference is provided', async () => {
@@ -154,17 +156,17 @@ describe('DeleteConfirmationModal (Ticket 22)', () => {
     expect(onConfirm).toHaveBeenCalledTimes(1);
   });
 
-  it('falls back to srs.repetitions for streak calculation when srs.streak is undefined', async () => {
+  it('derives the tier from the interval, not the legacy repetitions count (Ticket 77)', async () => {
     const verseWithRepetitions: Verse = {
       ...mockVerse,
       srs: {
         repetitions: 7,
-        intervalDays: 14,
+        intervalDays: 200,
         easeFactor: 2.5,
       } as any,
     };
 
-    const { getByText } = await render(
+    const { getByText, queryByText } = await render(
       <DeleteConfirmationModal
         visible={true}
         verse={verseWithRepetitions}
@@ -173,6 +175,46 @@ describe('DeleteConfirmationModal (Ticket 22)', () => {
       />
     );
 
-    expect(getByText(/Streak atual: 7/)).toBeTruthy();
+    expect(getByText('Guardado no coração')).toBeTruthy();
+    expect(queryByText(/Streak/)).toBeNull();
+  });
+
+  it('names the tier in the language of an English verse (Ticket 77)', async () => {
+    const englishVerse: Verse = {
+      id: 'test-verse-en',
+      reference: 'Philippians 4:6-7',
+      text: 'Do not be anxious about anything, but in every situation, by prayer and petition...',
+      translation: 'WEB',
+      srs: {
+        streak: 4,
+        intervalDays: 45,
+        easeFactor: 2.5,
+      },
+    };
+
+    const { getByText, queryByText } = await render(
+      <DeleteConfirmationModal
+        visible={true}
+        verse={englishVerse}
+        onConfirm={jest.fn()}
+        onCancel={jest.fn()}
+      />
+    );
+
+    expect(getByText('Rooted')).toBeTruthy();
+    expect(queryByText('Enraizado')).toBeNull();
+  });
+
+  it('shows no tier when only a reference is provided', async () => {
+    const { queryByText } = await render(
+      <DeleteConfirmationModal
+        visible={true}
+        reference="João 3:16"
+        onConfirm={jest.fn()}
+        onCancel={jest.fn()}
+      />
+    );
+
+    expect(queryByText(/Semente|Crescendo|Enraizado|Guardado no coração|Seed|Growing|Rooted|Hidden in the Heart/)).toBeNull();
   });
 });

@@ -7,7 +7,8 @@ import {
   TouchableOpacity,
   TouchableWithoutFeedback,
 } from 'react-native';
-import { Verse } from '../services/VerseEngine';
+import { Verse, getMemoryTier, memoryTierLabel } from '../services/VerseEngine';
+import { scriptureCatalog } from '../services/ScriptureCatalog';
 import { colors, typography, spacing, radius, touchTarget } from '../theme/tokens';
 
 export interface DeleteConfirmationModalProps {
@@ -30,7 +31,9 @@ export default function DeleteConfirmationModal({
   }
 
   const targetReference = verse?.reference ?? reference ?? '';
-  const streak = verse?.srs?.streak ?? (verse?.srs as { repetitions?: number } | undefined)?.repetitions ?? 0;
+  const tierLabel = verse
+    ? memoryTierLabel(getMemoryTier(verse), scriptureCatalog.detectLanguage(verse))
+    : null;
 
   return (
     <Modal
@@ -53,8 +56,10 @@ export default function DeleteConfirmationModal({
                       <Text style={styles.translationText}> [{verse.translation}]</Text>
                     ) : null}
                   </Text>
-                  {streak > 0 ? (
-                    <Text style={styles.streakText}>🔥 Streak atual: {streak}</Text>
+                  {tierLabel ? (
+                    <Text style={styles.tierText} testID="delete-modal-memory-tier">
+                      {tierLabel}
+                    </Text>
                   ) : null}
                 </View>
               ) : null}
@@ -142,12 +147,13 @@ const styles = StyleSheet.create({
     fontWeight: typography.caption.fontWeight,
     color: colors.parchment.accentSacred,
   },
-  streakText: {
+  tierText: {
     fontFamily: typography.fontFamily.ui,
     fontSize: typography.caption.fontSize,
-    color: colors.parchment.diffAddedText,
+    lineHeight: typography.caption.lineHeight,
+    fontWeight: typography.caption.fontWeight,
+    color: colors.parchment.textSecondary,
     marginTop: spacing.xs,
-    fontWeight: '500',
   },
   warningText: {
     fontFamily: typography.fontFamily.ui,

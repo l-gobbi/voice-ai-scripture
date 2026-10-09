@@ -8,8 +8,9 @@ import * as Clipboard from 'expo-clipboard';
 import { encodeDeckPayload } from '../utils/deckSharing';
 import { addStudyDays, toStudyDay } from '../engines/studyDay';
 
-// Mock verseEngine
+// Mock the verseEngine instance; the pure helpers (Memory Tier) stay real.
 jest.mock('../services/VerseEngine', () => {
+  const actual = jest.requireActual('../services/VerseEngine');
   const getVersesSummary = jest.fn().mockResolvedValue({
     allVerses: [],
     dueVerses: [],
@@ -29,6 +30,7 @@ jest.mock('../services/VerseEngine', () => {
   }));
 
   return {
+    ...actual,
     verseEngine: {
       getDashboard,
       getVersesSummary,
@@ -41,9 +43,6 @@ jest.mock('../services/VerseEngine', () => {
       }),
       deleteVerse: jest.fn().mockResolvedValue(true),
       importDeck: jest.fn().mockResolvedValue([]),
-      isVerseMastered: jest.fn(
-        (verse: any, isDue: boolean) => !isDue && (verse.srs?.intervalDays ?? 0) >= 21
-      ),
       getNextReviewMessage: jest.fn().mockReturnValue('Next review due tomorrow'),
       updateVerse: jest.fn().mockResolvedValue({}),
     },
@@ -688,18 +687,19 @@ describe('HomeScreen Integration (Ticket 16)', () => {
       });
     });
 
-    it('displays status pills (Due Today, Mastered, Learning) and last accuracy score on verse cards', async () => {
+    it('displays the Due Today pill, the Memory Tier and last accuracy score on verse cards (Ticket 77)', async () => {
       const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+      const dueSeed = {
+        id: 'v1',
+        reference: 'Romans 8:28',
+        text: 'And we know...',
+        translation: 'WEB',
+        lastScore: 95,
+        srs: { intervalDays: 0, streak: 0, easeFactor: 2.5 },
+      };
       (verseEngine.getVersesSummary as jest.Mock).mockResolvedValue({
         allVerses: [
-          {
-            id: 'v1',
-            reference: 'Romans 8:28',
-            text: 'And we know...',
-            translation: 'WEB',
-            lastScore: 95,
-            srs: { intervalDays: 0, streak: 0, easeFactor: 2.5 },
-          },
+          dueSeed,
           {
             id: 'v2',
             reference: 'Philippians 4:13',
@@ -713,41 +713,100 @@ describe('HomeScreen Integration (Ticket 16)', () => {
             reference: 'Psalm 23:1',
             text: 'The Lord is my shepherd...',
             translation: 'WEB',
-            srs: { intervalDays: 6, streak: 2, easeFactor: 2.5, nextReviewDate: tomorrow },
+            srs: { intervalDays: 10, streak: 2, easeFactor: 2.5, nextReviewDate: tomorrow },
           },
-        ],
-        dueVerses: [
           {
-            id: 'v1',
-            reference: 'Romans 8:28',
-            text: 'And we know...',
+            id: 'v4',
+            reference: 'Psalm 119:11',
+            text: 'I have hidden your word in my heart...',
             translation: 'WEB',
-            lastScore: 95,
-            srs: { intervalDays: 0, streak: 0, easeFactor: 2.5 },
+            srs: { intervalDays: 200, streak: 9, easeFactor: 2.5, nextReviewDate: tomorrow },
           },
         ],
+        dueVerses: [dueSeed],
         dueCount: 1,
       });
 
-      const { getByText } = await render(<HomeScreen />);
+      const { getByText, queryByText } = await render(<HomeScreen />);
 
-      // Switch to All tab so all 3 cards are rendered
+      // Switch to All tab so all 4 cards are rendered
       await act(async () => {
-        fireEvent.press(getByText(/All \(3\)/));
+        fireEvent.press(getByText(/All \(4\)/));
       });
 
       await waitFor(() => {
-        // v1 is due today
+        // v1 is due today and has never been reviewed: it is still a Seed
         expect(getByText('Due Today')).toBeTruthy();
+        expect(getByText('Seed')).toBeTruthy();
         expect(getByText('95% Accuracy')).toBeTruthy();
 
-        // v2 is mastered (intervalDays >= 21, not due)
-        expect(getByText('Mastered (Interval: 30d)')).toBeTruthy();
+        // v2 (30 days) is Rooted
+        expect(getByText('Rooted')).toBeTruthy();
         expect(getByText('88% Accuracy')).toBeTruthy();
 
-        // v3 is learning (intervalDays < 21, not due)
-        expect(getByText('Learning (Streak: 2)')).toBeTruthy();
+        // v3 (10 days) is Growing
+        expect(getByText('Growing')).toBeTruthy();
+
+        // v4 (200 days) is Hidden in the Heart
+        expect(getByText('Hidden in the Heart')).toBeTruthy();
       });
+
+      // The per-verse streak and the 21-day mastered badge are gone
+      expect(queryByText(/Streak:/)).toBeNull();
+      expect(queryByText(/Mastered/)).toBeNull();
+      expect(queryByText(/Learning/)).toBeNull();
+    });
+
+    it('names the Memory Tier in the language of a Portuguese verse (Ticket 77)', async () => {
+      const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+      (verseEngine.getVersesSummary as jest.Mock).mockResolvedValue({
+        allVerses: [
+          {
+            id: 'pt1',
+            reference: 'Salmos 119:11',
+            text: 'Escondi a tua palavra no meu coração, para eu não pecar contra ti.',
+            translation: 'ALMEIDA',
+            srs: { intervalDays: 1, streak: 0, easeFactor: 2.5, nextReviewDate: tomorrow },
+          },
+          {
+            id: 'pt2',
+            reference: 'João 3:16',
+            text: 'Porque Deus amou o mundo de tal maneira que deu o seu Filho unigênito...',
+            translation: 'ALMEIDA',
+            srs: { intervalDays: 14, streak: 3, easeFactor: 2.5, nextReviewDate: tomorrow },
+          },
+          {
+            id: 'pt3',
+            reference: 'Romanos 8:28',
+            text: 'E sabemos que todas as coisas contribuem juntamente para o bem daqueles que amam a Deus.',
+            translation: 'ALMEIDA',
+            srs: { intervalDays: 90, streak: 6, easeFactor: 2.5, nextReviewDate: tomorrow },
+          },
+          {
+            id: 'pt4',
+            reference: 'Filipenses 4:13',
+            text: 'Posso todas as coisas naquele que me fortalece.',
+            translation: 'ALMEIDA',
+            srs: { intervalDays: 180, streak: 8, easeFactor: 2.5, nextReviewDate: tomorrow },
+          },
+        ],
+        dueVerses: [],
+        dueCount: 0,
+      });
+
+      const { getByText, queryByText } = await render(<HomeScreen />);
+
+      await act(async () => {
+        fireEvent.press(getByText(/All \(4\)/));
+      });
+
+      await waitFor(() => {
+        expect(getByText('Semente')).toBeTruthy();
+        expect(getByText('Crescendo')).toBeTruthy();
+        expect(getByText('Enraizado')).toBeTruthy();
+        expect(getByText('Guardado no coração')).toBeTruthy();
+      });
+      expect(queryByText('Seed')).toBeNull();
     });
 
     it('launches ReviewScreen when tapping the dedicated 🎤 Recite button', async () => {

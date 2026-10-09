@@ -65,6 +65,46 @@ export interface DashboardData {
 
 export const HABIT_STORAGE_KEY = 'global_habit_stats';
 
+/**
+ * The displayed stage of a verse's memorization, derived from its current review interval
+ * (CONTEXT.md). It replaces the per-verse streak and the "mastered" badge: a forgotten verse
+ * returns to Seed instead of showing a count of zero.
+ */
+export type MemoryTier = 'seed' | 'growing' | 'rooted' | 'hidden_in_the_heart';
+
+/**
+ * Derives the Memory Tier from the verse's current interval in Study Days: under 7 Seed,
+ * under 30 Growing, under 180 Rooted, 180 or more Hidden in the Heart. A verse never
+ * officially reviewed (interval 0, or no SRS data) is a Seed.
+ */
+export function getMemoryTier(verse: Pick<Verse, 'srs'>): MemoryTier {
+  const interval = verse.srs?.intervalDays || 0;
+  if (interval < 7) return 'seed';
+  if (interval < 30) return 'growing';
+  if (interval < 180) return 'rooted';
+  return 'hidden_in_the_heart';
+}
+
+const MEMORY_TIER_LABELS: Record<'en' | 'pt', Record<MemoryTier, string>> = {
+  en: {
+    seed: 'Seed',
+    growing: 'Growing',
+    rooted: 'Rooted',
+    hidden_in_the_heart: 'Hidden in the Heart',
+  },
+  pt: {
+    seed: 'Semente',
+    growing: 'Crescendo',
+    rooted: 'Enraizado',
+    hidden_in_the_heart: 'Guardado no coração',
+  },
+};
+
+/** The Memory Tier's name in the verse's language. */
+export function memoryTierLabel(tier: MemoryTier, language: 'en' | 'pt'): string {
+  return MEMORY_TIER_LABELS[language][tier];
+}
+
 import {
   StorageAdapter,
   MapStorageAdapter,
@@ -427,11 +467,6 @@ export class VerseEngine {
       return 'Next review due tomorrow';
     }
     return `Next review due in ${diffDays} days`;
-  }
-
-  isVerseMastered(verse: Verse, isDue = false): boolean {
-    const interval = verse.srs?.intervalDays ?? 0;
-    return !isDue && interval >= 21;
   }
 }
 

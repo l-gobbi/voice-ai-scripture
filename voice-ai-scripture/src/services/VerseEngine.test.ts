@@ -1,4 +1,11 @@
-import { VerseEngine, MapStorageAdapter, Verse, resolveDefaultTranslation } from './VerseEngine';
+import {
+  VerseEngine,
+  MapStorageAdapter,
+  Verse,
+  resolveDefaultTranslation,
+  getMemoryTier,
+  memoryTierLabel,
+} from './VerseEngine';
 import { isStudyDay } from '../engines/studyDay';
 
 // Instants are built from local components (month is 1-based here) so every test holds in
@@ -489,7 +496,7 @@ describe('VerseEngine (Ticket 09)', () => {
     });
   });
 
-  describe('Slice 10: Review Message and Mastery Status Helpers', () => {
+  describe('Slice 10: Review Message Helper', () => {
     it('computes next review message correctly', () => {
       const storage = new MapStorageAdapter();
       const engine = new VerseEngine(storage);
@@ -526,28 +533,6 @@ describe('VerseEngine (Ticket 09)', () => {
       expect(engine.getNextReviewMessage([in3DaysVerse as any], now)).toBe(
         'Next review due in 3 days'
       );
-    });
-
-    it('determines verse mastery based on interval threshold and due status', () => {
-      const storage = new MapStorageAdapter();
-      const engine = new VerseEngine(storage);
-
-      const masteredVerse = {
-        id: '1',
-        reference: 'John 3:16',
-        text: 'Text',
-        srs: { streak: 5, intervalDays: 25, easeFactor: 2.5, nextReviewDate: '' },
-      };
-      expect(engine.isVerseMastered(masteredVerse as any, false)).toBe(true);
-      expect(engine.isVerseMastered(masteredVerse as any, true)).toBe(false);
-
-      const learningVerse = {
-        id: '2',
-        reference: 'John 3:16',
-        text: 'Text',
-        srs: { streak: 2, intervalDays: 6, easeFactor: 2.5, nextReviewDate: '' },
-      };
-      expect(engine.isVerseMastered(learningVerse as any, false)).toBe(false);
     });
   });
 
@@ -831,6 +816,67 @@ describe('VerseEngine (Ticket 09)', () => {
       ).toBe('Next review due in 3 days');
     });
   });
+
+  describe('Slice 13: Memory Tier (Ticket 77)', () => {
+    const withInterval = (intervalDays: number): Verse => ({
+      id: `interval-${intervalDays}`,
+      reference: 'John 3:16',
+      text: 'For God so loved the world...',
+      srs: { streak: 3, intervalDays, easeFactor: 2.5, nextReviewDate: '2026-10-09' },
+    });
+
+    it('derives the tier from the current interval at the 7, 30 and 180 day thresholds', () => {
+      expect(getMemoryTier(withInterval(1))).toBe('seed');
+      expect(getMemoryTier(withInterval(6))).toBe('seed');
+      expect(getMemoryTier(withInterval(7))).toBe('growing');
+      expect(getMemoryTier(withInterval(29))).toBe('growing');
+      expect(getMemoryTier(withInterval(30))).toBe('rooted');
+      expect(getMemoryTier(withInterval(179))).toBe('rooted');
+      expect(getMemoryTier(withInterval(180))).toBe('hidden_in_the_heart');
+      expect(getMemoryTier(withInterval(365))).toBe('hidden_in_the_heart');
+    });
+
+    it('a verse never officially reviewed is a Seed', async () => {
+      const engine = new VerseEngine(new MapStorageAdapter());
+      const created = await engine.addVerse({ reference: 'John 3:16', text: 'For God so loved...' });
+
+      expect(getMemoryTier(created)).toBe('seed');
+      expect(getMemoryTier(withInterval(0))).toBe('seed');
+      expect(getMemoryTier({ srs: undefined })).toBe('seed');
+    });
+
+    it('the tier ignores the per-verse streak and the due status', () => {
+      const rootedWithNoStreak: Verse = {
+        ...withInterval(45),
+        srs: { streak: 0, intervalDays: 45, easeFactor: 2.5, nextReviewDate: '2026-01-01' },
+      };
+      expect(getMemoryTier(rootedWithNoStreak)).toBe('rooted');
+    });
+
+    it('a forgotten verse returns to Seed', async () => {
+      const storage = new MapStorageAdapter();
+      const engine = new VerseEngine(storage);
+      const verse = await engine.addVerse({ reference: 'Psalm 119:11', text: 'I have hidden your word...' });
+      await engine.updateVerse(verse.id, {
+        srs: { streak: 8, intervalDays: 200, easeFactor: 2.5, nextReviewDate: '2026-10-09' },
+      });
+      expect(getMemoryTier((await engine.getAllVerses())[0])).toBe('hidden_in_the_heart');
+
+      await engine.recordReview(verse.id, 0, at(2026, 10, 9, 10, 0));
+
+      expect(getMemoryTier((await engine.getAllVerses())[0])).toBe('seed');
+    });
+
+    it('labels each tier in English and Portuguese', () => {
+      expect(memoryTierLabel('seed', 'en')).toBe('Seed');
+      expect(memoryTierLabel('growing', 'en')).toBe('Growing');
+      expect(memoryTierLabel('rooted', 'en')).toBe('Rooted');
+      expect(memoryTierLabel('hidden_in_the_heart', 'en')).toBe('Hidden in the Heart');
+
+      expect(memoryTierLabel('seed', 'pt')).toBe('Semente');
+      expect(memoryTierLabel('growing', 'pt')).toBe('Crescendo');
+      expect(memoryTierLabel('rooted', 'pt')).toBe('Enraizado');
+      expect(memoryTierLabel('hidden_in_the_heart', 'pt')).toBe('Guardado no coração');
+    });
+  });
 });
-
-

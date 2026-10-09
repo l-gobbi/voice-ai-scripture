@@ -13,7 +13,15 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Clipboard from 'expo-clipboard';
-import { verseEngine, Verse, VerseSummary, HabitStats } from '../services/VerseEngine';
+import {
+  verseEngine,
+  Verse,
+  VerseSummary,
+  HabitStats,
+  getMemoryTier,
+  memoryTierLabel,
+} from '../services/VerseEngine';
+import { scriptureCatalog } from '../services/ScriptureCatalog';
 import { addStudyDays, toStudyDay } from '../engines/studyDay';
 import ReviewScreen from './ReviewScreen';
 import PackBrowserModal from '../components/PackBrowserModal';
@@ -398,9 +406,10 @@ export default function HomeScreen({ voiceInput }: HomeScreenProps = {}) {
         keyExtractor={(item) => item.id}
         renderItem={({ item }) => {
           const isDue = dueVerseIds.has(item.id);
-          const interval = item.srs?.intervalDays ?? 0;
-          const streak = item.srs?.streak ?? item.srs?.repetitions ?? 0;
-          const isMastered = verseEngine.isVerseMastered(item, isDue);
+          const tierLabel = memoryTierLabel(
+            getMemoryTier(item),
+            scriptureCatalog.detectLanguage(item)
+          );
           const lastScore = item.lastScore ?? item.srs?.lastScore;
 
           return (
@@ -471,33 +480,20 @@ export default function HomeScreen({ voiceInput }: HomeScreenProps = {}) {
                       >
                         Due Today
                       </Text>
-                    ) : isMastered ? (
-                      <Text
-                        style={[
-                          styles.masteredStatusPill,
-                          {
-                            backgroundColor: theme.colors.diffMatchBg,
-                            color: theme.colors.diffMatchText,
-                            borderColor: theme.colors.diffMatchBg,
-                          },
-                        ]}
-                      >
-                        Mastered (Interval: {interval}d)
-                      </Text>
-                    ) : (
-                      <Text
-                        style={[
-                          styles.learningStatusPill,
-                          {
-                            backgroundColor: theme.colors.surfaceMuted,
-                            color: theme.colors.textSecondary,
-                            borderColor: theme.colors.border,
-                          },
-                        ]}
-                      >
-                        Learning (Streak: {streak})
-                      </Text>
-                    )}
+                    ) : null}
+                    <Text
+                      style={[
+                        styles.memoryTierPill,
+                        {
+                          backgroundColor: theme.colors.surfaceMuted,
+                          color: theme.colors.textSecondary,
+                          borderColor: theme.colors.border,
+                        },
+                      ]}
+                      testID={`memory-tier-${item.id}`}
+                    >
+                      {tierLabel}
+                    </Text>
                     {lastScore !== undefined ? (
                       <Text
                         style={[
@@ -830,15 +826,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     fontWeight: '700',
   },
-  masteredStatusPill: {
-    fontSize: 11,
-    borderWidth: 1,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 10,
-    fontWeight: '700',
-  },
-  learningStatusPill: {
+  memoryTierPill: {
     fontSize: 11,
     borderWidth: 1,
     paddingHorizontal: 8,

@@ -11,10 +11,10 @@ A forgotten verse returns to Seed and never shows "Streak: 0". Verse cards and t
 
 **Blocked by:** None (can start immediately)
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] The Verse Engine derives the Memory Tier from the interval, and the 21-day "mastered" check is removed.
-- [ ] Verse cards show the tier instead of "Learning (Streak: N)" and the mastered badge.
-- [ ] The delete confirmation shows the tier instead of the streak line.
-- [ ] Tier names follow the verse language (en/pt).
-- [ ] Verse Engine tests cover the thresholds. Home Screen and delete-modal tests cover the display.
+- [x] The Verse Engine derives the Memory Tier from the interval, and the 21-day "mastered" check is removed.
+- [x] Verse cards show the tier instead of "Learning (Streak: N)" and the mastered badge.
+- [x] The delete confirmation shows the tier instead of the streak line.
+- [x] Tier names follow the verse language (en/pt).
+- [x] Verse Engine tests cover the thresholds. Home Screen and delete-modal tests cover the display.
