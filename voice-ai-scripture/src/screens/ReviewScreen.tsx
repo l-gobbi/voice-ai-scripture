@@ -67,6 +67,25 @@ function attemptLabel(
   return pt ? '🔄 Reforço agendado para amanhã' : '🔄 Reinforcement Scheduled for Tomorrow';
 }
 
+/** Same-Day Relearning (ticket 78), in the verse's language. */
+const RELEARNING_COPY: Record<
+  VerseLanguage,
+  { offer: string; accept: string; decline: string; restored: string }
+> = {
+  en: {
+    offer: "Let's fix it again?",
+    accept: 'Yes, practice',
+    decline: 'Not now',
+    restored: 'Restored. It comes back tomorrow.',
+  },
+  pt: {
+    offer: 'Vamos fixar de novo?',
+    accept: 'Sim, praticar',
+    decline: 'Agora não',
+    restored: 'Restaurado. Ele volta amanhã.',
+  },
+};
+
 interface ReviewScreenProps {
   verse: Verse;
   onComplete: () => void;
@@ -100,6 +119,7 @@ export default function ReviewScreen({
   const [showDebugTray, setShowDebugTray] = useState(false);
 
   const language = scriptureCatalog.detectLanguage(verse);
+  const relearningCopy = RELEARNING_COPY[language];
 
   const {
     level,
@@ -116,6 +136,7 @@ export default function ReviewScreen({
     errorDetails,
     transcriptionErrorCode,
     sandboxAttempt,
+    relearning,
     isReciting,
     isVerifying,
     startReciting,
@@ -124,6 +145,8 @@ export default function ReviewScreen({
     setLevel,
     nextLevel,
     practiceAgain,
+    acceptRelearning,
+    declineRelearning,
     toggleTextReveal,
     tapWord,
     vocalize,
@@ -352,6 +375,16 @@ export default function ReviewScreen({
                   </Text>
                 </View>
 
+                {currentResult.isRelearning && level === 3 && currentResult.passed ? (
+                  // A relearning Blind Recitation recalled the verse: relearning is over for today.
+                  <Text
+                    testID="relearning-restored"
+                    style={[styles.restoredNote, { color: theme.colors.diffMatchText }]}
+                  >
+                    {relearningCopy.restored}
+                  </Text>
+                ) : null}
+
                 <View style={styles.errorBudgetRow}>
                   <Text style={[styles.errorBudgetText, { color: theme.colors.textPrimary }]}>
                     {errorBudgetLabel(currentResult.errorCount, currentResult.errorBudget, language)}
@@ -368,6 +401,45 @@ export default function ReviewScreen({
             )}
           </View>
         </View>
+
+        {relearning?.offered ? (
+          // Same-Day Relearning after a forgotten Official Review: offered, never forced.
+          <View
+            testID="relearning-offer"
+            style={[
+              styles.relearningOffer,
+              { backgroundColor: theme.colors.surfaceMuted, borderColor: theme.colors.border },
+            ]}
+          >
+            <Text style={[styles.relearningPrompt, { color: theme.colors.textPrimary }]}>
+              {relearningCopy.offer}
+            </Text>
+            <View style={styles.relearningActions}>
+              <TouchableOpacity
+                style={[
+                  styles.actionButton,
+                  styles.practiceAgainButton,
+                  { backgroundColor: theme.colors.surface, borderColor: theme.colors.border },
+                ]}
+                onPress={declineRelearning}
+                accessibilityRole="button"
+                activeOpacity={0.7}
+              >
+                <Text style={[styles.actionButtonText, { color: theme.colors.textSecondary }]}>
+                  {relearningCopy.decline}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.actionButton, { backgroundColor: theme.colors.accentSacred }]}
+                onPress={acceptRelearning}
+                accessibilityRole="button"
+                activeOpacity={0.8}
+              >
+                <Text style={styles.primaryActionButtonText}>{relearningCopy.accept}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        ) : null}
 
         {errorMessage && transcriptionErrorCode ? (
           // The app failed to hear the learner: a calm retry notice, never a grade (ticket 74).

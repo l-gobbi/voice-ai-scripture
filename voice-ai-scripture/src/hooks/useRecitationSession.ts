@@ -5,6 +5,7 @@ import {
   RecitationSessionOptions,
   RecitationState,
   RecitationLevel,
+  RelearningState,
   VoiceRecitationResult,
   SpeechSynthesizer,
   ClozeToken,
@@ -14,6 +15,7 @@ export type {
   RecitationSessionOptions,
   RecitationState,
   RecitationLevel,
+  RelearningState,
   VoiceRecitationResult,
   ClozeToken,
 };
@@ -87,6 +89,14 @@ export function useRecitationSession(
     sessionRef.current?.practiceAgain();
   }, []);
 
+  const acceptRelearning = useCallback(() => {
+    sessionRef.current?.acceptRelearning();
+  }, []);
+
+  const declineRelearning = useCallback(() => {
+    sessionRef.current?.declineRelearning();
+  }, []);
+
   const toggleTextReveal = useCallback(() => {
     sessionRef.current?.toggleTextReveal();
   }, []);
@@ -118,6 +128,8 @@ export function useRecitationSession(
     setLevel,
     nextLevel,
     practiceAgain,
+    acceptRelearning,
+    declineRelearning,
     toggleTextReveal,
     tapWord,
     vocalize,

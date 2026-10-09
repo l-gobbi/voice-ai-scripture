@@ -701,6 +701,163 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
     });
   });
 
+  describe('Same-Day Relearning (Ticket 78)', () => {
+    const OFFER = "Let's fix it again?";
+    const ACCEPT = 'Yes, practice';
+    const DECLINE = 'Not now';
+    const RESTORED = 'Restored. It comes back tomorrow.';
+    const PRACTICE = '✅ Practice Attempt (Schedule Unchanged)';
+
+    /**
+     * A Due Verse stored through the app's Verse Engine, so the real classification runs, and
+     * speech the test changes between attempts. Unmetered only skips the shared quota and burst
+     * limit; it never decides what is an Official Review.
+     */
+    async function renderDueVerse(verseData: { reference: string; text: string; translation: string }) {
+      const verse = await verseEngine.addVerse(verseData);
+      const speech = { transcript: verse.text };
+      const screen = await render(
+        <ReviewScreen
+          verse={verse}
+          onComplete={jest.fn()}
+          isUnmetered={true}
+          voiceInput={new SimulatedVoiceAdapter({ handler: () => speech.transcript })}
+        />
+      );
+      const recite = async (transcript: string) => {
+        speech.transcript = transcript;
+        await act(async () => {
+          fireEvent.press(screen.getByTestId('floating-mic-button'));
+        });
+        await act(async () => {
+          fireEvent.press(screen.getByTestId('floating-mic-button'));
+        });
+      };
+      const press = async (label: string) => {
+        await act(async () => {
+          fireEvent.press(screen.getByText(label));
+        });
+      };
+      return { ...screen, verse, recite, press };
+    }
+
+    const PSALM_23_1 = {
+      reference: 'Psalm 23:1',
+      text: 'The Lord is my shepherd; I shall not want.',
+      translation: 'WEB',
+    };
+    const FORGOTTEN = 'The Lord is my shepherd';
+
+    it('offers relearning after a forgotten Official Review, and Not now clears the offer', async () => {
+      const screen = await renderDueVerse(PSALM_23_1);
+
+      await screen.recite(FORGOTTEN);
+
+      expect(await screen.findByText('Needs work')).toBeTruthy();
+      expect(screen.getByTestId('relearning-offer')).toBeTruthy();
+      expect(screen.getByText(OFFER)).toBeTruthy();
+      expect(screen.getByText(ACCEPT)).toBeTruthy();
+      expect(screen.getByText('Practice Again')).toBeTruthy();
+      expect(screen.getByText('Done (Next Verse) →')).toBeTruthy();
+
+      await screen.press(DECLINE);
+
+      expect(screen.queryByTestId('relearning-offer')).toBeNull();
+      expect(screen.queryByText(OFFER)).toBeNull();
+      expect(screen.getByText('Needs work')).toBeTruthy();
+      expect(screen.getByText('Level 3: Blind Recitation (Active Recall)')).toBeTruthy();
+      expect(screen.getByText('Done (Next Verse) →')).toBeTruthy();
+    });
+
+    it('Yes, practice moves to Cloze Practice, then Blind Recitation; a recall there is restored and comes back tomorrow', async () => {
+      const screen = await renderDueVerse(PSALM_23_1);
+      await screen.recite(FORGOTTEN);
+      await screen.findByText(OFFER);
+
+      await screen.press(ACCEPT);
+
+      expect(screen.getByText('Level 2: Cloze Practice')).toBeTruthy();
+      expect(screen.queryByText(OFFER)).toBeNull();
+      expect(screen.getByTestId('floating-mic-button')).toBeTruthy();
+
+      await screen.recite(PSALM_23_1.text);
+      expect(await screen.findByText('Recalled')).toBeTruthy();
+      expect(screen.queryByText(RESTORED)).toBeNull();
+      await screen.press('Next: Level 3 →');
+      expect(screen.getByText('Level 3: Blind Recitation (Active Recall)')).toBeTruthy();
+
+      await screen.recite(PSALM_23_1.text);
+
+      expect(await screen.findByText('Recalled')).toBeTruthy();
+      expect(screen.getByTestId('relearning-restored')).toBeTruthy();
+      expect(screen.getByText(RESTORED)).toBeTruthy();
+      expect(screen.getByText(PRACTICE)).toBeTruthy();
+      expect(screen.queryByText(OFFER)).toBeNull();
+    });
+
+    it('offers again after a forgotten relearning recitation, and stops once both loops are used', async () => {
+      const screen = await renderDueVerse(PSALM_23_1);
+      await screen.recite(FORGOTTEN);
+      await screen.findByText(OFFER);
+
+      await screen.press(ACCEPT);
+      await screen.press('3. Recite');
+      await screen.recite(FORGOTTEN);
+
+      expect(await screen.findByText('Needs work')).toBeTruthy();
+      expect(screen.getByText(PRACTICE)).toBeTruthy();
+      expect(screen.getByText(OFFER)).toBeTruthy();
+
+      await screen.press(ACCEPT);
+      expect(screen.getByText('Level 2: Cloze Practice')).toBeTruthy();
+      await screen.press('3. Recite');
+      await screen.recite(FORGOTTEN);
+
+      expect(await screen.findByText('Needs work')).toBeTruthy();
+      expect(screen.getByText(PRACTICE)).toBeTruthy();
+      expect(screen.queryByTestId('relearning-offer')).toBeNull();
+      expect(screen.queryByText(RESTORED)).toBeNull();
+      expect(screen.getByText('Done (Next Verse) →')).toBeTruthy();
+    });
+
+    it('offers nothing after a recalled Official Review', async () => {
+      const screen = await renderDueVerse(PSALM_23_1);
+
+      await screen.recite(PSALM_23_1.text);
+
+      expect(await screen.findByText('🎉 Official Review Recorded!')).toBeTruthy();
+      expect(screen.queryByTestId('relearning-offer')).toBeNull();
+      expect(screen.queryByTestId('relearning-restored')).toBeNull();
+    });
+
+    it('speaks Portuguese for a Portuguese verse: the offer, its answers and the restored line', async () => {
+      const screen = await renderDueVerse({
+        reference: 'Salmos 23:1',
+        text: 'O Senhor é o meu pastor; nada me faltará.',
+        translation: 'ALMEIDA',
+      });
+
+      await screen.recite('O Senhor é o meu');
+
+      expect(await screen.findByText('Precisa de mais prática')).toBeTruthy();
+      expect(screen.getByText('Vamos fixar de novo?')).toBeTruthy();
+      expect(screen.getByText('Agora não')).toBeTruthy();
+      expect(screen.queryByText(OFFER)).toBeNull();
+
+      await screen.press('Sim, praticar');
+      expect(screen.getByText('Level 2: Cloze Practice')).toBeTruthy();
+      await screen.recite(screen.verse.text);
+      await screen.press('Next: Level 3 →');
+      await screen.recite(screen.verse.text);
+
+      expect(await screen.findByText('Lembrado')).toBeTruthy();
+      expect(screen.getByText('Restaurado. Ele volta amanhã.')).toBeTruthy();
+      expect(screen.getByText('✅ Tentativa de prática (agenda inalterada)')).toBeTruthy();
+      expect(screen.queryByText('Vamos fixar de novo?')).toBeNull();
+      expect(screen.queryByText(RESTORED)).toBeNull();
+    });
+  });
+
   describe('Sandbox Mode (Ticket 31)', () => {
     const sandboxVerse: Verse = {
       id: 'sandbox-acts-2-38',

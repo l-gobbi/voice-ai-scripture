@@ -230,6 +230,32 @@ export const styles = StyleSheet.create({
     lineHeight: 20,
     textAlign: 'center',
   },
+  restoredNote: {
+    fontSize: 14,
+    lineHeight: 20,
+    fontWeight: '600',
+    marginBottom: 10,
+  },
+  relearningOffer: {
+    marginTop: 12,
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  relearningPrompt: {
+    fontSize: 16,
+    lineHeight: 22,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  relearningActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    gap: 12,
+    marginTop: 12,
+  },
   voiceActions: {
     width: '100%',
     marginTop: 8,

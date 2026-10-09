@@ -109,6 +109,26 @@ export interface VoiceRecitationResult {
    * are practice and are not recorded.
    */
   kind: AttemptKind;
+  /** Made during accepted Same-Day Relearning (ticket 78), after the day's Official Review. */
+  isRelearning: boolean;
+}
+
+/** Relearning Blind Recitations offered after a forgotten Official Review (ticket 78). */
+export const RELEARNING_LOOPS = 2;
+
+/**
+ * Same-Day Relearning (ticket 78): after an Official Review graded `forgotten`, the learner is
+ * offered Cloze Practice, then Blind Recitation again. Each relearning Blind Recitation uses one
+ * loop. Relearning ends when the learner recalls the verse or no loops remain; a forgotten one
+ * with loops left offers again. Its attempts are Practice Attempts, so the schedule stays.
+ */
+export interface RelearningState {
+  /** The offer is waiting for the learner to accept or decline it. */
+  offered: boolean;
+  /** Relearning Blind Recitations left today. */
+  loopsRemaining: number;
+  /** The learner accepted: the next Blind Recitation uses a loop. */
+  active: boolean;
 }
 
 /** Said after every Transcription Error, in the verse's language (ticket 74). */
@@ -157,6 +177,8 @@ export interface RecitationState {
    * Error or a level change leave it in place. Always null outside the sandbox.
    */
   sandboxAttempt: SandboxAttempt | null;
+  /** The Same-Day Relearning offer or drill in progress; null when there is none. */
+  relearning: RelearningState | null;
   rateLimitCooldownSeconds?: number;
 }
 
@@ -232,6 +254,7 @@ export class RecitationSession {
       errorDetails: null,
       transcriptionErrorCode: null,
       sandboxAttempt: null,
+      relearning: null,
     };
 
     if (initialLevel === 1 && this.autoVocalizeOnLevel1) {
@@ -299,6 +322,7 @@ export class RecitationSession {
       result: null,
       errorMessage: null,
       transcriptionErrorCode: null,
+      relearning: this.relearningAfterMovingOn(),
     });
 
     if (level === 1 && this.autoVocalizeOnLevel1) {
@@ -328,7 +352,48 @@ export class RecitationSession {
       rawTranscript: null,
       errorMessage: null,
       transcriptionErrorCode: null,
+      relearning: this.relearningAfterMovingOn(),
     });
+  }
+
+  /** Accepts the Same-Day Relearning offer: Cloze Practice first, then Blind Recitation. */
+  acceptRelearning(): void {
+    const relearning = this.state.relearning;
+    if (!relearning?.offered) return;
+
+    this.setState({ relearning: { offered: false, loopsRemaining: relearning.loopsRemaining, active: true } });
+    this.setLevel(2);
+  }
+
+  /** Declines Same-Day Relearning. The verse is still due tomorrow. */
+  declineRelearning(): void {
+    if (this.state.relearning) {
+      this.setState({ relearning: null });
+    }
+  }
+
+  /**
+   * An offer belongs to the result that made it: moving on without answering it (Practice
+   * Again, a level change or a reset) withdraws it. Accepted relearning carries on.
+   */
+  private relearningAfterMovingOn(): RelearningState | null {
+    return this.state.relearning?.active ? this.state.relearning : null;
+  }
+
+  /** The Same-Day Relearning state after a graded attempt. */
+  private relearningAfter(level: RecitationLevel, kind: AttemptKind, outcome: RecitationOutcome): RelearningState | null {
+    if (kind === 'official' && outcome === 'forgotten') {
+      return { offered: true, loopsRemaining: RELEARNING_LOOPS, active: false };
+    }
+    const relearning = this.state.relearning;
+    if (!relearning?.active) return null;
+    // Echo Mode and Cloze Practice prepare the relearning Blind Recitation; they use no loop.
+    if (level !== 3) return relearning;
+
+    const loopsRemaining = relearning.loopsRemaining - 1;
+    return isRecalled(outcome) || loopsRemaining <= 0
+      ? null
+      : { offered: true, loopsRemaining, active: false };
   }
 
   toggleTextReveal(): void {
@@ -606,6 +671,7 @@ export class RecitationSession {
         srsResult,
         rawTranscript: transcript,
         kind,
+        isRelearning: this.state.relearning?.active ?? false,
       };
 
       this.setState({
@@ -614,6 +680,7 @@ export class RecitationSession {
         result,
         officialResult: kind === 'official' ? result : this.state.officialResult,
         sandboxAttempt,
+        relearning: this.relearningAfter(level, kind, evaluation.outcome),
         rawTranscript: transcript,
       });
       return result;
@@ -730,6 +797,7 @@ export class RecitationSession {
       rawTranscript: null,
       errorMessage: null,
       transcriptionErrorCode: null,
+      relearning: this.relearningAfterMovingOn(),
     });
   }
 

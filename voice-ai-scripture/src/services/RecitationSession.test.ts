@@ -2575,3 +2575,300 @@ describe('RecitationSession: Honest Sandbox Save (Ticket 79)', () => {
     await t.session.dispose();
   });
 });
+
+describe('RecitationSession: Same-Day Relearning (Ticket 78)', () => {
+  const PSALM_23_1 = {
+    reference: 'Psalm 23:1',
+    text: 'The Lord is my shepherd; I shall not want.',
+    translation: 'WEB',
+  };
+  const SLIP = 'The Lord is my pastor; I shall not want.';
+  const FORGOTTEN = 'The Lord is my shepherd';
+  const DUE_TODAY = { intervalDays: 6, streak: 2, easeFactor: 2.5, nextReviewDate: '2026-10-09' };
+  const NOT_YET_DUE = { ...DUE_TODAY, nextReviewDate: '2026-10-10' };
+  /** The schedule after a forgotten Official Review of DUE_TODAY: back to 1 Study Day, due tomorrow. */
+  const AFTER_FORGOTTEN = { streak: 0, intervalDays: 1, easeFactor: 2.18, nextReviewDate: '2026-10-10' };
+
+  /**
+   * A stored verse with a real Verse Engine and a real free-tier Subscription Service on
+   * in-memory storage, a clock the test moves by hand, and speech the test controls: what the
+   * simulated voice input hears on each attempt.
+   */
+  async function setup(srs: typeof DUE_TODAY = DUE_TODAY, options: RecitationSessionOptions = {}) {
+    const engine = new VerseEngine(new MapStorageAdapter(), { random: () => 0.5 });
+    const added = await engine.addVerse(PSALM_23_1);
+    const verse = await engine.updateVerse(added.id, { srs });
+    const subscription = new SubscriptionService(new MapStorageAdapter());
+    const clock = { now: new Date(2026, 9, 9, 7, 30) };
+    const speech = { transcript: verse.text };
+    const session = new RecitationSession(verse, {
+      verseEngine: engine,
+      subscriptionService: subscription,
+      voiceInput: new SimulatedVoiceAdapter({ handler: () => speech.transcript }),
+      synthesizer: new MockSpeechSynthesizer(),
+      autoVocalizeOnLevel1: false,
+      now: () => clock.now,
+      ...options,
+    });
+
+    return {
+      engine,
+      verse,
+      clock,
+      speech,
+      session,
+      storedSrs: async () => (await engine.getAllVerses())[0].srs,
+      log: () => engine.getReviewLog(verse.id),
+      quotaUsed: async () => DAILY_LIMIT - (await subscription.getRemainingFreeRecitations(clock.now)),
+    };
+  }
+
+  /** Recites what the learner says this time, and returns the verified result. */
+  async function recite(t: { session: RecitationSession; speech: { transcript: string } }, transcript: string) {
+    t.speech.transcript = transcript;
+    await t.session.startReciting();
+    const result = await t.session.stopAndVerify();
+    if (!result) throw new Error(`Recitation was not verified: ${t.session.getState().errorMessage}`);
+    return result;
+  }
+
+  /** The day's Official Review, forgotten. */
+  async function forgetOfficialReview(t: Awaited<ReturnType<typeof setup>>) {
+    const official = await recite(t, FORGOTTEN);
+    expect(official).toMatchObject({ kind: 'official', outcome: 'forgotten', passed: false });
+    expect(await t.storedSrs()).toMatchObject(AFTER_FORGOTTEN);
+    return official;
+  }
+
+  it('a forgotten Official Review offers Same-Day Relearning with 2 loops', async () => {
+    const t = await setup();
+    expect(t.session.getState().relearning).toBeNull();
+
+    const official = await forgetOfficialReview(t);
+
+    expect(official.isRelearning).toBe(false);
+    expect(t.session.getState()).toMatchObject({
+      level: 3,
+      status: 'verified',
+      relearning: { offered: true, loopsRemaining: 2, active: false },
+    });
+    await t.session.dispose();
+  });
+
+  it.each([
+    ['clean', PSALM_23_1.text],
+    ['slip', SLIP],
+  ])('a recalled (%s) Official Review offers nothing', async (outcome, transcript) => {
+    const t = await setup();
+
+    expect(await recite(t, transcript)).toMatchObject({ kind: 'official', outcome });
+
+    expect(t.session.getState().relearning).toBeNull();
+    await t.session.dispose();
+  });
+
+  it('a forgotten Practice Attempt offers nothing: neither a verse not yet due, nor a later attempt the same day', async () => {
+    const notDue = await setup(NOT_YET_DUE);
+    expect(await recite(notDue, FORGOTTEN)).toMatchObject({ kind: 'practice', outcome: 'forgotten' });
+    expect(notDue.session.getState().relearning).toBeNull();
+
+    const due = await setup();
+    await recite(due, PSALM_23_1.text);
+    due.session.practiceAgain();
+    expect(await recite(due, FORGOTTEN)).toMatchObject({ kind: 'practice', outcome: 'forgotten' });
+    expect(due.session.getState().relearning).toBeNull();
+
+    await notDue.session.dispose();
+    await due.session.dispose();
+  });
+
+  it('in sandbox mode nothing is offered, since nothing there is an Official Review', async () => {
+    const t = await setup(DUE_TODAY, { isSandbox: true, initialLevel: 3 });
+
+    expect(await recite(t, FORGOTTEN)).toMatchObject({ kind: 'practice', outcome: 'forgotten' });
+
+    expect(t.session.getState().relearning).toBeNull();
+    await t.session.dispose();
+  });
+
+  it('accepting moves to Cloze Practice, then Blind Recitation; a recall ends relearning and the verse is still due tomorrow', async () => {
+    const t = await setup();
+    await forgetOfficialReview(t);
+    const scheduled = await t.storedSrs();
+
+    t.session.acceptRelearning();
+    expect(t.session.getState()).toMatchObject({
+      level: 2,
+      status: 'idle',
+      currentResult: null,
+      relearning: { offered: false, loopsRemaining: 2, active: true },
+    });
+
+    t.clock.now = new Date(2026, 9, 9, 7, 32);
+    const cloze = await recite(t, PSALM_23_1.text);
+    expect(cloze).toMatchObject({ kind: 'practice', passed: true, isRelearning: true });
+    // Cloze Practice uses no loop.
+    expect(t.session.getState().relearning).toEqual({ offered: false, loopsRemaining: 2, active: true });
+
+    t.session.nextLevel();
+    expect(t.session.getState().level).toBe(3);
+    t.clock.now = new Date(2026, 9, 9, 7, 34);
+    const blind = await recite(t, SLIP);
+
+    expect(blind).toMatchObject({ kind: 'practice', outcome: 'slip', passed: true, isRelearning: true });
+    expect(blind.srsResult).toMatchObject({ intervalDays: 1, nextReviewDate: '2026-10-10' });
+    expect(t.session.getState().relearning).toBeNull();
+    expect(t.session.getState().officialResult?.outcome).toBe('forgotten');
+    expect(await t.storedSrs()).toEqual(scheduled);
+    expect((await t.log()).map((row) => [row.kind, row.level, row.outcome, row.sm2Quality])).toEqual([
+      ['official', 3, 'forgotten', 2],
+      ['practice', 2, 'clean', null],
+      ['practice', 3, 'slip', null],
+    ]);
+    expect((await t.log()).slice(1)).toEqual([
+      expect.objectContaining({
+        wasDue: false,
+        before: { intervalDays: 1, easeFactor: 2.18 },
+        after: { intervalDays: 1, easeFactor: 2.18 },
+        dueStudyDayAfter: '2026-10-10',
+      }),
+      expect.objectContaining({
+        wasDue: false,
+        before: { intervalDays: 1, easeFactor: 2.18 },
+        after: { intervalDays: 1, easeFactor: 2.18 },
+        dueStudyDayAfter: '2026-10-10',
+      }),
+    ]);
+    // Quota metering is unchanged: Cloze Practice is unmetered, every Blind Recitation is metered.
+    expect(await t.quotaUsed()).toBe(2);
+    await t.session.dispose();
+  });
+
+  it('each relearning Blind Recitation uses one loop: a forgotten one offers again until no loops remain', async () => {
+    const t = await setup();
+    await forgetOfficialReview(t);
+    const scheduled = await t.storedSrs();
+
+    t.session.acceptRelearning();
+    t.session.nextLevel();
+    const first = await recite(t, FORGOTTEN);
+    expect(first).toMatchObject({ kind: 'practice', outcome: 'forgotten', isRelearning: true });
+    expect(t.session.getState()).toMatchObject({
+      level: 3,
+      relearning: { offered: true, loopsRemaining: 1, active: false },
+    });
+
+    t.session.acceptRelearning();
+    expect(t.session.getState()).toMatchObject({
+      level: 2,
+      relearning: { offered: false, loopsRemaining: 1, active: true },
+    });
+    await recite(t, FORGOTTEN); // Cloze Practice
+    t.session.nextLevel();
+    const second = await recite(t, FORGOTTEN);
+
+    expect(second).toMatchObject({ kind: 'practice', outcome: 'forgotten', isRelearning: true });
+    expect(t.session.getState().relearning).toBeNull();
+
+    // With no loops left there is nothing to accept.
+    t.session.acceptRelearning();
+    expect(t.session.getState()).toMatchObject({ level: 3, status: 'verified', relearning: null });
+
+    expect(await t.storedSrs()).toEqual(scheduled);
+    expect(await t.storedSrs()).toMatchObject({ intervalDays: 1, nextReviewDate: '2026-10-10' });
+    expect((await t.log()).map((row) => [row.kind, row.level])).toEqual([
+      ['official', 3],
+      ['practice', 3],
+      ['practice', 2],
+      ['practice', 3],
+    ]);
+    await t.session.dispose();
+  });
+
+  it('declining clears the offer, and later attempts are ordinary practice', async () => {
+    const t = await setup();
+    await forgetOfficialReview(t);
+
+    t.session.declineRelearning();
+    expect(t.session.getState()).toMatchObject({ level: 3, status: 'verified', relearning: null });
+
+    t.session.practiceAgain();
+    const again = await recite(t, FORGOTTEN);
+    expect(again).toMatchObject({ kind: 'practice', outcome: 'forgotten', isRelearning: false });
+    expect(t.session.getState().relearning).toBeNull();
+    expect(await t.storedSrs()).toMatchObject(AFTER_FORGOTTEN);
+    await t.session.dispose();
+  });
+
+  it('declining a second offer ends relearning too', async () => {
+    const t = await setup();
+    await forgetOfficialReview(t);
+    t.session.acceptRelearning();
+    t.session.nextLevel();
+    await recite(t, FORGOTTEN);
+    expect(t.session.getState().relearning).toEqual({ offered: true, loopsRemaining: 1, active: false });
+
+    t.session.declineRelearning();
+
+    expect(t.session.getState().relearning).toBeNull();
+    await t.session.dispose();
+  });
+
+  it('moving on without answering withdraws the offer: Practice Again, a level change or a reset', async () => {
+    const practiced = await setup();
+    await forgetOfficialReview(practiced);
+    practiced.session.practiceAgain();
+    expect(practiced.session.getState().relearning).toBeNull();
+
+    const switched = await setup();
+    await forgetOfficialReview(switched);
+    switched.session.setLevel(1);
+    expect(switched.session.getState().relearning).toBeNull();
+
+    const reset = await setup();
+    await forgetOfficialReview(reset);
+    await reset.session.reset();
+    expect(reset.session.getState().relearning).toBeNull();
+
+    await practiced.session.dispose();
+    await switched.session.dispose();
+    await reset.session.dispose();
+  });
+
+  it('once accepted, relearning survives level changes and Practice Again until a Blind Recitation uses a loop', async () => {
+    const t = await setup();
+    await forgetOfficialReview(t);
+    t.session.acceptRelearning();
+
+    t.session.setLevel(1);
+    await recite(t, PSALM_23_1.text);
+    t.session.practiceAgain();
+    t.session.setLevel(3);
+    expect(t.session.getState().relearning).toEqual({ offered: false, loopsRemaining: 2, active: true });
+
+    const blind = await recite(t, PSALM_23_1.text);
+
+    expect(blind).toMatchObject({ kind: 'practice', outcome: 'clean', isRelearning: true });
+    expect(t.session.getState().relearning).toBeNull();
+    await t.session.dispose();
+  });
+
+  it('a Transcription Error during relearning uses no loop', async () => {
+    const t = await setup();
+    await forgetOfficialReview(t);
+    t.session.acceptRelearning();
+    t.session.nextLevel();
+
+    t.speech.transcript = '';
+    await t.session.startReciting();
+    expect(await t.session.stopAndVerify()).toBeNull();
+    expect(t.session.getState()).toMatchObject({
+      transcriptionErrorCode: 'unintelligible',
+      relearning: { offered: false, loopsRemaining: 2, active: true },
+    });
+
+    expect(await recite(t, FORGOTTEN)).toMatchObject({ isRelearning: true, outcome: 'forgotten' });
+    expect(t.session.getState().relearning).toEqual({ offered: true, loopsRemaining: 1, active: false });
+    await t.session.dispose();
+  });
+});
