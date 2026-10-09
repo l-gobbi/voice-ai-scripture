@@ -1,4 +1,5 @@
 import { StudyDay } from '../engines/studyDay';
+import type { RecitationOutcome } from '../engines/recitationEvaluator';
 import { TranscriptionErrorCode } from './SpeechTranscriberTypes';
 import { StorageAdapter } from './StorageAdapter';
 
@@ -20,7 +21,7 @@ const SHARD_KEY_PREFIX = 'review_log:';
 export type AttemptKind = 'official' | 'practice';
 export type AttemptLevel = 1 | 2 | 3;
 export type Recognizer = 'native' | 'cloud' | 'simulated';
-export type RecitationOutcome = 'clean' | 'slip' | 'forgotten';
+export type { RecitationOutcome };
 
 export interface ReviewLogSchedulingState {
   intervalDays: number;
@@ -56,20 +57,24 @@ export interface ReviewLogEntry {
   correct: number;
   missed: number;
   added: number;
-  /** Word-level F1 score, 0–100, before any Word Peek cap. */
+  /** Word-level F1 score, 0–100. Kept for display; the Error Budget decides the outcome. */
   rawScore: number;
-  /** The score the grading rule used (today: `rawScore` capped at 75 after a Word Peek). */
-  score: number;
-  /** Positions of the words revealed with the Word Peek Lifeline during the attempt. */
+  /**
+   * Canonical word positions (from 0, as the diff counts words) revealed with the Word Peek
+   * Lifeline during the attempt. Each counts as one error.
+   */
   peekedWordPositions: number[];
   /** Words revealed during Cloze Practice (Level 2). */
   clozeRevealCount?: number;
-  /** Unaided errors (filled once Error Budget grading lands, ticket 73). */
-  errorCount?: number;
-  /** Error Budget for the verse (ticket 73). */
-  errorBudget?: number;
-  /** `clean`, `slip` or `forgotten` (ticket 73); null when the attempt ended in a Transcription Error. */
-  outcome?: RecitationOutcome | null;
+  /**
+   * Unaided errors: missed or peeked words (once each), plus added words beyond two.
+   * Null when the attempt ended in a Transcription Error (ticket 74).
+   */
+  errorCount: number | null;
+  /** The verse's Error Budget: 5% of its words, never less than one. Null as `errorCount`. */
+  errorBudget: number | null;
+  /** `clean`, `slip` or `forgotten`; null when the attempt ended in a Transcription Error (ticket 74). */
+  outcome: RecitationOutcome | null;
 
   // --- recognizer ---
   recognizer?: Recognizer;
@@ -81,8 +86,8 @@ export interface ReviewLogEntry {
   wasDue: boolean;
   gradingRuleId: string;
   schedulerId: string;
-  /** SM-2 quality given by an Official Review, once the grade maps to one (ticket 73). */
-  sm2Quality?: number;
+  /** SM-2 quality given by an Official Review (clean 5, slip 4, forgotten 2); null for practice. */
+  sm2Quality: number | null;
   before: ReviewLogSchedulingState;
   after: ReviewLogSchedulingState;
   /** The verse's due Study Day after the attempt. */

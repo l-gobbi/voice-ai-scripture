@@ -16,12 +16,56 @@ import WaveformVisualizer from '../components/WaveformVisualizer';
 import AcousticDebugTray from '../components/AcousticDebugTray';
 import SandboxOptInModal from '../components/SandboxOptInModal';
 import ScaffoldingLevelCard from '../components/ScaffoldingLevelCard';
-import { VoiceInput } from '../services/RecitationSession';
+import { RecitationOutcome, VoiceInput, VoiceRecitationResult } from '../services/RecitationSession';
 import { scriptureCatalog } from '../services/ScriptureCatalog';
 import { getTheme } from '../theme/tokens';
 import { styles } from './ReviewScreen.styles';
 
 export type { RecitationLevel };
+
+type VerseLanguage = 'en' | 'pt';
+
+/** The Error Budget outcome, said plainly in the verse's language. */
+function outcomeLabel(outcome: RecitationOutcome, language: VerseLanguage): string {
+  if (language === 'pt') {
+    return outcome === 'clean'
+      ? 'Lembrado'
+      : outcome === 'slip'
+      ? 'Lembrado com um deslize'
+      : 'Precisa de mais prática';
+  }
+  return outcome === 'clean' ? 'Recalled' : outcome === 'slip' ? 'Recalled with a slip' : 'Needs work';
+}
+
+/** The unaided errors against the Error Budget, e.g. "1 error · 2 allowed". */
+function errorBudgetLabel(errorCount: number, errorBudget: number, language: VerseLanguage): string {
+  return language === 'pt'
+    ? `${errorCount} ${errorCount === 1 ? 'erro' : 'erros'} · ${errorBudget} ${
+        errorBudget === 1 ? 'permitido' : 'permitidos'
+      }`
+    : `${errorCount} ${errorCount === 1 ? 'error' : 'errors'} · ${errorBudget} allowed`;
+}
+
+/** Whether the attempt moved the schedule, in the verse's language (sandbox copy stays as it is). */
+function attemptLabel(
+  result: VoiceRecitationResult,
+  level: RecitationLevel,
+  isSandbox: boolean,
+  language: VerseLanguage
+): string {
+  const pt = language === 'pt';
+  if (level !== 3) {
+    return pt ? '✅ Tentativa de prática (fora do limite diário)' : '✅ Practice Attempt (Unmetered)';
+  }
+  if (isSandbox) return '🎉 Sandbox Recitation Complete!';
+  if (result.kind === 'practice') {
+    return pt ? '✅ Tentativa de prática (agenda inalterada)' : '✅ Practice Attempt (Schedule Unchanged)';
+  }
+  if (result.passed) {
+    return pt ? '🎉 Revisão oficial registrada!' : '🎉 Official Review Recorded!';
+  }
+  return pt ? '🔄 Reforço agendado para amanhã' : '🔄 Reinforcement Scheduled for Tomorrow';
+}
 
 interface ReviewScreenProps {
   verse: Verse;
@@ -57,7 +101,7 @@ export default function ReviewScreen({
     vadThreshold,
     clozeTokens,
     isTextRevealed,
-    assistanceUsed,
+    peekedWordPositions,
     currentResult,
     rawTranscript,
     errorMessage,
@@ -86,7 +130,12 @@ export default function ReviewScreen({
     }
   }, [isSandbox, level, currentResult]);
 
-  const displayScore = currentResult ? currentResult.score : 0;
+  const outcomeTone = (outcome: RecitationOutcome) =>
+    outcome === 'clean'
+      ? { backgroundColor: theme.colors.diffMatchBg, color: theme.colors.diffMatchText }
+      : outcome === 'slip'
+      ? { backgroundColor: theme.colors.diffAddedBg, color: theme.colors.diffAddedText }
+      : { backgroundColor: theme.colors.diffMissedBg, color: theme.colors.diffMissedText };
 
   return (
     <SafeAreaView
@@ -232,7 +281,7 @@ export default function ReviewScreen({
             verse={verse}
             clozeTokens={clozeTokens}
             isTextRevealed={isTextRevealed}
-            assistanceUsed={assistanceUsed}
+            peekedWordCount={peekedWordPositions.length}
             onToggleTextReveal={toggleTextReveal}
             onVocalize={vocalize}
             onTapWord={tapWord}
@@ -280,20 +329,8 @@ export default function ReviewScreen({
             {currentResult && (
               <View style={styles.resultContainer}>
                 <View style={styles.scoreHeader}>
-                  <Text
-                    style={[
-                      styles.scoreBadge,
-                      {
-                        backgroundColor: currentResult.passed
-                          ? theme.colors.diffMatchBg
-                          : theme.colors.diffMissedBg,
-                        color: currentResult.passed
-                          ? theme.colors.diffMatchText
-                          : theme.colors.diffMissedText,
-                      },
-                    ]}
-                  >
-                    {displayScore}% Accuracy
+                  <Text style={[styles.scoreBadge, outcomeTone(currentResult.outcome)]}>
+                    {outcomeLabel(currentResult.outcome, language)}
                   </Text>
                   <Text
                     style={[
@@ -301,15 +338,18 @@ export default function ReviewScreen({
                       { color: theme.colors.textSecondary },
                     ]}
                   >
-                    {level === 3
-                      ? isSandbox
-                        ? '🎉 Sandbox Recitation Complete!'
-                        : currentResult.kind === 'practice'
-                        ? '✅ Practice Attempt (Schedule Unchanged)'
-                        : currentResult.passed
-                        ? '🎉 Official Review Recorded!'
-                        : '🔄 Reinforcement Scheduled for Tomorrow'
-                      : '✅ Practice Attempt (Unmetered)'}
+                    {attemptLabel(currentResult, level, isSandbox, language)}
+                  </Text>
+                </View>
+
+                <View style={styles.errorBudgetRow}>
+                  <Text style={[styles.errorBudgetText, { color: theme.colors.textPrimary }]}>
+                    {errorBudgetLabel(currentResult.errorCount, currentResult.errorBudget, language)}
+                  </Text>
+                  <Text style={[styles.accuracyDetail, { color: theme.colors.textSecondary }]}>
+                    {language === 'pt'
+                      ? `${currentResult.score}% de precisão`
+                      : `${currentResult.score}% accuracy`}
                   </Text>
                 </View>
 

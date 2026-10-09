@@ -1,4 +1,4 @@
-import { diffVerses, calculateScore, DiffToken } from './diffEngine';
+import { diffVerses, calculateScore, canonicalPositionsByWord, DiffToken } from './diffEngine';
 
 describe('diffEngine', () => {
   const expected = 'For God so loved the world, that he gave his only begotten Son.';
@@ -306,6 +306,27 @@ describe('diffEngine', () => {
       expect(spell(1100, 'pt')).toBe('mil e cem');
       expect(spell(1144, 'pt')).toBe('mil cento e quarenta e quatro');
       expect(spell(2000000, 'pt')).toBe('dois milhões');
+    });
+  });
+
+  describe('Ticket 73: canonical word positions of each written word', () => {
+    it('numbers the words as the diff counts them, one list per whitespace-separated word', () => {
+      const text = 'For God so loved the world';
+      expect(canonicalPositionsByWord(text)).toEqual([[0], [1], [2], [3], [4], [5]]);
+      expect(diffVerses(text, '')).toHaveLength(6);
+    });
+
+    it('gives a hyphenated or dash-joined word one position per diff word, shifting the words after it', () => {
+      const text = 'his daughter-in-law, whose these are—the signet';
+      expect(canonicalPositionsByWord(text)).toEqual([[0], [1, 2, 3], [4], [5], [6, 7], [8]]);
+      expect(diffVerses(text, '').map((t) => t.word)).toEqual([
+        'his', 'daughter', 'in', 'law,', 'whose', 'these', 'are', 'the', 'signet',
+      ]);
+    });
+
+    it('gives a word with no letters or digits no position', () => {
+      expect(canonicalPositionsByWord('Amen — so be it ¶')).toEqual([[0], [], [1], [2], [3], []]);
+      expect(canonicalPositionsByWord('  ')).toEqual([]);
     });
   });
 });

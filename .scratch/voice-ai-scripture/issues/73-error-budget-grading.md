@@ -5,14 +5,14 @@ Replace the F1 ≥ 80 pass threshold with the Error Budget. Unaided errors are m
 
 **Blocked by:** 72: Review Log and Official Review Classification
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] The recitation evaluator returns tokens, raw F1, error count, Error Budget and an outcome of `clean`, `slip` or `forgotten`.
-- [ ] The SM-2 engine takes the outcome (not a score) and applies quality 5/4/2 with Woźniak's ease formula (quality 2 lowers ease by 0.32, floor 1.3).
-- [ ] The Recitation Session tracks peeked word positions and passes them to grading. A peek counts as one error.
-- [ ] Missing 6 of 20 words is `forgotten`; missing 1 of 25 is a `slip`; a perfect recitation with 2 filler words is `clean`.
-- [ ] Synonyms and reordered words count as errors.
-- [ ] Review Log rows record the error count, the Error Budget, the outcome and the SM-2 quality.
-- [ ] The result screen shows the outcome and errors versus budget in en/pt.
-- [ ] PRODUCT.md states that SM-2 is the launch scheduler and FSRS is a possible future.
-- [ ] Tests that encoded the 80% threshold, the 75% cap or the assisted pass are rewritten to the new rules.
+- [x] The recitation evaluator returns tokens, raw F1, error count, Error Budget and an outcome of `clean`, `slip` or `forgotten`.
+- [x] The SM-2 engine takes the outcome (not a score) and applies quality 5/4/2 with Woźniak's ease formula (quality 2 lowers ease by 0.32, floor 1.3).
+- [x] The Recitation Session tracks peeked word positions and passes them to grading. A peek counts as one error.
+- [x] Missing 6 of 20 words is `forgotten`; missing 1 of 25 is a `slip`; a perfect recitation with 2 filler words is `clean`.
+- [x] Synonyms and reordered words count as errors.
+- [x] Review Log rows record the error count, the Error Budget, the outcome and the SM-2 quality.
+- [x] The result screen shows the outcome and errors versus budget in en/pt.
+- [x] PRODUCT.md states that SM-2 is the launch scheduler and FSRS is a possible future.
+- [x] Tests that encoded the 80% threshold, the 75% cap or the assisted pass are rewritten to the new rules.

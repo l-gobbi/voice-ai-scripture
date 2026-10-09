@@ -16,8 +16,11 @@ import {
 } from '../engines/clozeEngine';
 import {
   evaluateRecitation,
+  isRecalled,
   DiffToken,
+  RecitationOutcome,
 } from '../engines/recitationEvaluator';
+import { canonicalPositionsByWord } from '../engines/diffEngine';
 import { TranscriptionError } from './SpeechTranscriber';
 import {
   SpeechSynthesizer,
@@ -41,6 +44,7 @@ export {
   SpeechSynthesizer,
   ClozeToken,
   DiffToken,
+  RecitationOutcome,
   VoiceInput,
   VoiceActivityDetector,
   VADConfig,
@@ -87,7 +91,15 @@ export type RecitationLevel = 1 | 2 | 3;
 
 export interface VoiceRecitationResult {
   tokens: DiffToken[];
+  /** Word-level F1 score, 0–100: secondary detail for display. The outcome is the grade. */
   score: number;
+  /** The Error Budget grade: `clean`, `slip` or `forgotten`. */
+  outcome: RecitationOutcome;
+  /** Unaided errors: missed or peeked words (once each), plus added words beyond two. */
+  errorCount: number;
+  /** Errors the verse may contain and still count as recalled. */
+  errorBudget: number;
+  /** Recalled: the outcome is `clean` or `slip`. */
   passed: boolean;
   srsResult: SRSResult;
   rawTranscript?: string;
@@ -115,7 +127,11 @@ export interface RecitationState {
   vadThreshold?: number;
   clozeTokens: ClozeToken[];
   isTextRevealed: boolean;
-  assistanceUsed: boolean;
+  /**
+   * Canonical word positions (as the diff counts words, in order) revealed with the Word Peek
+   * Lifeline during the current attempt. Each counts as one error against the Error Budget.
+   */
+  peekedWordPositions: number[];
   currentResult: VoiceRecitationResult | null;
   officialResult: VoiceRecitationResult | null;
   result: VoiceRecitationResult | null;
@@ -155,8 +171,8 @@ export class RecitationSession {
   private listeners: Set<(state: RecitationState) => void> = new Set();
   private peekTimers: Map<number, NodeJS.Timeout> = new Map();
   private now: () => Date;
-  /** Word positions peeked with the Word Peek Lifeline, alongside `assistanceUsed`. */
-  private peekedWordPositions: Set<number> = new Set();
+  /** Canonical word positions of each Cloze token (a hyphenated token holds several). */
+  private canonicalPositionsByClozeIndex: number[][];
   private recitationStartedAt: Date | null = null;
 
   private state: RecitationState;
@@ -172,6 +188,7 @@ export class RecitationSession {
     this.vadConfig = options?.vadConfig;
     this.voiceInput = options?.voiceInput ?? createDefaultVoiceInput();
     this.now = options?.now ?? (() => new Date());
+    this.canonicalPositionsByClozeIndex = canonicalPositionsByWord(verse.text);
 
     const initialLevel = options?.initialLevel ?? (this.isSandbox ? 1 : 3);
     const clozeTokens = this.getClozeTokensForLevel(initialLevel);
@@ -185,7 +202,7 @@ export class RecitationSession {
       vadThreshold: 0.58,
       clozeTokens,
       isTextRevealed: false,
-      assistanceUsed: false,
+      peekedWordPositions: [],
       currentResult: null,
       officialResult: null,
       result: null,
@@ -245,7 +262,6 @@ export class RecitationSession {
 
     this.clearPeekTimers();
     this.synthesizer.stop().catch(() => {});
-    this.peekedWordPositions.clear();
 
     const clozeTokens = this.getClozeTokensForLevel(level);
 
@@ -255,7 +271,7 @@ export class RecitationSession {
       volumeLevel: 0,
       clozeTokens,
       isTextRevealed: false,
-      assistanceUsed: false,
+      peekedWordPositions: [],
       currentResult: null,
       result: null,
       errorMessage: null,
@@ -272,6 +288,7 @@ export class RecitationSession {
     }
   }
 
+  /** Starts a new attempt on the same level: fresh Cloze tokens and no Word Peeks. */
   practiceAgain(): void {
     this.clearPeekTimers();
     const clozeTokens = this.getClozeTokensForLevel(this.state.level);
@@ -281,6 +298,7 @@ export class RecitationSession {
       volumeLevel: 0,
       clozeTokens,
       isTextRevealed: false,
+      peekedWordPositions: [],
       currentResult: null,
       result: null,
       rawTranscript: null,
@@ -302,8 +320,12 @@ export class RecitationSession {
       this.setState({ clozeTokens });
     } else if (this.state.level === 3) {
       const clozeTokens = revealWord(this.state.clozeTokens, index);
-      this.peekedWordPositions.add(index);
-      this.setState({ clozeTokens, assistanceUsed: true });
+      // A Word Peek reveals every canonical word of the token, and each counts once.
+      const peeked = new Set([
+        ...this.state.peekedWordPositions,
+        ...(this.canonicalPositionsByClozeIndex[index] ?? []),
+      ]);
+      this.setState({ clozeTokens, peekedWordPositions: [...peeked].sort((a, b) => a - b) });
 
       const existingTimer = this.peekTimers.get(index);
       if (existingTimer) {
@@ -501,33 +523,31 @@ export class RecitationSession {
       const now = this.now();
       const level = this.state.level;
 
+      // Word Peeks exist only in Blind Recitation; level changes clear them.
+      const peekedWordPositions = level === 3 ? [...this.state.peekedWordPositions] : [];
+
       // Pure Recitation Evaluator Pipeline (grading only; the Verse Engine schedules)
-      const evalResult = evaluateRecitation({
+      const evaluation = evaluateRecitation({
         expectedText: this.verse.text,
         transcribedText: transcript,
         reference: scriptureCatalog.resolveReference(this.verse.reference),
         language: inferVerseLanguage(this.verse),
-        assistanceUsed: this.state.assistanceUsed,
+        peekedWordPositions,
       });
+      const passed = isRecalled(evaluation.outcome);
 
       let kind: AttemptKind;
       let srsResult: SRSResult;
       if (this.isSandbox) {
         // The sandbox verse is not stored yet, so nothing is recorded (ticket 79 saves it).
         kind = 'practice';
-        srsResult = currentSrsResult(this.verse.srs, evalResult.passed, now);
+        srsResult = currentSrsResult(this.verse.srs, passed, now);
       } else {
         const recorded = await this.verseEngine.recordAttempt({
           verseId: this.verse.id,
           level,
-          evaluation: {
-            tokens: evalResult.tokens,
-            rawScore: evalResult.rawScore,
-            score: evalResult.finalScore,
-            passed: evalResult.passed,
-          },
-          peekedWordPositions:
-            level === 3 ? [...this.peekedWordPositions].sort((a, b) => a - b) : [],
+          evaluation,
+          peekedWordPositions,
           clozeRevealCount:
             level === 2 ? this.state.clozeTokens.filter((token) => token.isRevealed).length : undefined,
           recognizer: recognizerOf(this.voiceInput),
@@ -541,9 +561,12 @@ export class RecitationSession {
       }
 
       const result: VoiceRecitationResult = {
-        tokens: evalResult.tokens,
-        score: evalResult.finalScore,
-        passed: evalResult.passed,
+        tokens: evaluation.tokens,
+        score: evaluation.rawScore,
+        outcome: evaluation.outcome,
+        errorCount: evaluation.errorCount,
+        errorBudget: evaluation.errorBudget,
+        passed,
         srsResult,
         rawTranscript: transcript,
         kind,
@@ -595,12 +618,15 @@ export class RecitationSession {
     await this.synthesizer.stop().catch(() => {});
     await this.voiceInput.cancel().catch(() => {});
 
+    // A reset ends the attempt, so its Word Peeks go with it.
     this.setState({
       status: 'idle',
       volumeLevel: 0,
       vadProgress: 0,
       vadState: 'idle',
       vadThreshold: 0.58,
+      clozeTokens: this.getClozeTokensForLevel(this.state.level),
+      peekedWordPositions: [],
       currentResult: null,
       result: null,
       rawTranscript: null,

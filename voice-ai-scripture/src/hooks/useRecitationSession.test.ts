@@ -63,7 +63,7 @@ describe('useRecitationSession hook (Ticket 08 & 12)', () => {
         intervalDays: 1,
         easeFactor: 2.5,
         nextReviewDate: '2026-10-10',
-        passed: input.evaluation.passed,
+        passed: input.evaluation.outcome !== 'forgotten',
       },
       memoryTier: 'seed',
       entry: {} as ReviewLogEntry,
@@ -86,6 +86,7 @@ describe('useRecitationSession hook (Ticket 08 & 12)', () => {
 
     expect(result.current.status).toBe('verified');
     expect(result.current.result?.passed).toBe(true);
+    expect(result.current.result?.outcome).toBe('clean');
     expect(result.current.result?.score).toBe(100);
     expect(result.current.officialResult?.kind).toBe('official');
     recordSpy.mockRestore();

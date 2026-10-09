@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, useColorScheme } from 'react-native';
 import { Verse } from '../services/VerseEngine';
 import { ClozeToken } from '../engines/clozeEngine';
 import { RecitationLevel } from '../hooks/useRecitationSession';
+import { scriptureCatalog } from '../services/ScriptureCatalog';
 import { getTheme } from '../theme/tokens';
 import { styles } from '../screens/ReviewScreen.styles';
 
@@ -11,7 +12,8 @@ export interface ScaffoldingLevelCardProps {
   verse: Verse;
   clozeTokens: ClozeToken[];
   isTextRevealed: boolean;
-  assistanceUsed: boolean;
+  /** Words revealed with the Word Peek Lifeline in the current Blind Recitation attempt. */
+  peekedWordCount: number;
   onToggleTextReveal: () => void;
   onVocalize: () => void;
   onTapWord: (index: number) => void;
@@ -22,7 +24,7 @@ export default function ScaffoldingLevelCard({
   verse,
   clozeTokens,
   isTextRevealed,
-  assistanceUsed,
+  peekedWordCount,
   onToggleTextReveal,
   onVocalize,
   onTapWord,
@@ -238,14 +240,16 @@ export default function ScaffoldingLevelCard({
         </Text>
       </View>
 
-      {assistanceUsed && (
+      {peekedWordCount > 0 && (
         <Text
           style={[
-            styles.assistedWarning,
+            styles.peekNote,
             { color: theme.colors.diffAddedText },
           ]}
         >
-          ⚠️ Word Peek Lifeline used (Session score capped at 75%)
+          {scriptureCatalog.detectLanguage(verse) === 'pt'
+            ? 'Palavra espiada: cada palavra espiada conta como um erro.'
+            : 'Word Peek used: each peeked word counts as one error.'}
         </Text>
       )}
 

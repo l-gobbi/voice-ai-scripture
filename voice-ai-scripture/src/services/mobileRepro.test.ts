@@ -29,7 +29,7 @@ describe('Reproduction: Mobile Expo Go Recitation without API Key', () => {
         intervalDays: 1,
         easeFactor: 2.5,
         nextReviewDate: '2026-10-10',
-        passed: input.evaluation.passed,
+        passed: input.evaluation.outcome !== 'forgotten',
       },
       memoryTier: 'seed',
       entry: {} as ReviewLogEntry,

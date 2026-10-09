@@ -1,4 +1,4 @@
-import { calculateNextReview, isVerseDue, SRSState } from './srsEngine';
+import { SM2_QUALITY, calculateNextReview, isVerseDue, SRSState } from './srsEngine';
 
 describe('srsEngine', () => {
   // Local components keep the Study Day (04:00 local rollover) independent of the machine's time zone.
@@ -10,72 +10,109 @@ describe('srsEngine', () => {
     easeFactor: 2.5,
   };
 
-  it('schedules for 1 Study Day later on first successful attempt', () => {
-    const result = calculateNextReview(initialState, 95, baseDate);
+  it('schedules for 1 Study Day later on the first recall', () => {
+    const result = calculateNextReview(initialState, 'clean', baseDate);
 
     expect(result.intervalDays).toBe(1);
     expect(result.streak).toBe(1);
     expect(result.nextReviewDate).toBe('2026-01-02');
   });
 
-  it('schedules for 6 Study Days later on second consecutive successful attempt', () => {
+  it('schedules for 6 Study Days later on the second consecutive recall', () => {
     const firstState: SRSState = {
       intervalDays: 1,
       streak: 1,
       easeFactor: 2.5,
     };
-    const result = calculateNextReview(firstState, 90, baseDate);
+    const result = calculateNextReview(firstState, 'slip', baseDate);
 
     expect(result.intervalDays).toBe(6);
     expect(result.streak).toBe(2);
     expect(result.nextReviewDate).toBe('2026-01-07');
   });
 
-  it('multiplies interval by easeFactor on subsequent successful attempts', () => {
+  it('multiplies the previous interval by the ease factor on later recalls', () => {
     const state: SRSState = {
       intervalDays: 6,
       streak: 2,
       easeFactor: 2.5,
     };
-    const result = calculateNextReview(state, 100, baseDate);
+    const result = calculateNextReview(state, 'clean', baseDate);
 
     expect(result.intervalDays).toBe(15); // round(6 * 2.5) = 15
     expect(result.streak).toBe(3);
     expect(result.nextReviewDate).toBe('2026-01-16');
   });
 
-  it('resets interval and streak on failure (< 75% accuracy)', () => {
-    const seasonedState: SRSState = {
-      intervalDays: 15,
-      streak: 3,
-      easeFactor: 2.5,
-    };
-    const result = calculateNextReview(seasonedState, 50, baseDate);
+  describe('outcome to SM-2 quality (Ticket 73)', () => {
+    const seasoned: SRSState = { intervalDays: 15, streak: 3, repetitions: 3, easeFactor: 2.5 };
 
-    expect(result.intervalDays).toBe(1);
-    expect(result.streak).toBe(0);
-    expect(result.passed).toBe(false);
-    expect(result.nextReviewDate).toBe('2026-01-02');
-  });
+    it('maps clean to quality 5, slip to quality 4 and forgotten to quality 2', () => {
+      expect(SM2_QUALITY).toEqual({ clean: 5, slip: 4, forgotten: 2 });
+    });
 
-  it('preserves multi-day streak and schedules reinforcement for tomorrow on assisted review (75% score)', () => {
-    const seasonedState: SRSState = {
-      intervalDays: 15,
-      streak: 5,
-      easeFactor: 2.5,
-    };
-    const result = calculateNextReview(seasonedState, 75, baseDate);
+    it('a clean recall is quality 5: the interval grows and ease rises by 0.10', () => {
+      const result = calculateNextReview(seasoned, 'clean', baseDate);
 
-    expect(result.intervalDays).toBe(1);
-    expect(result.streak).toBe(5); // Preserved, not wiped to 0
-    expect(result.passed).toBe(true);
-    expect(result.nextReviewDate).toBe('2026-01-02');
+      expect(result.passed).toBe(true);
+      expect(result.intervalDays).toBe(38); // round(15 * 2.5), computed with the ease before the review
+      expect(result.streak).toBe(4);
+      expect(result.easeFactor).toBe(2.6);
+    });
+
+    it('a slip is quality 4: the interval grows just as far and ease is unchanged', () => {
+      const result = calculateNextReview(seasoned, 'slip', baseDate);
+
+      expect(result.passed).toBe(true);
+      expect(result.intervalDays).toBe(38);
+      expect(result.streak).toBe(4);
+      expect(result.repetitions).toBe(4);
+      expect(result.easeFactor).toBe(2.5);
+    });
+
+    it('forgotten is quality 2: back to 1 Study Day, repetitions to 0 and ease down by 0.32', () => {
+      const result = calculateNextReview(seasoned, 'forgotten', baseDate);
+
+      expect(result.passed).toBe(false);
+      expect(result.intervalDays).toBe(1);
+      expect(result.streak).toBe(0);
+      expect(result.repetitions).toBe(0);
+      expect(result.easeFactor).toBe(2.18);
+      expect(result.nextReviewDate).toBe('2026-01-02');
+    });
+
+    it('a forgotten verse grows more slowly afterwards: 1, 6, then the lowered ease', () => {
+      const lapsed = calculateNextReview(seasoned, 'forgotten', baseDate);
+      const first = calculateNextReview(lapsed, 'slip', baseDate);
+      const second = calculateNextReview(first, 'slip', baseDate);
+      const third = calculateNextReview(second, 'slip', baseDate);
+
+      expect([first.intervalDays, second.intervalDays, third.intervalDays]).toEqual([1, 6, 13]); // round(6 * 2.18)
+    });
+
+    it('never lowers ease below 1.3', () => {
+      const fragile: SRSState = { intervalDays: 1, streak: 0, easeFactor: 1.5 };
+
+      const once = calculateNextReview(fragile, 'forgotten', baseDate);
+      const twice = calculateNextReview(once, 'forgotten', baseDate);
+
+      expect(once.easeFactor).toBe(1.3);
+      expect(twice.easeFactor).toBe(1.3);
+    });
+
+    it('a slip never resets the streak, whatever the interval was', () => {
+      const result = calculateNextReview({ intervalDays: 1, streak: 1, easeFactor: 1.3 }, 'slip', baseDate);
+
+      expect(result.streak).toBe(2);
+      expect(result.intervalDays).toBe(6);
+      expect(result.easeFactor).toBe(1.3);
+    });
   });
 
   it('counts the interval from the Study Day of the review, which starts at 04:00 local', () => {
-    const lateEvening = calculateNextReview(initialState, 100, new Date(2026, 0, 1, 23, 0));
-    const smallHours = calculateNextReview(initialState, 100, new Date(2026, 0, 2, 1, 0));
-    const morning = calculateNextReview(initialState, 100, new Date(2026, 0, 2, 4, 0));
+    const lateEvening = calculateNextReview(initialState, 'clean', new Date(2026, 0, 1, 23, 0));
+    const smallHours = calculateNextReview(initialState, 'clean', new Date(2026, 0, 2, 1, 0));
+    const morning = calculateNextReview(initialState, 'clean', new Date(2026, 0, 2, 4, 0));
 
     expect(lateEvening.nextReviewDate).toBe('2026-01-02');
     expect(smallHours.nextReviewDate).toBe('2026-01-02');
@@ -83,7 +120,7 @@ describe('srsEngine', () => {
   });
 
   it('exposes streak matching CONTEXT.md ubiquitous language', () => {
-    const result = calculateNextReview(initialState, 90, baseDate);
+    const result = calculateNextReview(initialState, 'slip', baseDate);
     expect(result.streak).toBe(1);
   });
 

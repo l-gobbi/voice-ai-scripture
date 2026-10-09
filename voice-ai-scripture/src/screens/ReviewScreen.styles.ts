@@ -109,7 +109,7 @@ export const styles = StyleSheet.create({
     lineHeight: 20,
     marginBottom: 12,
   },
-  assistedWarning: {
+  peekNote: {
     fontSize: 13,
     fontWeight: '600',
     marginVertical: 8,
@@ -177,9 +177,11 @@ export const styles = StyleSheet.create({
   },
   scoreHeader: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 10,
+    gap: 8,
+    marginBottom: 8,
   },
   scoreBadge: {
     fontSize: 14,
@@ -192,6 +194,22 @@ export const styles = StyleSheet.create({
   streakText: {
     fontSize: 13,
     fontWeight: '600',
+    flexShrink: 1,
+  },
+  errorBudgetRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'baseline',
+    gap: 8,
+    marginBottom: 10,
+  },
+  errorBudgetText: {
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  accuracyDetail: {
+    fontSize: 13,
+    fontWeight: '500',
   },
   error: {
     fontSize: 14,

@@ -29,7 +29,7 @@ describe('Regression: Recitation accuracy does not produce false 100% positive s
     expect(session.getState().errorMessage).toContain('Speech recognition is not available');
   });
 
-  it('accurately scores imperfect recitation when transcribed text differs from verse', async () => {
+  it('grades an unrelated recitation as forgotten, with every word an error', async () => {
     const verses = await verseEngine.getAllVerses();
     const storedVerse = verses[0] || mockVerse;
 
@@ -44,11 +44,15 @@ describe('Regression: Recitation accuracy does not produce false 100% positive s
 
     expect(result).not.toBeNull();
     expect(result?.score).toBe(0);
+    expect(result?.outcome).toBe('forgotten');
+    // 13 missed words, plus 5 added words of which 3 are beyond the allowance of two.
+    expect(result?.errorCount).toBe(16);
+    expect(result?.errorBudget).toBe(1);
     expect(result?.passed).toBe(false);
     expect(session.getState().status).toBe('verified');
   });
 
-  it('accurately awards 100% when recitation matches verse verbatim', async () => {
+  it('grades a verbatim recitation as clean with 100% accuracy', async () => {
     const verses = await verseEngine.getAllVerses();
     const storedVerse = verses[0] || mockVerse;
 
@@ -63,6 +67,8 @@ describe('Regression: Recitation accuracy does not produce false 100% positive s
 
     expect(result).not.toBeNull();
     expect(result?.score).toBe(100);
+    expect(result?.outcome).toBe('clean');
+    expect(result?.errorCount).toBe(0);
     expect(result?.passed).toBe(true);
     expect(session.getState().status).toBe('verified');
   });

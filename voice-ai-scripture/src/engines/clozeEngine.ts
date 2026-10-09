@@ -1,8 +1,9 @@
 /**
  * clozeEngine.ts
  *
- * Pure deterministic engine for cloze token generation, masking,
- * interactive word peeking, and assisted score evaluation.
+ * Pure deterministic engine for cloze token generation, masking and
+ * interactive word reveals. A Word Peek counts as an error against the
+ * Error Budget (see recitationEvaluator), not as a score cap.
  */
 
 export interface ClozeToken {
@@ -103,20 +104,4 @@ export function hideWord(tokens: ClozeToken[], index: number): ClozeToken[] {
   return tokens.map((token, i) =>
     i === index ? { ...token, isRevealed: false } : token
   );
-}
-
-/**
- * Evaluates the final recitation score in the presence of assistance (e.g. Word Peek Lifeline).
- *
- * Rules:
- * - If no assistance was used, score is returned untouched.
- * - If assistance was used, scores >= 75% are capped at 75% (assisted review:
- *   schedules reinforcement for tomorrow without resetting multi-day streak).
- * - Genuine lower scores (< 75%) remain uninflated and untouched.
- */
-export function evaluateAssistedScore(score: number, assistanceUsed: boolean): number {
-  if (!assistanceUsed) {
-    return score;
-  }
-  return Math.min(score, 75);
 }

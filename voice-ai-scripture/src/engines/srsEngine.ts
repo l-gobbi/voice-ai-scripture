@@ -1,4 +1,7 @@
 import { StudyDay, addStudyDays, compareStudyDays, readStudyDay, toStudyDay } from './studyDay';
+import type { RecitationOutcome } from './recitationEvaluator';
+
+export type { RecitationOutcome };
 
 export interface SRSState {
   intervalDays: number;
@@ -10,11 +13,18 @@ export interface SRSState {
 export interface SRSResult extends SRSState {
   /** The due Study Day: the Study Day of the review plus `intervalDays` Study Days. */
   nextReviewDate: StudyDay;
+  /** Whether the verse was recalled: the outcome was not `forgotten`. */
   passed: boolean;
 }
 
-export const PASSING_SCORE_THRESHOLD = 80;
-export const ASSISTED_SCORE_THRESHOLD = 75;
+/** SM-2 quality given for each outcome of a graded recitation (ADR 0017). */
+export const SM2_QUALITY: Readonly<Record<RecitationOutcome, number>> = {
+  clean: 5,
+  slip: 4,
+  forgotten: 2,
+};
+
+export const MIN_EASE_FACTOR = 1.3;
 
 export const DEFAULT_SRS_STATE: SRSState = {
   intervalDays: 0,
@@ -23,57 +33,49 @@ export const DEFAULT_SRS_STATE: SRSState = {
   easeFactor: 2.5,
 };
 
-export interface CalculateNextReviewOptions {
-  assistanceUsed?: boolean;
-}
-
 /**
- * Calculates the next review date based on a simplified SuperMemo-2 (SM-2) algorithm.
+ * Schedules the next review with SuperMemo-2, given the outcome of an Official Review.
  * Intervals are counted in Study Days from the Study Day the review falls in.
- * @param currentState Current repetition and interval state
- * @param score Accuracy score from 0 to 100
+ *
+ * - The outcome maps to an SM-2 quality: `clean` 5, `slip` 4, `forgotten` 2.
+ * - Ease follows Woźniak's formula for every quality (+0.10, 0, −0.32), never below 1.3.
+ * - A recall (`clean` or `slip`) schedules 1, then 6, then the previous interval × the ease
+ *   before this review, rounded.
+ * - `forgotten` resets the repetitions to 0 and the interval to 1 Study Day.
+ *
+ * @param currentState Current repetition, interval and ease state
+ * @param outcome The graded outcome of the recitation (Error Budget)
  * @param now Instant of the review (defaults to current time); only its Study Day matters
- * @param options Optional flags such as assistanceUsed
  */
 export function calculateNextReview(
   currentState: SRSState = DEFAULT_SRS_STATE,
-  score: number,
-  now: Date = new Date(),
-  options?: CalculateNextReviewOptions
+  outcome: RecitationOutcome,
+  now: Date = new Date()
 ): SRSResult {
-  const isFullPass = score >= PASSING_SCORE_THRESHOLD;
-  const isAssistedPass =
-    !isFullPass &&
-    (options?.assistanceUsed ? score >= ASSISTED_SCORE_THRESHOLD : score === ASSISTED_SCORE_THRESHOLD);
-  const isPassing = isFullPass || isAssistedPass;
+  const quality = SM2_QUALITY[outcome];
+  const recalled = outcome !== 'forgotten';
 
   let streak = currentState.streak !== undefined ? currentState.streak : (currentState.repetitions ?? 0);
-  let intervalDays = currentState.intervalDays;
-  let easeFactor = currentState.easeFactor;
+  let intervalDays: number;
 
-  if (isAssistedPass) {
-    // Assisted review: preserves existing streak, schedules reinforcement for tomorrow
-    intervalDays = 1;
-  } else if (!isPassing) {
-    // Reset streak upon genuine failure (< 75%)
+  if (!recalled) {
     streak = 0;
     intervalDays = 1;
   } else {
-    // Successful independent repetition
     if (streak === 0) {
       intervalDays = 1;
     } else if (streak === 1) {
       intervalDays = 6;
     } else {
-      intervalDays = Math.round(intervalDays * easeFactor);
+      intervalDays = Math.round(currentState.intervalDays * currentState.easeFactor);
     }
     streak += 1;
-
-    // Small ease factor adjustment based on performance
-    // Quality maps score 80-100 to scale 3-5
-    const quality = score >= 95 ? 5 : score >= 90 ? 4 : 3;
-    easeFactor = Math.max(1.3, easeFactor + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02)));
   }
+
+  const easeFactor = Math.max(
+    MIN_EASE_FACTOR,
+    currentState.easeFactor + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02))
+  );
 
   const nextReviewDate = addStudyDays(toStudyDay(now), intervalDays);
 
@@ -83,7 +85,7 @@ export function calculateNextReview(
     intervalDays,
     easeFactor: Math.round(easeFactor * 100) / 100,
     nextReviewDate,
-    passed: isPassing,
+    passed: recalled,
   };
 }
 

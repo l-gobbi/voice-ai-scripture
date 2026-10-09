@@ -60,6 +60,21 @@ const tokenize = (text: string): AlignedToken[] => {
     .filter((t) => t.key.length > 0);
 };
 
+/**
+ * The canonical word positions (from 0, as the diff counts words) of each whitespace-separated
+ * word of the text, which is how the Cloze tokens split it. A hyphenated or dash-joined word
+ * holds several diff words ("daughter-in-law" holds three), and a word with no letters or
+ * digits (a standalone "—") holds none, so positions after them shift.
+ */
+export function canonicalPositionsByWord(text: string): number[][] {
+  if (!text || text.trim().length === 0) return [];
+  let next = 0;
+  return text
+    .trim()
+    .split(/\s+/)
+    .map((word) => tokenize(word).map(() => next++));
+}
+
 /** A whole number written in digits, as recognizers emit it: "3", "23,", "144,000", "1.000". */
 const readDigits = (display: string): number | null => {
   const match = display.match(/^[^\p{L}\p{N}]*(\d{1,3}(?:[.,]\d{3})+|\d+)[^\p{L}\p{N}]*$/u);

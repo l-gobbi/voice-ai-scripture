@@ -37,7 +37,7 @@ function stubRecordAttempt(kind: AttemptKind = 'official', srs: Partial<SRSResul
       intervalDays: 1,
       easeFactor: 2.5,
       nextReviewDate: '2026-10-10',
-      passed: input.evaluation.passed,
+      passed: input.evaluation.outcome !== 'forgotten',
       ...srs,
     },
     memoryTier: 'seed',
@@ -186,6 +186,7 @@ describe('RecitationSession (Ticket 07)', () => {
 
       expect(result).not.toBeNull();
       expect(result?.passed).toBe(true);
+      expect(result?.outcome).toBe('clean');
       expect(result?.score).toBe(100);
       expect(result?.srsResult.streak).toBe(1);
       expect(result?.kind).toBe('official');
@@ -193,14 +194,14 @@ describe('RecitationSession (Ticket 07)', () => {
         expect.objectContaining({
           verseId: '1',
           level: 3,
-          evaluation: expect.objectContaining({ score: 100, passed: true }),
+          evaluation: expect.objectContaining({ rawScore: 100, errorCount: 0, outcome: 'clean' }),
         })
       );
       expect(session.getState().status).toBe('verified');
       expect(session.getState().result).toEqual(result);
     });
 
-    it('handles recitation failure: score below threshold resets streak to 0', async () => {
+    it('handles recitation failure: errors over the Error Budget are forgotten and reset streak to 0', async () => {
       const recordSpy = stubRecordAttempt('official', { streak: 0, repetitions: 0 });
 
       const voiceInput = new SimulatedVoiceAdapter({
@@ -213,10 +214,11 @@ describe('RecitationSession (Ticket 07)', () => {
       const result = await session.stopAndVerify();
 
       expect(result?.passed).toBe(false);
-      expect(result?.score).toBeLessThan(80);
+      expect(result?.outcome).toBe('forgotten');
+      expect(result?.errorCount).toBeGreaterThan(result!.errorBudget);
       expect(result?.srsResult.streak).toBe(0);
       expect(recordSpy).toHaveBeenCalledWith(
-        expect.objectContaining({ verseId: '1', evaluation: expect.objectContaining({ passed: false }) })
+        expect.objectContaining({ verseId: '1', evaluation: expect.objectContaining({ outcome: 'forgotten' }) })
       );
       expect(session.getState().status).toBe('verified');
     });
@@ -286,6 +288,7 @@ describe('RecitationSession (Ticket 07)', () => {
 
     it('cleans up and resets session on reset()', async () => {
       const session = createTestSession(mockVerse);
+      session.tapWord(2);
       await session.reset();
 
       expect(session.getState()).toMatchObject({
@@ -293,7 +296,9 @@ describe('RecitationSession (Ticket 07)', () => {
         volumeLevel: 0,
         result: null,
         errorMessage: null,
+        peekedWordPositions: [],
       });
+      expect(session.getState().clozeTokens[2].isRevealed).toBe(false);
     });
   });
 
@@ -328,6 +333,7 @@ describe('RecitationSession (Ticket 07)', () => {
 
       expect(result).not.toBeNull();
       expect(result?.score).toBe(100);
+      expect(result?.outcome).toBe('clean');
       expect(result?.passed).toBe(true);
       expect(session.getState().status).toBe('verified');
     });
@@ -345,6 +351,7 @@ describe('RecitationSession (Ticket 07)', () => {
       expect(result).not.toBeNull();
       expect(result?.score).toBeLessThan(100);
       expect(result?.score).toBeGreaterThan(0);
+      expect(result?.outcome).toBe('forgotten');
       expect(result?.passed).toBe(false);
       expect(session.getState().status).toBe('verified');
     });
@@ -523,7 +530,7 @@ describe('RecitationSession (Ticket 07)', () => {
     });
   });
 
-  describe('Slice 7: Scaffolded Review, Unmetered Practice, and Assisted Score Capping (Ticket 29)', () => {
+  describe('Slice 7: Scaffolded Review, Unmetered Practice, and Word Peeks as Errors (Tickets 29, 73)', () => {
     it('in unmetered practice mode, does not consume subscription quota and leaves classification to the Verse Engine', async () => {
       const consumeSpy = jest.spyOn(SubscriptionService.prototype, 'consumeRecitation');
       const recordSpy = stubRecordAttempt('practice');
@@ -545,7 +552,7 @@ describe('RecitationSession (Ticket 07)', () => {
       expect(session.getState().officialResult).toBeNull();
     });
 
-    it('after a Word Peek, caps the score at 75% and records the capped score with the peeked position', async () => {
+    it('after a Word Peek, records the peek as one error with the peeked position, without capping the score', async () => {
       jest.spyOn(SubscriptionService.prototype, 'consumeRecitation').mockResolvedValue({
         allowed: true,
         remaining: 5,
@@ -558,15 +565,16 @@ describe('RecitationSession (Ticket 07)', () => {
       await session.startReciting();
       const result = await session.stopAndVerify();
 
+      // 14 words allow 1 error: one peek on an otherwise perfect recitation is a slip.
       expect(recordSpy).toHaveBeenCalledWith(
         expect.objectContaining({
           verseId: mockVerse.id,
-          evaluation: expect.objectContaining({ rawScore: 100, score: 75 }),
+          evaluation: expect.objectContaining({ rawScore: 100, errorCount: 1, errorBudget: 1, outcome: 'slip' }),
           peekedWordPositions: [0],
         })
       );
-      expect(result?.score).toBe(75);
-      expect(session.getState().result?.score).toBe(75);
+      expect(result).toMatchObject({ score: 100, outcome: 'slip', passed: true });
+      expect(session.getState().result?.outcome).toBe('slip');
       await session.dispose();
     });
   });
@@ -622,7 +630,7 @@ describe('RecitationSession (Ticket 07)', () => {
       expect(state.clozeTokens[0].isRevealed).toBe(false);
       expect(state.clozeTokens[0].masked).toMatch(/_+/);
       expect(state.isTextRevealed).toBe(false);
-      expect(state.assistanceUsed).toBe(false);
+      expect(state.peekedWordPositions).toEqual([]);
     });
 
     it('switches to Level 1 (Echo Mode), clears cloze tokens, and allows toggleTextReveal', () => {
@@ -678,27 +686,28 @@ describe('RecitationSession (Ticket 07)', () => {
   });
 
   describe('Slice 9: Interactive Word Reveals & Word Peek Lifelines (ADR 0012)', () => {
-    it('in Level 2, tapWord permanently reveals the cloze token without setting assistanceUsed', () => {
+    it('in Level 2, tapWord permanently reveals the cloze token without counting a Word Peek', () => {
       const session = new RecitationSession(mockVerse);
       session.setLevel(2);
       session.tapWord(0);
 
       expect(session.getState().clozeTokens[0].isRevealed).toBe(true);
-      expect(session.getState().assistanceUsed).toBe(false);
+      expect(session.getState().peekedWordPositions).toEqual([]);
     });
 
-    it('in Level 3, tapWord peeks token, sets assistanceUsed: true, and auto-conceals after 3 seconds', () => {
+    it('in Level 3, tapWord peeks the token, records its word position, and auto-conceals after 3 seconds', () => {
       jest.useFakeTimers();
       const session = new RecitationSession(mockVerse);
       expect(session.getState().level).toBe(3);
 
       session.tapWord(0);
       expect(session.getState().clozeTokens[0].isRevealed).toBe(true);
-      expect(session.getState().assistanceUsed).toBe(true);
+      expect(session.getState().peekedWordPositions).toEqual([0]);
 
       jest.advanceTimersByTime(3000);
       expect(session.getState().clozeTokens[0].isRevealed).toBe(false);
-      expect(session.getState().assistanceUsed).toBe(true);
+      // The peek still counts once the word is hidden again.
+      expect(session.getState().peekedWordPositions).toEqual([0]);
 
       jest.useRealTimers();
     });
@@ -795,7 +804,7 @@ describe('RecitationSession (Ticket 07)', () => {
       expect((await engine.getReviewLog(verse.id)).map((row) => row.level)).toEqual([1, 2]);
     });
 
-    it('in Level 3 with word peek, stopAndVerify records review capped at 75% and sets officialResult', async () => {
+    it('in Level 3 with a word peek, stopAndVerify records the peek as an error and sets officialResult', async () => {
       jest.spyOn(SubscriptionService.prototype, 'consumeRecitation').mockResolvedValue({
         allowed: true,
         remaining: 5,
@@ -811,16 +820,22 @@ describe('RecitationSession (Ticket 07)', () => {
       });
 
       session.tapWord(0);
-      expect(session.getState().assistanceUsed).toBe(true);
+      session.tapWord(5);
+      expect(session.getState().peekedWordPositions).toEqual([0, 5]);
 
       await session.startReciting();
       const result = await session.stopAndVerify();
 
+      // Two peeks in a 14-word verse (budget 1) are over the Error Budget.
       expect(recordSpy).toHaveBeenCalledWith(
-        expect.objectContaining({ verseId: mockVerse.id, evaluation: expect.objectContaining({ score: 75 }) })
+        expect.objectContaining({
+          verseId: mockVerse.id,
+          evaluation: expect.objectContaining({ rawScore: 100, errorCount: 2, outcome: 'forgotten' }),
+          peekedWordPositions: [0, 5],
+        })
       );
-      expect(result?.score).toBe(75);
-      expect(session.getState().officialResult?.score).toBe(75);
+      expect(result).toMatchObject({ score: 100, outcome: 'forgotten', passed: false });
+      expect(session.getState().officialResult?.outcome).toBe('forgotten');
       await session.dispose();
     });
   });
@@ -880,6 +895,7 @@ describe('RecitationSession (Ticket 07)', () => {
       // Stop and verify at Level 3 - the sandbox verse is not stored, so nothing is recorded
       const result = await session.stopAndVerify();
       expect(result?.score).toBe(100);
+      expect(result?.outcome).toBe('clean');
       expect(result?.kind).toBe('practice');
       expect(recordSpy).not.toHaveBeenCalled();
     });
@@ -1344,12 +1360,13 @@ describe('RecitationSession (Ticket 07)', () => {
     }
 
     function expectPerfect(
-      result: { score: number; passed: boolean; tokens: { word: string; status: string }[] },
+      result: { score: number; passed: boolean; outcome: string; tokens: { word: string; status: string }[] },
       text: string
     ) {
       expect(result.tokens.filter((t) => t.status !== 'correct')).toEqual([]);
       expect(result.tokens.map((t) => t.word)).toEqual(canonicalWords(text));
       expect(result.score).toBe(100);
+      expect(result.outcome).toBe('clean');
       expect(result.passed).toBe(true);
     }
 
@@ -1710,9 +1727,9 @@ describe('RecitationSession: Review Log and Official Review Classification (Tick
     const again = await recite(session);
 
     expect(again.kind).toBe('practice');
-    // `passed` and the score keep their score-threshold meaning.
+    // Graded as forgotten (4 of 9 words missed), yet practice never moves the schedule.
+    expect(again.outcome).toBe('forgotten');
     expect(again.passed).toBe(false);
-    expect(again.score).toBeLessThan(80);
     expect(again.srsResult).toMatchObject({ intervalDays: 6, nextReviewDate: '2026-10-15' });
     expect(session.getState().currentResult).toEqual(again);
     expect(session.getState().officialResult).toEqual(official);
@@ -1806,9 +1823,11 @@ describe('RecitationSession: Review Log and Official Review Classification (Tick
     t.clock.now = new Date(2026, 9, 9, 7, 30, 6);
     const result = await session.stopAndVerify();
 
-    expect(result?.score).toBe(75);
+    // Two peeked words in a 9-word verse (budget 1): forgotten, though every word was recited.
+    expect(result).toMatchObject({ score: 100, errorCount: 2, errorBudget: 1, outcome: 'forgotten', passed: false });
     const [row] = await t.log();
     expect(row.peekedWordPositions).toEqual([2, 4]);
+    expect(row).toMatchObject({ outcome: 'forgotten', errorCount: 2, sm2Quality: 2, after: { intervalDays: 1, easeFactor: 2.18 } });
     expect(row.durationMs).toBe(6000);
     expect(row.reviewedAt).toBe(t.clock.now.toISOString());
     await session.dispose();
@@ -1858,11 +1877,277 @@ describe('RecitationSession: Review Log and Official Review Classification (Tick
     const blind = await recite(session);
 
     expect(echo.kind).toBe('practice');
-    expect(blind).toMatchObject({ kind: 'practice', score: 100, passed: true });
+    expect(blind).toMatchObject({ kind: 'practice', score: 100, outcome: 'clean', passed: true });
     expect(session.getState().status).toBe('verified');
     expect(session.getState().officialResult).toBeNull();
     expect(recordSpy).not.toHaveBeenCalled();
     expect(await t.engine.getReviewLog(sandboxVerse.id)).toEqual([]);
     await session.dispose();
+  });
+});
+
+describe('RecitationSession: Error Budget Grading (Ticket 73)', () => {
+  /** 20 words, so the Error Budget is 1. */
+  const PSALM_8_1 = {
+    reference: 'Psalm 8:1',
+    translation: 'WEB',
+    text: 'Yahweh, our Lord, how majestic is your name in all the earth! You have set your glory above the heavens!',
+  };
+  /** 25 words, so the Error Budget is still 1. */
+  const PSALM_30_12 = {
+    reference: 'Psalm 30:12',
+    translation: 'WEB',
+    text: 'to the end that my heart may sing praise to you, and not be silent. Yahweh my God, I will give thanks to you forever!',
+  };
+  /**
+   * 39 written words but 40 diff words ("well-watered" is two), so the Error Budget is 2 and
+   * every Cloze token after "well-watered" sits one canonical position further on.
+   */
+  const GENESIS_13_10 = {
+    reference: 'Genesis 13:10',
+    translation: 'WEB',
+    text: 'Lot lifted up his eyes, and saw all the plain of the Jordan, that it was well-watered everywhere, before Yahweh destroyed Sodom and Gomorrah, like the garden of Yahweh, like the land of Egypt, as you go to Zoar.',
+  };
+  const DUE_TODAY = { intervalDays: 6, streak: 2, easeFactor: 2.5, nextReviewDate: '2026-10-09' };
+
+  /** A stored Due Verse, a real Verse Engine and Subscription Service on in-memory storage, and a fixed clock. */
+  async function setup(verseData: { reference: string; translation: string; text: string }) {
+    const engine = new VerseEngine(new MapStorageAdapter());
+    const added = await engine.addVerse(verseData);
+    const verse = await engine.updateVerse(added.id, { srs: DUE_TODAY });
+    const clock = { now: new Date(2026, 9, 9, 7, 30) };
+    const speech = { transcript: verse.text };
+    const session = new RecitationSession(verse, {
+      verseEngine: engine,
+      subscriptionService: new SubscriptionService(new MapStorageAdapter({ user_is_subscribed: 'true' })),
+      voiceInput: new SimulatedVoiceAdapter({ handler: () => speech.transcript }),
+      synthesizer: new MockSpeechSynthesizer(),
+      autoVocalizeOnLevel1: false,
+      now: () => clock.now,
+    });
+    return {
+      engine,
+      verse,
+      clock,
+      speech,
+      session,
+      storedSrs: async () => (await engine.getAllVerses())[0].srs,
+      log: () => engine.getReviewLog(verse.id),
+    };
+  }
+
+  async function recite(session: RecitationSession, transcript?: { transcript: string }, text?: string) {
+    if (transcript && text !== undefined) transcript.transcript = text;
+    await session.startReciting();
+    const result = await session.stopAndVerify();
+    if (!result) throw new Error(`Recitation was not verified: ${session.getState().errorMessage}`);
+    return result;
+  }
+
+  /** The verse with the given words (as the transcript would say them) left out. */
+  const without = (text: string, ...words: string[]) =>
+    text
+      .split(/\s+/)
+      .filter((word) => !words.includes(word))
+      .join(' ');
+
+  /** Index of a written (Cloze) word in the verse text. */
+  const clozeIndexOf = (text: string, word: string) => text.split(/\s+/).indexOf(word);
+
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  describe('missed and added words', () => {
+    it('missing 6 of 20 words is forgotten: back to 1 Study Day, with ease lowered by 0.32', async () => {
+      const t = await setup(PSALM_8_1);
+
+      const result = await recite(
+        t.session,
+        t.speech,
+        without(PSALM_8_1.text, 'our', 'majestic', 'name', 'earth!', 'set', 'above')
+      );
+
+      expect(result).toMatchObject({ kind: 'official', outcome: 'forgotten', passed: false, errorCount: 6, errorBudget: 1 });
+      // The F1 score that used to pass at 80 is still shown, but no longer grades.
+      expect(result.score).toBe(82);
+      expect(await t.storedSrs()).toMatchObject({ streak: 0, intervalDays: 1, easeFactor: 2.18, nextReviewDate: '2026-10-10' });
+      expect(await t.log()).toEqual([
+        expect.objectContaining({ kind: 'official', outcome: 'forgotten', errorCount: 6, errorBudget: 1, sm2Quality: 2, rawScore: 82 }),
+      ]);
+      await t.session.dispose();
+    });
+
+    it('missing 1 of 25 words is a slip: recalled, with the interval grown and ease unchanged', async () => {
+      const t = await setup(PSALM_30_12);
+
+      const result = await recite(t.session, t.speech, without(PSALM_30_12.text, 'silent.'));
+
+      expect(result).toMatchObject({ kind: 'official', outcome: 'slip', passed: true, errorCount: 1, errorBudget: 1 });
+      expect(await t.storedSrs()).toMatchObject({ streak: 3, intervalDays: 15, easeFactor: 2.5, nextReviewDate: '2026-10-24' });
+      expect((await t.log())[0]).toMatchObject({ outcome: 'slip', sm2Quality: 4 });
+      await t.session.dispose();
+    });
+
+    it('a perfect recitation is clean: quality 5 raises ease by 0.10', async () => {
+      const t = await setup(PSALM_8_1);
+
+      const result = await recite(t.session);
+
+      expect(result).toMatchObject({ outcome: 'clean', passed: true, errorCount: 0, errorBudget: 1, score: 100 });
+      expect(await t.storedSrs()).toMatchObject({ streak: 3, intervalDays: 15, easeFactor: 2.6 });
+      expect((await t.log())[0]).toMatchObject({ outcome: 'clean', sm2Quality: 5 });
+      await t.session.dispose();
+    });
+
+    it('a perfect recitation with 2 filler words is clean, and with 3 it is a slip', async () => {
+      const two = await setup(PSALM_8_1);
+      const three = await setup(PSALM_8_1);
+
+      const withTwo = await recite(two.session, two.speech, `uh ${PSALM_8_1.text} um`);
+      const withThree = await recite(three.session, three.speech, `uh ${PSALM_8_1.text} um amen`);
+
+      expect(withTwo).toMatchObject({ outcome: 'clean', errorCount: 0 });
+      expect(withTwo.score).toBeLessThan(100);
+      expect(withThree).toMatchObject({ outcome: 'slip', errorCount: 1 });
+      await two.session.dispose();
+      await three.session.dispose();
+    });
+
+    it('a synonym or two swapped words count as errors, and both together are over the budget', async () => {
+      const synonym = await setup(PSALM_8_1);
+      const swapped = await setup(PSALM_8_1);
+      const both = await setup(PSALM_8_1);
+      const withSynonym = PSALM_8_1.text.replace('majestic', 'wonderful');
+
+      const synonymResult = await recite(synonym.session, synonym.speech, withSynonym);
+      const swappedResult = await recite(swapped.session, swapped.speech, PSALM_8_1.text.replace('our Lord', 'Lord our'));
+      const bothResult = await recite(both.session, both.speech, withSynonym.replace('our Lord', 'Lord our'));
+
+      expect(synonymResult).toMatchObject({ outcome: 'slip', errorCount: 1 });
+      expect(swappedResult.outcome).toBe('slip');
+      expect(swappedResult.errorCount).toBeGreaterThanOrEqual(1);
+      expect(bothResult.outcome).toBe('forgotten');
+      await synonym.session.dispose();
+      await swapped.session.dispose();
+      await both.session.dispose();
+    });
+  });
+
+  describe('Word Peek Lifeline', () => {
+    it('one peek in a 40-word verse with the rest perfect is a slip', async () => {
+      const t = await setup(GENESIS_13_10);
+
+      t.session.tapWord(clozeIndexOf(GENESIS_13_10.text, 'Jordan,'));
+      const result = await recite(t.session);
+
+      expect(result).toMatchObject({ kind: 'official', outcome: 'slip', passed: true, errorCount: 1, errorBudget: 2, score: 100 });
+      expect((await t.log())[0]).toMatchObject({ peekedWordPositions: [12], outcome: 'slip', sm2Quality: 4 });
+      await t.session.dispose();
+    });
+
+    it('three peeks in the same verse are forgotten', async () => {
+      const t = await setup(GENESIS_13_10);
+
+      t.session.tapWord(clozeIndexOf(GENESIS_13_10.text, 'Lot'));
+      t.session.tapWord(clozeIndexOf(GENESIS_13_10.text, 'Jordan,'));
+      t.session.tapWord(clozeIndexOf(GENESIS_13_10.text, 'Zoar.'));
+      const result = await recite(t.session);
+
+      expect(result).toMatchObject({ kind: 'official', outcome: 'forgotten', passed: false, errorCount: 3, score: 100 });
+      expect(await t.storedSrs()).toMatchObject({ streak: 0, intervalDays: 1, easeFactor: 2.18 });
+      await t.session.dispose();
+    });
+
+    it('a peek after a hyphenated word lines up with the canonical word it revealed', async () => {
+      const t = await setup(GENESIS_13_10);
+      const destroyed = clozeIndexOf(GENESIS_13_10.text, 'destroyed');
+      expect(destroyed).toBe(20);
+
+      // Peeked "destroyed", then still left it out: one word, so one error.
+      t.session.tapWord(destroyed);
+      expect(t.session.getState().peekedWordPositions).toEqual([21]);
+      const result = await recite(t.session, t.speech, without(GENESIS_13_10.text, 'destroyed'));
+
+      expect(result.tokens[21]).toEqual({ word: 'destroyed', status: 'missed' });
+      expect(result).toMatchObject({ outcome: 'slip', errorCount: 1, errorBudget: 2 });
+      expect((await t.log())[0].peekedWordPositions).toEqual([21]);
+      await t.session.dispose();
+    });
+
+    it('peeking a hyphenated word counts each of the words it revealed', async () => {
+      const t = await setup(GENESIS_13_10);
+
+      t.session.tapWord(clozeIndexOf(GENESIS_13_10.text, 'well-watered'));
+      const peekOnly = await recite(t.session);
+
+      expect(t.session.getState().peekedWordPositions).toEqual([16, 17]);
+      expect(peekOnly).toMatchObject({ outcome: 'slip', errorCount: 2, errorBudget: 2 });
+      await t.session.dispose();
+    });
+
+    it('a peek still counts after the word hides again and after a cancelled recitation', async () => {
+      jest.useFakeTimers();
+      const t = await setup(GENESIS_13_10);
+
+      t.session.tapWord(clozeIndexOf(GENESIS_13_10.text, 'Egypt,'));
+      jest.advanceTimersByTime(3000);
+      expect(t.session.getState().clozeTokens.every((token) => !token.isRevealed)).toBe(true);
+      await t.session.startReciting();
+      await t.session.cancelRecitation();
+      jest.useRealTimers();
+
+      const result = await recite(t.session);
+
+      expect(result).toMatchObject({ outcome: 'slip', errorCount: 1 });
+      expect((await t.log())[0].peekedWordPositions).toEqual([34]);
+      await t.session.dispose();
+    });
+
+    it('peeks belong to one attempt: Practice Again and a level change clear them', async () => {
+      const t = await setup(PSALM_8_1);
+
+      t.session.tapWord(0);
+      t.session.tapWord(1);
+      const peeked = await recite(t.session);
+      expect(peeked).toMatchObject({ kind: 'official', outcome: 'forgotten', errorCount: 2 });
+
+      t.session.practiceAgain();
+      expect(t.session.getState().peekedWordPositions).toEqual([]);
+      const again = await recite(t.session);
+      expect(again).toMatchObject({ kind: 'practice', outcome: 'clean', errorCount: 0 });
+
+      t.session.practiceAgain();
+      t.session.tapWord(3);
+      t.session.setLevel(2);
+      t.session.setLevel(3);
+      expect(t.session.getState().peekedWordPositions).toEqual([]);
+      const afterLevelChange = await recite(t.session);
+      expect(afterLevelChange).toMatchObject({ outcome: 'clean', errorCount: 0 });
+
+      expect((await t.log()).map((row) => [row.kind, row.outcome, row.peekedWordPositions])).toEqual([
+        ['official', 'forgotten', [0, 1]],
+        ['practice', 'clean', []],
+        ['practice', 'clean', []],
+      ]);
+      await t.session.dispose();
+    });
+
+    it('a Practice Attempt is graded with its peeks but never moves the schedule', async () => {
+      const t = await setup(PSALM_8_1);
+      await recite(t.session);
+      const scheduled = await t.storedSrs();
+
+      t.session.practiceAgain();
+      t.session.tapWord(0);
+      t.session.tapWord(1);
+      const practice = await recite(t.session);
+
+      expect(practice).toMatchObject({ kind: 'practice', outcome: 'forgotten', passed: false });
+      expect(practice.srsResult).toMatchObject({ intervalDays: 15, easeFactor: 2.6 });
+      expect(await t.storedSrs()).toEqual(scheduled);
+      expect((await t.log())[1]).toMatchObject({ kind: 'practice', outcome: 'forgotten', sm2Quality: null });
+      await t.session.dispose();
+    });
   });
 });

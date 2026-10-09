@@ -2,7 +2,6 @@ import {
   generateClozeTokens,
   revealWord,
   hideWord,
-  evaluateAssistedScore,
   ClozeToken,
 } from './clozeEngine';
 
@@ -68,26 +67,6 @@ describe('clozeEngine', () => {
       const initial = generateClozeTokens('One two', 'blank');
       const outOfBounds = revealWord(initial, 99);
       expect(outOfBounds).toEqual(initial);
-    });
-  });
-
-  describe('evaluateAssistedScore', () => {
-    it('returns untouched score when no assistance was used', () => {
-      expect(evaluateAssistedScore(100, false)).toBe(100);
-      expect(evaluateAssistedScore(85, false)).toBe(85);
-      expect(evaluateAssistedScore(50, false)).toBe(50);
-    });
-
-    it('caps scores >= 75% at 75% when assistance was used', () => {
-      expect(evaluateAssistedScore(100, true)).toBe(75);
-      expect(evaluateAssistedScore(90, true)).toBe(75);
-      expect(evaluateAssistedScore(75, true)).toBe(75);
-    });
-
-    it('preserves genuine low scores below 75% even when assistance was used', () => {
-      expect(evaluateAssistedScore(60, true)).toBe(60);
-      expect(evaluateAssistedScore(40, true)).toBe(40);
-      expect(evaluateAssistedScore(0, true)).toBe(0);
     });
   });
 });

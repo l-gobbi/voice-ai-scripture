@@ -25,7 +25,7 @@ function stubRecordAttempt() {
       intervalDays: 1,
       easeFactor: 2.5,
       nextReviewDate: '2026-10-10',
-      passed: input.evaluation.passed,
+      passed: input.evaluation.outcome !== 'forgotten',
     },
     memoryTier: 'seed',
     entry: {} as ReviewLogEntry,
@@ -123,7 +123,7 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
     expect(await findByText(/through/)).toBeTruthy();
   });
 
-  it('in Level 3 (Blind Recitation), tapping a word triggers Word Peek Lifeline and caps score at 75%', async () => {
+  it('in Level 3 (Blind Recitation), a Word Peek counts as one error: a peek in an 11-word verse is a slip', async () => {
     const onComplete = jest.fn();
     const recordSpy = stubRecordAttempt();
 
@@ -131,7 +131,7 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
       defaultTranscript: mockVerse.text,
     });
 
-    const { getByText, findAllByText, findByText, getByTestId } = await render(
+    const { getByText, queryByText, findAllByText, findByText, getByTestId } = await render(
       <ReviewScreen
         verse={mockVerse}
         onComplete={onComplete}
@@ -148,8 +148,9 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
       fireEvent.press(blankTokens[0]);
     });
 
-    // Lifeline banner is visible
-    expect(getByText(/Word Peek Lifeline used/)).toBeTruthy();
+    // The lifeline note says what a peek costs; the retired 75% cap is gone.
+    expect(getByText('Word Peek used: each peeked word counts as one error.')).toBeTruthy();
+    expect(queryByText(/75%/)).toBeNull();
 
     // Start voice recitation via floating mic button
     await act(async () => {
@@ -168,10 +169,16 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
       fireEvent.press(getByTestId('floating-mic-button'));
     });
 
-    // Verify assisted score is recorded and capped at 75%
-    expect(recordSpy).toHaveBeenCalled();
-    const recordedScore = recordSpy.mock.calls[0][0].evaluation.score;
-    expect(recordedScore).toBeLessThanOrEqual(75);
+    // The peek is recorded as one error against a budget of one, with the score uncapped
+    expect(recordSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        peekedWordPositions: [0],
+        evaluation: expect.objectContaining({ rawScore: 100, errorCount: 1, errorBudget: 1, outcome: 'slip' }),
+      })
+    );
+    expect(await findByText('Recalled with a slip')).toBeTruthy();
+    expect(getByText('1 error · 1 allowed')).toBeTruthy();
+    expect(getByText('100% accuracy')).toBeTruthy();
     recordSpy.mockRestore();
   });
 
@@ -461,6 +468,137 @@ describe('ReviewScreen Integration: Three-Tier Scaffolded Recitation (Ticket 29)
 
       expect(await findByText(PRACTICE)).toBeTruthy();
       expect(queryByText(OFFICIAL)).toBeNull();
+    });
+  });
+
+  describe('Outcome and Error Budget on the result (Ticket 73)', () => {
+    // Unmetered only skips the shared quota and burst limit; the Verse Engine still classifies.
+    async function reciteOnScreen(getByTestId: (id: string) => any) {
+      await act(async () => {
+        fireEvent.press(getByTestId('floating-mic-button'));
+      });
+      await act(async () => {
+        fireEvent.press(getByTestId('floating-mic-button'));
+      });
+    }
+
+    const renderRecitation = async (verse: Verse, transcript: string) => {
+      const screen = await render(
+        <ReviewScreen
+          verse={verse}
+          onComplete={jest.fn()}
+          isUnmetered={true}
+          voiceInput={new SimulatedVoiceAdapter({ defaultTranscript: transcript })}
+        />
+      );
+      await reciteOnScreen(screen.getByTestId);
+      return screen;
+    };
+
+    it('states a clean recall with its errors against the budget, the percentage as secondary detail', async () => {
+      const verse = await verseEngine.addVerse({
+        reference: 'Psalm 23:1',
+        text: 'The Lord is my shepherd; I shall not want.',
+        translation: 'WEB',
+      });
+
+      const { findByText, getByText, queryByText } = await renderRecitation(verse, verse.text);
+
+      expect(await findByText('Recalled')).toBeTruthy();
+      expect(getByText('0 errors · 1 allowed')).toBeTruthy();
+      expect(getByText('100% accuracy')).toBeTruthy();
+      expect(getByText('🎉 Official Review Recorded!')).toBeTruthy();
+      expect(queryByText('100% Accuracy')).toBeNull();
+    });
+
+    it('says a recitation over the budget needs work, even when its percentage used to pass', async () => {
+      const verse = await verseEngine.addVerse({
+        reference: 'Psalm 8:1',
+        text: 'Yahweh, our Lord, how majestic is your name in all the earth! You have set your glory above the heavens!',
+        translation: 'WEB',
+      });
+
+      const { findByText, getByText } = await renderRecitation(
+        verse,
+        'Yahweh, Lord, how is your in all the! You have your glory the heavens!'
+      );
+
+      expect(await findByText('Needs work')).toBeTruthy();
+      expect(getByText('6 errors · 1 allowed')).toBeTruthy();
+      expect(getByText('82% accuracy')).toBeTruthy();
+      expect(getByText('🔄 Reinforcement Scheduled for Tomorrow')).toBeTruthy();
+    });
+
+    it('speaks Portuguese for a Portuguese verse: a slip, its errors and the Official Review label', async () => {
+      const verse = await verseEngine.addVerse({
+        reference: 'Salmos 23:1',
+        text: 'O Senhor é o meu pastor; nada me faltará.',
+        translation: 'ALMEIDA',
+      });
+
+      const { findByText, getByText } = await renderRecitation(verse, 'O Senhor é o meu pastor nada faltará');
+
+      expect(await findByText('Lembrado com um deslize')).toBeTruthy();
+      expect(getByText('1 erro · 1 permitido')).toBeTruthy();
+      expect(getByText('94% de precisão')).toBeTruthy();
+      expect(getByText('🎉 Revisão oficial registrada!')).toBeTruthy();
+    });
+
+    it('speaks Portuguese for a forgotten verse and for a Practice Attempt', async () => {
+      const verse = await verseEngine.addVerse({
+        reference: 'João 11:35',
+        text: 'Jesus chorou.',
+        translation: 'ALMEIDA',
+      });
+      const speech = { transcript: 'Jesus orou de novo' };
+      const { findByText, getByText, getByTestId } = await render(
+        <ReviewScreen
+          verse={verse}
+          onComplete={jest.fn()}
+          isUnmetered={true}
+          voiceInput={new SimulatedVoiceAdapter({ handler: () => speech.transcript })}
+        />
+      );
+      await reciteOnScreen(getByTestId);
+
+      // "chorou" missed, and one added word beyond the allowance of two.
+      expect(await findByText('Precisa de mais prática')).toBeTruthy();
+      expect(getByText('2 erros · 1 permitido')).toBeTruthy();
+      expect(getByText('🔄 Reforço agendado para amanhã')).toBeTruthy();
+
+      await act(async () => {
+        fireEvent.press(getByText('Practice Again'));
+      });
+      speech.transcript = verse.text;
+      await reciteOnScreen(getByTestId);
+
+      expect(await findByText('Lembrado')).toBeTruthy();
+      expect(getByText('0 erros · 1 permitido')).toBeTruthy();
+      expect(getByText('✅ Tentativa de prática (agenda inalterada)')).toBeTruthy();
+    });
+
+    it('labels Echo Mode and Cloze Practice attempts as practice in the verse’s language', async () => {
+      const verse = await verseEngine.addVerse({
+        reference: 'Salmos 119:105',
+        text: 'Lâmpada para os meus pés é tua palavra, e luz para o meu caminho.',
+        translation: 'ALMEIDA',
+      });
+      const { findByText, getByText, getByTestId } = await render(
+        <ReviewScreen
+          verse={verse}
+          onComplete={jest.fn()}
+          isUnmetered={true}
+          voiceInput={new SimulatedVoiceAdapter({ defaultTranscript: verse.text })}
+        />
+      );
+
+      await act(async () => {
+        fireEvent.press(getByText('2. Cloze'));
+      });
+      await reciteOnScreen(getByTestId);
+
+      expect(await findByText('✅ Tentativa de prática (fora do limite diário)')).toBeTruthy();
+      expect(getByText('Lembrado')).toBeTruthy();
     });
   });
 

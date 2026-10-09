@@ -1,5 +1,13 @@
-import { DEFAULT_SRS_STATE, SRSResult, SRSState, calculateNextReview, isVerseDue } from '../engines/srsEngine';
+import {
+  DEFAULT_SRS_STATE,
+  SM2_QUALITY,
+  SRSResult,
+  SRSState,
+  calculateNextReview,
+  isVerseDue,
+} from '../engines/srsEngine';
 import { DiffToken } from '../engines/diffEngine';
+import { RecitationEvaluation, RecitationOutcome, isRecalled } from '../engines/recitationEvaluator';
 import {
   StudyDay,
   addStudyDays,
@@ -22,15 +30,21 @@ import {
   hashCanonicalText,
 } from './ReviewLog';
 
-export { SRSResult, AttemptKind, AttemptLevel, Recognizer, ReviewLogEntry };
+export { SRSResult, AttemptKind, AttemptLevel, Recognizer, ReviewLogEntry, RecitationOutcome };
 
 /**
- * The grading rule behind each logged grade: a word-level F1 of 80 passes, and a Word Peek
- * caps the score at 75 (an "assisted pass"). Error Budget grading replaces it (ticket 73).
+ * The grading rule behind each logged grade: the Error Budget (ADR 0017). Unaided errors are
+ * missed or Word-Peeked words, once each, plus added words beyond two; up to 5% of the verse's
+ * words (at least one) is a slip, none is clean, more is forgotten. It replaced
+ * `f1-80-peek-cap-75@1` (F1 ≥ 80 passes, a Word Peek caps the score at 75).
  */
-export const GRADING_RULE_ID = 'f1-80-peek-cap-75@1';
-/** The scheduler behind each logged Official Review: the app's SM-2 in Study Days. */
-export const SCHEDULER_ID = 'sm2-app@1';
+export const GRADING_RULE_ID = 'error-budget-5pct@1';
+/**
+ * The scheduler behind each logged Official Review: the app's SM-2 in Study Days, taking the
+ * outcome as quality 5/4/2 with Woźniak's ease formula for every quality (forgotten lowers ease
+ * by 0.32). It replaced `sm2-app@1`, which left ease alone on a failure.
+ */
+export const SCHEDULER_ID = 'sm2-app@2';
 
 export type VerseTranslation = SupportedTranslation | 'CUSTOM' | string;
 
@@ -53,21 +67,17 @@ export interface Verse {
   };
 }
 
-/** The evaluated outcome of one recitation, as the Recitation Session graded it. */
-export interface AttemptEvaluation {
-  tokens: DiffToken[];
-  /** Word-level F1 score, 0–100. */
-  rawScore: number;
-  /** The score the grading rule uses (today: `rawScore`, capped at 75 after a Word Peek). */
-  score: number;
-  passed: boolean;
-}
+/** The graded outcome of one recitation, as the recitation evaluator returned it. */
+export type AttemptEvaluation = RecitationEvaluation;
 
 export interface RecordAttemptInput {
   verseId: string;
   level: AttemptLevel;
   evaluation: AttemptEvaluation;
-  /** Words revealed with the Word Peek Lifeline during the attempt. */
+  /**
+   * Canonical word positions (as the diff counts words) revealed with the Word Peek Lifeline
+   * during the attempt; the evaluation already counts them as errors.
+   */
   peekedWordPositions?: number[];
   /** Words revealed during Cloze Practice. */
   clozeRevealCount?: number;
@@ -545,12 +555,12 @@ export class VerseEngine {
 
     // The verse is persisted before the row is appended, and it alone records the day's
     // Official Review, so a failed append can never let a second one through.
+    const { tokens, rawScore, errorCount, errorBudget, outcome } = input.evaluation;
     const srsResult =
       kind === 'official'
-        ? await this.applyOfficialReview(verses, index, input.evaluation.score, now, true)
-        : currentSrsResult(verse.srs, input.evaluation.passed, now);
+        ? await this.applyOfficialReview(verses, index, outcome, now, true, rawScore)
+        : currentSrsResult(verse.srs, isRecalled(outcome), now);
 
-    const { tokens, rawScore, score } = input.evaluation;
     const counts = countTokens(tokens);
     const entry: ReviewLogEntry = {
       id: createAttemptId(now),
@@ -567,13 +577,16 @@ export class VerseEngine {
       wordCount: counts.correct + counts.missed,
       ...counts,
       rawScore,
-      score,
       peekedWordPositions: [...(input.peekedWordPositions ?? [])],
       clozeRevealCount: input.clozeRevealCount,
+      errorCount,
+      errorBudget,
+      outcome,
       recognizer: input.recognizer,
       wasDue,
       gradingRuleId: GRADING_RULE_ID,
       schedulerId: SCHEDULER_ID,
+      sm2Quality: kind === 'official' ? SM2_QUALITY[outcome] : null,
       before,
       after: { intervalDays: srsResult.intervalDays, easeFactor: srsResult.easeFactor },
       dueStudyDayAfter: srsResult.nextReviewDate,
@@ -587,35 +600,43 @@ export class VerseEngine {
    * Applies a review to the SRS schedule directly, with no classification and no Review Log
    * row. The app records recitations through `recordAttempt`; nothing in the app calls this.
    */
-  async recordReview(verseId: string, score: number, now = new Date()): Promise<SRSResult> {
+  async recordReview(verseId: string, outcome: RecitationOutcome, now = new Date()): Promise<SRSResult> {
     const verses = await this.getAllVerses();
     const index = verses.findIndex((verse) => verse.id === verseId);
     if (index === -1) {
       throw new Error(`Verse not found: ${verseId}`);
     }
-    return this.applyOfficialReview(verses, index, score, now, isDueAt(verses[index], now));
+    return this.applyOfficialReview(verses, index, outcome, now, isDueAt(verses[index], now));
   }
 
-  /** Moves the schedule and the daily habit streak for an Official Review, and persists both. */
+  /**
+   * Moves the schedule and the daily habit streak for an Official Review, and persists both.
+   * `rawScore` (the F1 percentage) is kept as the verse's last score for display.
+   */
   private async applyOfficialReview(
     verses: Verse[],
     index: number,
-    score: number,
+    outcome: RecitationOutcome,
     now: Date,
-    wasDue: boolean
+    wasDue: boolean,
+    rawScore?: number
   ): Promise<SRSResult> {
-    const currentSRS: SRSState = verses[index].srs || DEFAULT_SRS_STATE;
-    const srsResult = calculateNextReview(currentSRS, score, now);
+    const current = verses[index].srs;
+    const currentSRS: SRSState = current || DEFAULT_SRS_STATE;
+    const srsResult = calculateNextReview(currentSRS, outcome, now);
+    const lastScore = rawScore ?? current?.lastScore;
 
     verses[index].srs = {
       streak: srsResult.streak ?? 0,
       intervalDays: srsResult.intervalDays,
       easeFactor: srsResult.easeFactor,
       nextReviewDate: srsResult.nextReviewDate,
-      lastScore: score,
+      ...(lastScore !== undefined ? { lastScore } : {}),
       lastOfficialReviewDay: toStudyDay(now),
     };
-    verses[index].lastScore = score;
+    if (rawScore !== undefined) {
+      verses[index].lastScore = rawScore;
+    }
 
     await this.persistVerses(verses);
     await this.updateHabitStreak(verses[index].id, wasDue, now);
