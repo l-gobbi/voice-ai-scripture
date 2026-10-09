@@ -11,8 +11,8 @@ It is reachable from the Home Screen menu and from a link next to the translatio
 
 **Blocked by:** 80: Add the Open-Licensed Bibles
 
-**Status:** ready-for-agent
+**Status:** done
 
-- [ ] The screen shows one entry per bundled translation with name, licence and notice from catalog metadata (no hard-coded duplicate notices).
-- [ ] It opens from the Home Screen menu and from the add-verse translation picker.
-- [ ] Screen tests assert the ONBV notice text verbatim and the Bíblia Livre credit.
+- [x] The screen shows one entry per bundled translation with name, licence and notice from catalog metadata (no hard-coded duplicate notices).
+- [x] It opens from the Home Screen menu and from the add-verse translation picker.
+- [x] Screen tests assert the ONBV notice text verbatim and the Bíblia Livre credit.

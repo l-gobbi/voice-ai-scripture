@@ -25,6 +25,7 @@ import { scriptureCatalog } from '../services/ScriptureCatalog';
 import ReviewScreen from './ReviewScreen';
 import PackBrowserModal from '../components/PackBrowserModal';
 import ReminderSettingsModal from '../components/ReminderSettingsModal';
+import TranslationsCopyrightModal from '../components/TranslationsCopyrightModal';
 import AddVerseModal from '../components/AddVerseModal';
 import DeleteConfirmationModal from '../components/DeleteConfirmationModal';
 import HabitBanner from '../components/HabitBanner';
@@ -68,6 +69,7 @@ export default function HomeScreen({ voiceInput }: HomeScreenProps = {}) {
   const [modalVisible, setModalVisible] = useState(false);
   const [packBrowserVisible, setPackBrowserVisible] = useState(false);
   const [reminderModalVisible, setReminderModalVisible] = useState(false);
+  const [translationsModalVisible, setTranslationsModalVisible] = useState(false);
   const [verseToDelete, setVerseToDelete] = useState<Verse | null>(null);
 
   const [activeReviewVerse, setActiveReviewVerse] = useState<Verse | null>(null);
@@ -225,26 +227,51 @@ export default function HomeScreen({ voiceInput }: HomeScreenProps = {}) {
         >
           My Memory Verses
         </Text>
-        <TouchableOpacity
-          style={[
-            styles.reminderHeaderButton,
-            {
-              backgroundColor: theme.colors.surfaceMuted,
-              borderColor: theme.colors.border,
-            },
-          ]}
-          onPress={() => setReminderModalVisible(true)}
-          activeOpacity={0.7}
-        >
-          <Text
+        <View style={styles.headerActions}>
+          <TouchableOpacity
             style={[
-              styles.reminderButtonText,
-              { color: theme.colors.textPrimary },
+              styles.reminderHeaderButton,
+              {
+                backgroundColor: theme.colors.surfaceMuted,
+                borderColor: theme.colors.border,
+              },
             ]}
+            onPress={() => setReminderModalVisible(true)}
+            activeOpacity={0.7}
           >
-            ⏰ Reminders
-          </Text>
-        </TouchableOpacity>
+            <Text
+              style={[
+                styles.reminderButtonText,
+                { color: theme.colors.textPrimary },
+              ]}
+            >
+              ⏰ Reminders
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.reminderHeaderButton,
+              {
+                backgroundColor: theme.colors.surfaceMuted,
+                borderColor: theme.colors.border,
+              },
+            ]}
+            onPress={() => setTranslationsModalVisible(true)}
+            activeOpacity={0.7}
+            testID="open-translations-copyright-home"
+            accessibilityRole="button"
+            accessibilityLabel="Translations & Copyright"
+          >
+            <Text
+              style={[
+                styles.reminderButtonText,
+                { color: theme.colors.textPrimary },
+              ]}
+            >
+              Copyright
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <HabitBanner
@@ -626,6 +653,11 @@ export default function HomeScreen({ voiceInput }: HomeScreenProps = {}) {
         onClose={() => setReminderModalVisible(false)}
       />
 
+      <TranslationsCopyrightModal
+        visible={translationsModalVisible}
+        onClose={() => setTranslationsModalVisible(false)}
+      />
+
       <AddVerseModal
         visible={modalVisible}
         onClose={() => setModalVisible(false)}
@@ -656,9 +688,16 @@ const styles = StyleSheet.create({
   },
   headerRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-between',
     alignItems: 'center',
+    rowGap: 8,
     marginBottom: 16,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginLeft: 'auto',
   },
   header: {
     fontSize: 24,
