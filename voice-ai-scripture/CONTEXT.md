@@ -101,8 +101,16 @@ A curated list of verse references grouped by theme (e.g. Peace, Faith, Strength
 _Avoid_: Verse deck, category list, collection
 
 **Deck**:
-A named set of verses put together by a learner or a church, where each verse carries its exact wording (possibly an excerpt) and the name of its version, and which can be shared so a whole group memorizes the same text.
-_Avoid_: Pack, playlist, list, collection
+A named, ordered set of verses that a learner puts together to organize their own memorization, or that a church shares so everyone recites the same wording. Each verse carries its exact text (possibly an excerpt, or a range of several verses recited as one) and the name of its version. A verse can belong to several Decks.
+_Avoid_: Pack, playlist, list, collection, tag
+
+**Deck Section**:
+A named group of consecutive verses inside a Deck, such as a catechism topic ("1º Tópico – Jesus, sua vida e sua obra").
+_Avoid_: Chapter, category, folder
+
+**Verse Note**:
+A short remark attached to a verse that is shown but never recited, such as a gloss ("Verbo = Palavra").
+_Avoid_: Comment, annotation, footnote
 
 **Quiet-Time Reminder**:
 A daily scheduled local push notification sent at a user-specified hour reminding them of pending due verses.
